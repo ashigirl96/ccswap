@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 ccswap-core.workspace = true
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29", "layout-cache"] }
 serde_json.workspace = true
 
 [dev-dependencies]
