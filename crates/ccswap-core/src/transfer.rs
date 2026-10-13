@@ -14,6 +14,7 @@ use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::paths::Paths;
 use crate::pyjson;
 use crate::secret_store::{SecretStore, looks_like_api_key};
+use crate::session_profile;
 use crate::store::{self, JsonObject};
 use crate::usage_store::{DeadTokenStrike, UsageStore};
 
@@ -299,40 +300,58 @@ impl Transfer<'_> {
             let mut data = store::read_sequence_migrated(self.paths)?.unwrap_or_else(empty_roster);
             let identity = (entry.email.clone(), entry.org_uuid.clone());
 
-            let (target, outcome) =
-                match store::find_account_slot(&data, &entry.email, &entry.org_uuid) {
-                    Some(existing) => {
-                        let outcome = if force {
-                            Outcome::Overwrote(usage.dead_token_strike(&existing, &identity))
-                        } else if self.slot_token_dead(&existing, &entry.email, &data) {
-                            Outcome::Replaced
-                        } else {
-                            notice(&format!(
-                                "Skipped {} (already exists, use --force)",
-                                entry.email
-                            ));
-                            skipped += 1;
-                            if is_envelope_active {
-                                resolved_active = Some(existing);
-                            }
-                            continue;
-                        };
-                        (existing, outcome)
+            let (target, outcome) = match store::find_account_slot(
+                &data,
+                &entry.email,
+                &entry.org_uuid,
+            ) {
+                Some(existing) => {
+                    let outcome = if force {
+                        Outcome::Overwrote(usage.dead_token_strike(&existing, &identity))
+                    } else if self.slot_token_dead(&existing, &entry.email, &data) {
+                        Outcome::Replaced
+                    } else {
+                        notice(&format!(
+                            "Skipped {} (already exists, use --force)",
+                            entry.email
+                        ));
+                        skipped += 1;
+                        if is_envelope_active {
+                            resolved_active = Some(existing);
+                        }
+                        continue;
+                    };
+                    let live =
+                        session_profile::live_session_pids(self.paths, &existing, &entry.email);
+                    if !live.is_empty() {
+                        notice(&format!(
+                            "Warning: {} (slot {existing}) has a live session-mode instance (PID {}); its session profile keeps the pre-import credentials until it is restarted via 'cswap run'.",
+                            entry.email,
+                            session_profile::join_pids(&live)
+                        ));
                     }
-                    None => {
-                        let free = !store::accounts(&data)
-                            .is_some_and(|a| a.contains_key(&entry.exported_num));
-                        let target = if free {
-                            entry.exported_num.clone()
-                        } else {
-                            store::next_account_number(Some(&data)).to_string()
-                        };
-                        (target, Outcome::Imported)
-                    }
-                };
+                    (existing, outcome)
+                }
+                None => {
+                    let free = !store::accounts(&data)
+                        .is_some_and(|a| a.contains_key(&entry.exported_num));
+                    let target = if free {
+                        entry.exported_num.clone()
+                    } else {
+                        store::next_account_number(Some(&data)).to_string()
+                    };
+                    (target, Outcome::Imported)
+                }
+            };
 
             self.secrets
                 .write_backup(&target, &entry.email, &entry.creds_text)?;
+            session_profile::after_backup_write(
+                self.secrets.keychain(),
+                self.paths,
+                &target,
+                &entry.email,
+            );
             store::write_account_config(self.paths, &target, &entry.email, &entry.config_text)?;
             usage.clear_dead_token(&[(target.clone(), identity)])?;
 

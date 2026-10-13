@@ -13,6 +13,7 @@ use crate::mappings::MappingStore;
 use crate::paths::Paths;
 use crate::presentation::Style;
 use crate::secret_store::{SecretStore, looks_like_api_key};
+use crate::session_profile;
 use crate::store::{self, Identity, JsonObject};
 use crate::usage_store::UsageStore;
 
@@ -119,19 +120,19 @@ impl Accounts<'_> {
         self.reject_identity_drift(&identity)?;
 
         if let Some((num, email, org)) = &plan.displace {
-            self.delete_account_files(num, email);
+            self.delete_account_files(num, email)?;
             self.drop_record(num)?;
             self.prune_mappings(email, org, console);
         }
         if let Some(old) = &plan.migrate_from {
             let data = self.roster()?;
             let old_email = record_text(&data, old, "email");
-            self.delete_account_files(old, &old_email);
+            self.delete_account_files(old, &old_email)?;
             self.drop_record(old)?;
         }
 
         let email = &identity.email;
-        self.secrets.write_backup(&plan.num, email, &creds)?;
+        self.write_backup(&plan.num, email, &creds)?;
         store::write_account_config(self.paths, &plan.num, email, &config_text)?;
         self.clear_dead_token(&plan.num, email, &org_uuid)?;
 
@@ -201,7 +202,7 @@ impl Accounts<'_> {
         let config_text = self.read_live_config_text()?;
         self.reject_identity_drift(identity)?;
 
-        self.secrets.write_backup(num, &identity.email, &creds)?;
+        self.write_backup(num, &identity.email, &creds)?;
         store::write_account_config(self.paths, num, &identity.email, &config_text)?;
         self.clear_dead_token(num, &identity.email, &identity.organization_uuid)?;
 
@@ -492,9 +493,21 @@ impl Accounts<'_> {
         store::write_sequence(self.paths, &data)
     }
 
-    fn delete_account_files(&self, num: &str, email: &str) {
+    /// Every path that removes or displaces a slot comes through here: it
+    /// refuses while a session-mode Claude runs against the slot, and the
+    /// slot's session profile goes with its backups.
+    fn delete_account_files(&self, num: &str, email: &str) -> Result<()> {
+        session_profile::ensure_no_live_session(self.paths, num, email, "the operation")?;
         self.secrets.delete_backup(num, email);
         store::delete_account_config(self.paths, num, email);
+        session_profile::delete_slot_profile(self.secrets.keychain(), self.paths, num, email);
+        Ok(())
+    }
+
+    fn write_backup(&self, num: &str, email: &str, credentials: &str) -> Result<()> {
+        self.secrets.write_backup(num, email, credentials)?;
+        session_profile::after_backup_write(self.secrets.keychain(), self.paths, num, email);
+        Ok(())
     }
 
     fn prune_mappings(&self, email: &str, org: &str, console: &mut dyn Console) {

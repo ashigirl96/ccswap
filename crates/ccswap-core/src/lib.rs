@@ -17,6 +17,7 @@ pub mod process_detection;
 pub mod pyjson;
 pub mod ranking;
 pub mod secret_store;
+pub mod session;
 pub mod session_profile;
 pub mod settings;
 pub mod status;
