@@ -404,6 +404,85 @@ impl Cmd<'_> {
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         })
     }
+
+    /// Runs with stdin, stdout and stderr on a 100x32 pseudo-terminal, typing
+    /// `keys` once the program has written its first output. `stdout` is the
+    /// raw terminal output; the run is killed after `timeout`.
+    pub fn run_in_terminal(self, keys: &str, timeout: std::time::Duration) -> Output {
+        use std::os::fd::FromRawFd;
+        check_isolation(&self.vars, &self.env.root())
+            .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
+        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
+        args.extend(self.args);
+        vars.extend(self.vars);
+        let (mut master, slave) = unsafe {
+            let (mut m, mut s) = (0, 0);
+            let mut size = libc::winsize {
+                ws_row: 32,
+                ws_col: 100,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            let rc = libc::openpty(
+                &mut m,
+                &mut s,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut size,
+            );
+            assert_eq!(rc, 0, "openpty");
+            (std::fs::File::from_raw_fd(m), std::fs::File::from_raw_fd(s))
+        };
+        let mut child = Command::new(&program)
+            .env_clear()
+            .envs(&vars)
+            .args(&args)
+            .current_dir(&self.env.home)
+            .stdin(slave.try_clone().unwrap())
+            .stdout(slave.try_clone().unwrap())
+            .stderr(slave)
+            .spawn()
+            .unwrap_or_else(|e| panic!("spawn {}: {e}", program.display()));
+        let mut reader = master.try_clone().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        thread::spawn(move || {
+            let mut buf = [0u8; 65536];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = std::time::Instant::now() + timeout;
+        let mut output = Vec::new();
+        let mut typed = false;
+        let code = loop {
+            while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                output.extend(chunk);
+            }
+            if !typed && !output.is_empty() {
+                thread::sleep(std::time::Duration::from_millis(300));
+                master.write_all(keys.as_bytes()).unwrap();
+                typed = true;
+            }
+            if let Some(status) = child.try_wait().unwrap() {
+                break status.code().unwrap_or(-1);
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                break -1;
+            }
+        };
+        while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            output.extend(chunk);
+        }
+        Output {
+            code,
+            stdout: String::from_utf8_lossy(&output).into_owned(),
+            stderr: String::new(),
+        }
+    }
 }
 
 /// Which implementation a [`Cmd`] launches. [`Impl::UnderTest`] follows

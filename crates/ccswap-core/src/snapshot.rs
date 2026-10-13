@@ -244,11 +244,7 @@ mod tests {
         fn switch_to(&self, _: &str, _: bool, _: &mut dyn Console) -> Result<Option<Value>> {
             Ok(None)
         }
-        fn switch(
-            &self,
-            _: Option<&SwitchStrategy>,
-            _: &mut dyn Console,
-        ) -> Result<Option<Value>> {
+        fn switch(&self, _: Option<&SwitchStrategy>, _: &mut dyn Console) -> Result<Option<Value>> {
             Ok(None)
         }
         fn remove_account(&self, _: &str, _: bool, _: &mut dyn Console) -> Result<()> {
@@ -332,9 +328,15 @@ mod tests {
     fn expired_sentinel_retained_until_fetched_at_advances() {
         let expired = Some(Sentinel::TokenExpired);
         let (fake, source) = source(oauth(usage_at(Some(100.0), 25.0, expired)));
-        assert_eq!(source.take(false).unwrap().accounts[0].usage.sentinel, expired);
+        assert_eq!(
+            source.take(false).unwrap().accounts[0].usage.sentinel,
+            expired
+        );
         set(&fake, oauth(usage_at(Some(100.0), 25.0, None)));
-        assert_eq!(source.take(true).unwrap().accounts[0].usage.sentinel, expired);
+        assert_eq!(
+            source.take(true).unwrap().accounts[0].usage.sentinel,
+            expired
+        );
         set(&fake, oauth(usage_at(Some(101.0), 25.0, None)));
         assert_eq!(source.take(true).unwrap().accounts[0].usage.sentinel, None);
     }

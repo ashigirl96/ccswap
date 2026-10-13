@@ -107,6 +107,8 @@ name = "ccswap"
 version = "0.1.0"
 dependencies = [
  "ccswap-core",
+ "chrono",
+ "libc",
  "ratatui",
  "serde_json",
  "tempfile",

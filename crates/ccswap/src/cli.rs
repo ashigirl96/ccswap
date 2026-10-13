@@ -1,6 +1,8 @@
 use std::io::{IsTerminal, Write};
+use std::sync::Arc;
 
 use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, Console, TokenInput};
+use ccswap_core::actions::LiveActions;
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
@@ -201,6 +203,9 @@ impl Cli {
             return 1;
         }
         run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
+        if parsed.flag("--tui") {
+            return crate::tui::run(Arc::new(LiveActions::new(self.env.clone())));
+        }
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--list") {

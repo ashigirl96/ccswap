@@ -295,6 +295,13 @@ impl Settings {
         }
     }
 
+    /// `settings.json` inside a store (backup) directory.
+    pub fn in_dir(backup_dir: &Path) -> Self {
+        Settings {
+            path: backup_dir.join("settings.json"),
+        }
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
