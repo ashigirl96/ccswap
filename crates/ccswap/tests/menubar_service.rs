@@ -1,7 +1,5 @@
-//! `menubar --install-service / --uninstall-service / --service-status`
-//! (upstream `launch_agent.py`, `tests/test_launch_agent.py` and the service
-//! cases of `tests/test_cli.py`). launchd is the harness's fake `launchctl`;
-//! the plist lands in the temp `HOME`.
+//! Ported from upstream tests/test_launch_agent.py and the service cases of
+//! tests/test_cli.py.
 #![cfg(target_os = "macos")]
 
 mod support;

@@ -81,19 +81,6 @@ const COMMAND_FLAGS: &[&str] = &[
     "--add-token",
 ];
 
-/// Commands parsed by their own parser before the main one.
-const PRE_DISPATCHED: &[&str] = &[
-    "run",
-    "auto",
-    "config",
-    "map",
-    "unmap",
-    "unclaimed",
-    "alias",
-    "swap",
-    "move",
-];
-
 const SUBCOMMAND_FLAGS: &[(&str, &str)] = &[
     ("help", "--help"),
     ("list", "--list"),
@@ -142,7 +129,6 @@ impl Cli {
         }
     }
 
-    /// Runs one invocation and returns the exit code.
     pub fn run(&mut self, args: Vec<String>) -> i32 {
         for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
             eprintln!("{warning}");
@@ -172,12 +158,6 @@ impl Cli {
         if let Some(verb @ ("swap" | "move")) = args.first().map(String::as_str) {
             return crate::renumber_cmd::run(&self.prog, &self.env, verb, &args[1..]);
         }
-        if let Some(verb) = args
-            .first()
-            .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
-        {
-            return self.not_implemented(verb);
-        }
         let mut args = args;
         if args.is_empty() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
             args = vec!["--tui".into()];
@@ -190,7 +170,7 @@ impl Cli {
                 return 0;
             }
             Ok((Outcome::Version, _)) => {
-                println!("{} {}", self.prog, ccswap_core::VERSION);
+                println!("{} {}", launch_agent::PROGRAM_NAME, ccswap_core::VERSION);
                 return 0;
             }
             Ok((Outcome::Parsed, parsed)) => parsed,
@@ -274,12 +254,7 @@ impl Cli {
         {
             result
         } else {
-            let command = COMMAND_FLAGS
-                .iter()
-                .find(|f| parsed.flag(f) || parsed.value(f).is_some())
-                .copied()
-                .unwrap_or_default();
-            Err(not_implemented_error(command.trim_start_matches('-')))
+            Ok(())
         };
         match result {
             Ok(()) => {
@@ -661,16 +636,10 @@ impl Cli {
         eprintln!("{}: error: {msg}", self.prog);
         2
     }
-
-    fn not_implemented(&self, verb: &str) -> i32 {
-        eprintln!("Error: {}", not_implemented_error(verb));
-        1
-    }
 }
 
-/// Upstream's switcher start-up: logging, then the store migrations. Every
-/// command but `upgrade` runs it, upstream before the root check (ccswap
-/// after it, so root never writes into the user's store).
+/// Runs after the root check, unlike upstream, so root never writes into the
+/// user's store.
 pub fn run_store_migrations(env: &Environment, paths: &Paths, debug: bool) {
     ccswap_core::log::setup(&paths.backup_root(), debug);
     let keychain = Keychain::new(Endpoints::new(env).security, env);
@@ -713,7 +682,6 @@ fn nonempty(p: &Parsed, name: &str) -> bool {
     p.value(name).is_some_and(|v| !v.is_empty())
 }
 
-/// `--model` wins; otherwise the `autoswitch.model` setting applies.
 fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
     let mut chosen = SwitchStrategy::new(Strategy::parse(parsed.value("--strategy")?)?);
     if let Some(names) = parsed.value("--model") {
@@ -726,14 +694,6 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
     Some(chosen)
 }
 
-fn not_implemented_error(command: &str) -> Error {
-    Error::new(
-        ErrorKind::ClaudeSwitchError,
-        format!("'{command}' is not implemented yet in ccswap"),
-    )
-}
-
-/// `ccswap list` → `--list`, `ccswap switch X` → `--switch-to X`, etc.
 fn translate_subcommand(args: Vec<String>) -> Vec<String> {
     let Some((verb, rest)) = args.split_first() else {
         return args;

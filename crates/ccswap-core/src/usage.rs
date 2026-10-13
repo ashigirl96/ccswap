@@ -1,6 +1,7 @@
 //! Usage measurements as upstream's `oauth.py` normalises them, plus the
 //! states that stand in for one.
 
+use crate::pyjson::py_str;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -60,13 +61,12 @@ pub fn error_note(kind: &str) -> Option<&'static str> {
         "invalid_client" => "cswap's OAuth client was rejected — systemic, not this account",
         "consume-busy" => "another cswap surface holds the slot — retries next pass",
         "stash-unreadable" => {
-            "this slot's stashed successor is unreadable — unlock the keychain or fix the file, then retry; `cswap unclaimed` inspects it"
+            "this slot's stashed successor is unreadable — unlock the keychain or fix the file, then retry; `ccswap unclaimed` inspects it"
         }
         _ => return None,
     })
 }
 
-/// The verdict for the active account that needs no network call.
 pub fn static_active_sentinel(active: &ActiveCredentials) -> Option<Sentinel> {
     let creds = active.value.as_deref().unwrap_or_default();
     static_sentinel(creds, || {
@@ -202,8 +202,7 @@ fn parse_offset(s: &str) -> Option<FixedOffset> {
     FixedOffset::east_opt(sign * (h * 3600 + m * 60) as i32)
 }
 
-/// `(countdown, clock)` for a reset time, clock in local time: `20:39`
-/// the same day, else `Jul 5 08:59`.
+/// `(countdown, clock)` for a reset time, the clock as `reset_clock` formats it.
 pub fn format_reset(resets_at: &Value) -> Result<(String, String), PyError> {
     let text = resets_at.as_str().ok_or("TypeError")?;
     let reset = match parse_iso(text).ok_or("ValueError")? {
@@ -252,13 +251,6 @@ pub fn fresh_reset_strings(window: &Map<String, Value>) -> Option<(String, Strin
     Some((countdown, py_str(clock)))
 }
 
-fn py_str(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
-
 /// Python truthiness of a JSON value.
 pub fn truthy(v: &Value) -> bool {
     match v {
@@ -296,6 +288,10 @@ fn add_reset(entry: &mut Map<String, Value>, resets_at: &Value) -> Result<(), Py
 /// Normalises a usage API body. `Ok(None)` is a successful fetch that
 /// carried no window; `Err` names the Python exception upstream would hit.
 pub fn build_usage_result(data: &Value) -> Result<Option<Value>, PyError> {
+    crate::log::debug(format!(
+        "Usage API response: {}",
+        crate::pyjson::to_string_pretty(data)
+    ));
     let mut result = Map::new();
     for key in ["five_hour", "seven_day"] {
         let Some(window) = py_get(data, key)?.filter(|w| truthy(w)) else {
@@ -310,9 +306,14 @@ pub fn build_usage_result(data: &Value) -> Result<Option<Value>, PyError> {
     }
     if let Some(eu) = py_get(data, "extra_usage")?.filter(|v| truthy(v))
         && py_get(eu, "is_enabled")?.is_some_and(truthy)
-        && let Some(spend) = spend_entry(eu)
     {
-        result.insert("spend".into(), Value::Object(spend));
+        match spend_entry(eu) {
+            Ok(Some(spend)) => {
+                result.insert("spend".into(), Value::Object(spend));
+            }
+            Ok(None) => {}
+            Err(e) => crate::log::debug(format!("extra_usage parse failed: {e}")),
+        }
     }
     if let Some(Value::Array(limits)) = py_get(data, "limits")? {
         let mut scoped = Vec::new();
@@ -367,29 +368,43 @@ fn py_float(v: &Value) -> Option<f64> {
     }
 }
 
-fn spend_entry(eu: &Value) -> Option<Map<String, Value>> {
-    let eu = eu.as_object()?;
+/// `Err` carries the exception upstream's parse would log.
+fn spend_entry(eu: &Value) -> Result<Option<Map<String, Value>>, String> {
+    let Some(eu) = eu.as_object() else {
+        return Ok(None);
+    };
     let field = |k: &str| eu.get(k).filter(|v| !v.is_null());
-    let (used, limit, pct) = (
-        field("used_credits")?,
-        field("monthly_limit")?,
-        field("utilization")?,
-    );
+    let (Some(used), Some(limit), Some(pct)) = (
+        field("used_credits"),
+        field("monthly_limit"),
+        field("utilization"),
+    ) else {
+        return Ok(None);
+    };
     let mut entry = Map::new();
-    entry.insert("used".into(), json!(py_float(used)? / 100.0));
-    entry.insert("limit".into(), json!(py_float(limit)? / 100.0));
-    entry.insert("pct".into(), json!(py_float(pct)?));
+    entry.insert("used".into(), json!(float_or_error(used)? / 100.0));
+    entry.insert("limit".into(), json!(float_or_error(limit)? / 100.0));
+    entry.insert("pct".into(), json!(float_or_error(pct)?));
     entry.insert(
         "currency".into(),
         eu.get("currency").cloned().unwrap_or_else(|| "USD".into()),
     );
     if let Some(resets_at) = eu.get("resets_at").filter(|v| truthy(v)) {
-        add_reset(&mut entry, resets_at).ok()?;
+        add_reset(&mut entry, resets_at).map_err(|e| format!("{e}()"))?;
     }
-    Some(entry)
+    Ok(Some(entry))
 }
 
-/// One window that gates an account: label, utilization, raw `resets_at`.
+fn float_or_error(v: &Value) -> Result<f64, String> {
+    py_float(v).ok_or_else(|| match v {
+        Value::String(s) => format!("ValueError(\"could not convert string to float: '{s}'\")"),
+        other => format!(
+            "TypeError(\"float() argument must be a string or a real number, not '{}'\")",
+            crate::pyjson::py_type_name(other)
+        ),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Window {
     pub label: String,

@@ -7,7 +7,6 @@ use crate::env::Environment;
 use crate::error::Error;
 use crate::paths::Paths;
 use crate::status::StatusReport;
-use crate::store::read_json_lenient;
 use crate::usage_store::UsageEntry;
 
 pub const SCHEMA_VERSION: i64 = 1;
@@ -121,7 +120,9 @@ impl Style {
 
 /// The `ui.theme` setting; anything but `dark`/`light` reads as `auto`.
 fn ui_theme(paths: &Paths) -> &'static str {
-    let theme = read_json_lenient(&paths.settings_file())
+    let theme = std::fs::read_to_string(paths.settings_file())
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|s| s.get("ui")?.get("theme")?.as_str().map(str::to_string));
     match theme.as_deref() {
         Some("dark") => "dark",
@@ -149,7 +150,6 @@ pub fn probe_cli_background(env: &Environment, paths: &Paths, argv: &[String]) {
     );
 }
 
-/// `{schemaVersion, error: {type, message}}`.
 pub fn error_envelope(error: &Error) -> Value {
     json!({
         "schemaVersion": SCHEMA_VERSION,

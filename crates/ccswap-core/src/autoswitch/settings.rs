@@ -1,5 +1,5 @@
-//! The engine's policy knobs: the `autoswitch` section of settings.json,
-//! read leniently, with `auto`'s flags laid over it.
+//! The `autoswitch` section of settings.json, read leniently, with `auto`'s
+//! flags laid over it.
 
 use serde_json::{Value, json};
 

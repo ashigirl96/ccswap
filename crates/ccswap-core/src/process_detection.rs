@@ -47,12 +47,20 @@ fn pid_of(v: &Value) -> Option<i32> {
     }
 }
 
-fn read_object(path: &Path) -> Option<Map<String, Value>> {
-    let text = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&text).ok()? {
-        Value::Object(map) => Some(map),
-        _ => None,
+fn read_object(path: &Path) -> Result<Map<String, Value>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    match serde_json::from_str(&text).map_err(|e| e.to_string())? {
+        Value::Object(map) => Ok(map),
+        other => Err(format!(
+            "'{}' object has no attribute 'get'",
+            crate::pyjson::py_type_name(&other)
+        )),
     }
+}
+
+fn pid_field(data: &Map<String, Value>) -> Result<i32, String> {
+    let value = data.get("pid").ok_or("'pid'")?;
+    pid_of(value).ok_or_else(|| format!("invalid pid {value}"))
 }
 
 fn text(map: &Map<String, Value>, key: &str) -> String {
@@ -79,13 +87,14 @@ pub fn scan_sessions(claude_dir: &Path) -> (Vec<ClaudeSession>, usize) {
     let mut sessions = Vec::new();
     let mut unreadable = 0;
     for path in files_with_extension(&claude_dir.join("sessions"), "json") {
-        let Some(data) = read_object(&path) else {
-            unreadable += 1;
-            continue;
-        };
-        let Some(pid) = data.get("pid").and_then(pid_of) else {
-            unreadable += 1;
-            continue;
+        let read = read_object(&path).and_then(|data| Ok((pid_field(&data)?, data)));
+        let (pid, data) = match read {
+            Ok(read) => read,
+            Err(e) => {
+                unreadable += 1;
+                crate::log::debug(format!("Skipping session file {}: {e}", path.display()));
+                continue;
+            }
         };
         if !is_pid_alive(pid) {
             continue;
@@ -115,8 +124,14 @@ pub fn list_ide_instances(claude_dir: &Path) -> Vec<IdeInstance> {
     files_with_extension(&claude_dir.join("ide"), "lock")
         .into_iter()
         .filter_map(|path| {
-            let data = read_object(&path)?;
-            let pid = pid_of(data.get("pid").filter(|v| !v.is_null())?)?;
+            let read = read_object(&path).and_then(|data| Ok((pid_field(&data)?, data)));
+            let (pid, data) = match read {
+                Ok(read) => read,
+                Err(e) => {
+                    crate::log::debug(format!("Skipping IDE lockfile {}: {e}", path.display()));
+                    return None;
+                }
+            };
             if !is_pid_alive(pid) {
                 return None;
             }

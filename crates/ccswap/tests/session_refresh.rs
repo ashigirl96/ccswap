@@ -1,14 +1,9 @@
-//! `run N`'s one refresh before seeding a session profile: it goes through
-//! the consume gate, so the rotated generation lands in the slot backup
-//! before the profile is seeded from it.
-//!
 //! Ported from upstream tests/test_session.py::TestBootstrap
 //! (test_happy_path's rotation half, test_reuse_skips_refresh_and_writes,
 //! test_refresh_failure_uses_stored_creds,
 //! test_setup_token_account_skips_refresh_silently) and
 //! TestAConsumedGrantIsNotSpentOnAProfileThatWonBootstrap
-//! (test_an_unpersisted_successor_is_not_reported_as_stashed), with the real
-//! gate POSTing to the stub token endpoint instead of a patched gate.
+//! (test_an_unpersisted_successor_is_not_reported_as_stashed).
 
 mod support;
 
@@ -41,7 +36,6 @@ fn setup_token(num: u32) -> String {
         .to_string()
 }
 
-/// Slots 1 and 2; slot 1 is the default login, slot 2 holds `slot2`.
 fn seed(env: &TestEnv, slot2: &str) {
     let accounts: serde_json::Map<String, Value> = (1..=2)
         .map(|n| {
@@ -222,9 +216,7 @@ fn bootstrap_test_dead_refresh_token_continues_with_the_stored_credentials() {
     );
 }
 
-/// The Keychain refuses the backup write and the credentials directory
-/// refuses both the `.enc` fallback and the stash: the successor exists
-/// only in memory, so seeding would hand Claude the spent generation.
+/// Every backup write is refused, so the successor exists only in memory and seeding would hand Claude the spent generation.
 #[test]
 fn a_consumed_grant_test_an_unpersisted_successor_is_not_reported_as_stashed() {
     let env = TestEnv::new();

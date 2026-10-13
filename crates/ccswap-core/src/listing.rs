@@ -1,7 +1,3 @@
-//! `list`: every managed account with its usage, plus the diagnostics
-//! shown under it (duplicate/lockstep warnings, running instances,
-//! token status).
-
 use serde_json::Value;
 
 use crate::anthropic_client::{AnthropicClient, build_token_status, credential_fingerprint};
@@ -160,7 +156,7 @@ pub fn duplicate_account_warnings(infos: &[AccountInfo], data: &JsonObject) -> V
                 Some((_, other)) => out.push(format!(
                     "Account-{other} and Account-{num} hold the same credential ({}) — one \
                      slot's backup was overwritten. Log in with the missing account and \
-                     re-add it: cswap add --slot N",
+                     re-add it: ccswap add --slot N",
                     info.email
                 )),
                 None => by_fp.push((fp, num)),
@@ -237,7 +233,7 @@ pub fn lockstep_usage_warnings(
             Some((_, other)) => out.push(format!(
                 "Account-{other} and Account-{} report identical usage and reset times — \
                  they may be the same account (issue #117). If it persists, log in with \
-                 the missing account and re-add it: cswap add --slot N",
+                 the missing account and re-add it: ccswap add --slot N",
                 info.num
             )),
             None => seen.push((key, &info.num)),

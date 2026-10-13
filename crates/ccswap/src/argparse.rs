@@ -1,7 +1,5 @@
-//! The subset of Python's argparse that upstream's parsers rely on, kept
-//! byte-compatible: unique-prefix long options, `--opt=value`, mutually
-//! exclusive groups, `choices`/`int` validation, and argparse's error text
-//! (`usage: …` / `<prog>: error: …`, exit 2).
+//! The subset of Python's argparse that upstream's parsers rely on,
+//! byte-compatible down to its error text and exit code 2.
 
 use std::collections::BTreeMap;
 
@@ -119,7 +117,6 @@ impl Parsed {
     }
 }
 
-/// What parsing stopped on.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     Parsed,
@@ -159,17 +156,6 @@ impl Parser<'_> {
                 extras.push(arg.clone());
                 continue;
             };
-            if opt.exclusive {
-                match exclusive_seen {
-                    Some(prev) if prev != opt.name => {
-                        return Err(ParseError(format!(
-                            "argument {}: not allowed with argument {prev}",
-                            opt.name
-                        )));
-                    }
-                    _ => exclusive_seen = Some(opt.name),
-                }
-            }
             let value = match opt.arity {
                 Arity::Flag => {
                     if let Some(v) = explicit {
@@ -204,6 +190,17 @@ impl Parser<'_> {
             };
             if let Value::Text(text) = &value {
                 check_value(opt, text)?;
+            }
+            if opt.exclusive {
+                match exclusive_seen {
+                    Some(prev) if prev != opt.name => {
+                        return Err(ParseError(format!(
+                            "argument {}: not allowed with argument {prev}",
+                            opt.name
+                        )));
+                    }
+                    _ => exclusive_seen = Some(opt.name),
+                }
             }
             match opt.action {
                 Action::Help => return Ok((Outcome::Help, parsed)),

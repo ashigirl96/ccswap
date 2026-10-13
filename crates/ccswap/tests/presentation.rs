@@ -1,5 +1,3 @@
-//! Colour switches and the root guard.
-//!
 //! Ported from upstream tests/test_printer.py::TestColorDetection
 //! (no_color_env_disables, no_color_empty_value_disables, force_color_enables),
 //! TestThemePalette and cli.py:1366-1370 (root refusal).

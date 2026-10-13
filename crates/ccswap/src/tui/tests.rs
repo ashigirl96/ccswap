@@ -1,5 +1,4 @@
-//! App-level tests over the fake surface, rendered with `TestBackend`
-//! (ported from upstream tests/test_tui.py::TestDashboard).
+//! Ported from upstream tests/test_tui.py::TestDashboard.
 
 mod auto;
 mod watch;

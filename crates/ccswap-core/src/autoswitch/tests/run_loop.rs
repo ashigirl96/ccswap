@@ -47,8 +47,6 @@ fn stop_on_poll(n: usize) -> impl FnMut(usize, &AutoSwitchEvent, &LoopHandle) {
     }
 }
 
-// --- TestRunLoop --------------------------------------------------------------
-
 #[test]
 fn run_loop_test_loop_ticks_until_stopped() {
     let h = Harness::three();
@@ -214,8 +212,6 @@ fn run_loop_short_waits_emit_no_sleep_event() {
     assert!(!h.has("sleep"));
 }
 
-// --- TestLoopObeysThePollPlan ---------------------------------------------------
-
 fn plan_due_in(h: &Harness, due_in: f64) {
     let entry = UsageEntry {
         last_good: usage(10.0),
@@ -262,8 +258,6 @@ fn loop_obeys_the_poll_plan_a_short_interval_is_never_raised_to_the_floor() {
     assert_eq!(engine.next_delay(TickOutcome::NoAction), 15.0);
 }
 
-// --- TestSessionThreshold -------------------------------------------------------
-
 #[test]
 fn session_threshold_test_apply_threshold_retargets_trigger_and_poll_pin() {
     let h = Harness::three();
@@ -307,8 +301,6 @@ fn session_threshold_test_collect_escalates_on_the_tick_snapshot_threshold() {
     assert!(collect_fetch_sets(90.0).contains(&all));
     assert!(!collect_fetch_sets(99.9).contains(&all));
 }
-
-// --- TestAdaptiveScheduler ------------------------------------------------------
 
 /// The fake host with the real usage store behind `usage_entries`: fetches
 /// are counted and planned like the collector does, with a jitter of 0.
@@ -915,4 +907,64 @@ fn adaptive_scheduler_test_consume_first_hold_never_escalates_below_threshold() 
     assert_eq!(host.counts(), counts(&[("1", 2), ("2", 1), ("3", 1)]));
     let all: HashSet<String> = ["1", "2", "3"].iter().map(|s| s.to_string()).collect();
     assert!(!host.fetch_sets.borrow().contains(&all));
+}
+
+#[test]
+fn adaptive_scheduler_test_engine_repairs_legacy_reset_parked_active_plan() {
+    let h = scheduler(1);
+    let host = StoreHost::real(&h.host, h.clock.clock());
+    let reset = START + 86_400.0;
+    served(&host, &[("1", usage_reset(100.0, &iso_utc(reset)))]);
+    let mut engine = h.engine_on(&host, AutoSwitchSettings::default());
+    engine.tick();
+    host.set_plan("1", reset, 300.0);
+    h.clock.advance(400.0);
+    engine.tick();
+    assert_eq!(host.count("1"), 2);
+    assert!(host.entry("1").next_poll_at.unwrap() < reset);
+}
+
+#[test]
+fn adaptive_scheduler_test_consume_first_stale_target_holds_then_switches() {
+    let h = scheduler(3);
+    let host = StoreHost::real(&h.host, h.clock.clock());
+    let soon = iso_utc(START + 86_400.0);
+    let later = iso_utc(START + 3.0 * 86_400.0);
+    let latest = iso_utc(START + 5.0 * 86_400.0);
+    served(
+        &host,
+        &[
+            ("1", usage7(50.0, 20.0, Some(&soon))),
+            ("2", usage7(10.0, 10.0, Some(&later))),
+            ("3", usage7(10.0, 10.0, Some(&latest))),
+        ],
+    );
+    let mut engine = h.engine_on(&host, with(|s| s.strategy = AutoStrategy::ConsumeFirst));
+    engine.tick();
+    h.clock.advance(60.0);
+    engine.tick();
+    assert_eq!(host.counts(), counts(&[("1", 1), ("2", 1), ("3", 1)]));
+    host.store
+        .as_ref()
+        .unwrap()
+        .record(
+            &[("2".into(), FetchRecord::error("http-429", Some(600.0)))],
+            &host.identities(),
+            None,
+            &HashMap::new(),
+        )
+        .unwrap();
+    h.clock.advance(181.0);
+    h.events.borrow_mut().clear();
+    host.set("1", usage7(50.0, 20.0, Some(&latest)));
+    assert_eq!(engine.tick(), TickOutcome::NoAction);
+    assert_eq!(h.active(), s("1"));
+    assert!(h.reasons().contains(&"stale-usage"));
+    assert_eq!(host.count("2"), 1);
+    h.events.borrow_mut().clear();
+    h.clock.advance(700.0);
+    assert_eq!(engine.tick(), TickOutcome::Switched);
+    assert_eq!(h.active(), s("2"));
+    let (trigger, ..) = h.switch().unwrap();
+    assert_eq!(trigger, Trigger::ConsumeFirst);
 }

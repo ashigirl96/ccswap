@@ -1,5 +1,3 @@
-//! argparse-compatible usage errors (exit 2, `usage:` line + `<prog>: error:`).
-//!
 //! Ported from upstream tests/test_cli.py::TestCLI::{test_no_args_shows_error,
 //! test_mutually_exclusive_args, test_strategy_rejects_unknown_value,
 //! test_token_status_flag_requires_list} and
@@ -46,6 +44,11 @@ fn argparse_errors_match_upstream() {
         (vec!["--slot", "x", "status"], "argument --slot: invalid int value: 'x'".into()),
         (vec!["--slot"], "argument --slot: expected one argument".into()),
         (vec!["--status=1"], "argument --status: ignored explicit argument '1'".into()),
+        (
+            vec!["switch", "--switch-to"],
+            "argument --switch-to: expected one argument".into(),
+        ),
+        (vec!["status", "--list=1"], "argument --list: ignored explicit argument '1'".into()),
         (
             vec!["status", "--token-status"],
             "--token-status can only be used with 'list'".into(),
@@ -94,4 +97,18 @@ fn help_lists_commands_and_hides_legacy_flags() {
         "{:?}",
         out.stdout
     );
+}
+
+#[test]
+fn empty_command_values_select_nothing() {
+    let env = TestEnv::new();
+    for args in [["--switch-to", ""], ["--export", ""], ["--import", ""]] {
+        let out = env.run(args);
+        out.assert_code(0);
+        assert_eq!(
+            (out.stdout.as_str(), out.stderr.as_str()),
+            ("", ""),
+            "{args:?}"
+        );
+    }
 }

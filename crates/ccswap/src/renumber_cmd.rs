@@ -1,5 +1,5 @@
-//! `ccswap swap A B` and `ccswap move ACCOUNT SLOT`, each with the argparse
-//! surface of upstream's dedicated parser (two positionals and `--debug`).
+//! `swap` and `move` each mirror upstream's dedicated argparse parser: two
+//! positionals and `--debug`.
 
 use ccswap_core::accounts::{Accounts, Console};
 use ccswap_core::anthropic_client::AnthropicClient;
@@ -169,7 +169,6 @@ fn slot_email(paths: &Paths, num: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The positionals and whether `--debug` was given.
 fn parse(spec: &Spec, argv: &[String]) -> Result<(Vec<String>, bool), Exit> {
     let mut positionals = Vec::new();
     let mut extras: Vec<String> = Vec::new();

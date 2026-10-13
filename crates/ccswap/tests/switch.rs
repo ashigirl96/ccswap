@@ -1,5 +1,3 @@
-//! `switch` / `switch <num|email|alias>`: the normal switch transaction.
-//!
 //! Ported from upstream tests/test_switcher.py::TestPerformSwitchPostDisplay,
 //! TestSwitchSkipsBrokenSlots, TestSharedOAuthCredentialPreservation,
 //! TestClaudeCodeLockCooperation, TestResolveIdentifierAmbiguity,
@@ -9,6 +7,8 @@
 //! normal-path rollback has no upstream test; the rollback cases here are new.
 
 mod support;
+
+use support::hint;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -49,8 +49,6 @@ fn record(num: u32) -> Value {
            "organizationName": "", "added": "2024-01-01T00:00:00Z"})
 }
 
-/// Slots `nums` each with a Keychain backup `creds("<num>")` and a config
-/// backup; the live login is slot `active` holding the same bytes.
 fn seed(env: &TestEnv, nums: &[u32], active: u32) {
     let accounts: serde_json::Map<String, Value> =
         nums.iter().map(|n| (n.to_string(), record(*n))).collect();
@@ -104,10 +102,6 @@ fn backup(env: &TestEnv, num: u32) -> Option<String> {
 fn prev(env: &TestEnv, num: u32) -> Option<String> {
     env.security()
         .item(BACKUP_SERVICE, &format!("{}.prev", backup_account(num)))
-}
-
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
 }
 
 fn parse(text: &str) -> Value {
@@ -176,7 +170,7 @@ fn switch_backs_up_the_rotated_outgoing_login_then_activates_the_next_slot() {
         oauth_account(1),
         "the outgoing config is captured before the splice"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["activeAccountNumber"], 2);
     assert_ne!(seq["lastUpdated"], "2024-01-01T00:00:00Z");
 }
@@ -191,7 +185,7 @@ fn an_untouched_outgoing_login_refreshes_only_the_config_backup() {
     assert_eq!(backup_writes(&env, 1), 0, "{:?}", env.security().calls());
     assert_eq!(backup(&env, 1), Some(creds("1")));
     assert_eq!(prev(&env, 1), None);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
 
 #[test]
@@ -201,7 +195,7 @@ fn rotation_wraps_around_the_sequence() {
 
     env.run(["switch"]).assert_code(0);
 
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
     assert_eq!(parse(&live(&env).unwrap()), parse(&creds("1")));
 }
 
@@ -210,7 +204,7 @@ fn rotation_wraps_around_the_sequence() {
 fn rotation_skips_disabled_and_unswitchable_slots() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["2"]["disabled"] = json!(true);
     env.seed_sequence(seq);
 
@@ -244,7 +238,7 @@ fn rotation_skips_disabled_and_unswitchable_slots() {
 fn rotation_with_no_valid_target_stays_put() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["2"]["disabled"] = json!(true);
     env.seed_sequence(seq);
 
@@ -260,13 +254,15 @@ fn rotation_with_no_valid_target_stays_put() {
             "warnings": ["Skipped Account-2 (disabled)"],
         })
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 
     let out = env.run(["switch"]);
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        "Skipping Account-2 (disabled)\nNo other accounts have valid stored credentials/config.\nRe-add a skipped slot with: cswap --add-account --slot <number>\n"
+        hint(
+            "Skipping Account-2 (disabled)\nNo other accounts have valid stored credentials/config.\nRe-add a skipped slot with: cswap --add-account --slot <number>\n"
+        )
     );
 }
 
@@ -274,28 +270,28 @@ fn rotation_with_no_valid_target_stays_put() {
 fn switch_to_reaches_a_disabled_slot_when_named() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["2"]["disabled"] = json!(true);
     env.seed_sequence(seq);
 
     env.run(["switch", "2"]).assert_code(0);
 
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
 
 #[test]
 fn switch_to_resolves_alias_and_email() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["3"]["alias"] = json!("work");
     env.seed_sequence(seq);
 
     env.run(["switch", "WORK"]).assert_code(0);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 3);
+    assert_eq!(env.sequence()["activeAccountNumber"], 3);
 
     env.run(["switch", "b@example.com"]).assert_code(0);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
     assert_eq!(parse(&live(&env).unwrap()), parse(&creds("2")));
 }
 
@@ -311,7 +307,7 @@ fn switch_to_json_reports_the_switch_and_nothing_else() {
         out.stdout,
         "{\n  \"schemaVersion\": 1,\n  \"switched\": true,\n  \"from\": {\n    \"number\": 1,\n    \"email\": \"a@example.com\"\n  },\n  \"to\": {\n    \"number\": 2,\n    \"email\": \"b@example.com\"\n  },\n  \"strategy\": \"direct\",\n  \"reason\": \"switched\",\n  \"message\": \"Switched to Account-2 (b@example.com)\",\n  \"warnings\": []\n}\n"
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
 
 #[test]
@@ -347,7 +343,9 @@ fn switching_to_the_live_slot_is_a_noop() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        "Already on Account-1 (a@example.com)\nTo rewrite the live login from the stored backup (e.g. after --import), run: cswap --switch-to 1 --force\n"
+        hint(
+            "Already on Account-1 (a@example.com)\nTo rewrite the live login from the stored backup (e.g. after --import), run: cswap --switch-to 1 --force\n"
+        )
     );
     let writes = env
         .security()
@@ -356,14 +354,14 @@ fn switching_to_the_live_slot_is_a_noop() {
         .filter(|c| c.argv == ["-i"])
         .count();
     assert_eq!(writes, 0);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 #[test]
 fn rotation_landing_on_the_live_slot_is_a_noop() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 2);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["activeAccountNumber"] = json!(1);
     env.seed_sequence(seq);
 
@@ -409,11 +407,11 @@ fn json_switch_from_an_unmanaged_login_changes_nothing() {
         json!({
             "schemaVersion": 1, "switched": false, "from": unmanaged, "to": unmanaged,
             "strategy": "rotation", "reason": "unmanaged-account",
-            "message": "Active account is not managed; run cswap --add-account",
+            "message": hint("Active account is not managed; run cswap --add-account"),
             "warnings": [],
         })
     );
-    assert_eq!(sequence(&env)["accounts"].as_object().unwrap().len(), 2);
+    assert_eq!(env.sequence()["accounts"].as_object().unwrap().len(), 2);
 }
 
 // TestResolveIdentifierAmbiguity
@@ -421,7 +419,7 @@ fn json_switch_from_an_unmanaged_login_changes_nothing() {
 fn an_email_on_two_slots_asks_which_one_or_fails_in_json() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     for n in ["2", "3"] {
         seq["accounts"][n]["email"] = json!("shared@example.com");
     }
@@ -448,7 +446,7 @@ fn an_email_on_two_slots_asks_which_one_or_fails_in_json() {
         out.json(),
         json!({"schemaVersion": 1, "error": {
             "type": "ConfigError",
-            "message": "Email 'shared@example.com' is ambiguous — matches accounts: 2 [Acme], 3 [personal]. Use account number instead (e.g., cswap --switch-to 1).",
+            "message": hint("Email 'shared@example.com' is ambiguous — matches accounts: 2 [Acme], 3 [personal]. Use account number instead (e.g., cswap --switch-to 1)."),
         }})
     );
 
@@ -458,11 +456,11 @@ fn an_email_on_two_slots_asks_which_one_or_fails_in_json() {
         out.stdout,
         "Multiple accounts found for 'shared@example.com':\n  2: shared@example.com [Acme]\n  3: shared@example.com [personal]\nEnter account number to switch to: Cancelled\n"
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 
     let out = env.cmd(["switch", "shared@example.com"]).stdin("3\n").run();
     out.assert_code(0);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 3);
+    assert_eq!(env.sequence()["activeAccountNumber"], 3);
 }
 
 #[test]
@@ -551,7 +549,7 @@ fn an_empty_live_credential_aborts_before_any_backup() {
         "Current account credential is empty (Keychain unreadable?); refusing to overwrite its backup"
     );
     assert_eq!(backup(&env, 1), Some(creds("1")));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 #[test]
@@ -565,7 +563,7 @@ fn a_target_without_stored_credentials_fails_before_activation() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"],
-        json!({"type": "SwitchError", "message": "Account-2 has no stored credentials. Re-add with: cswap --add-account --slot 2"})
+        json!({"type": "SwitchError", "message": hint("Account-2 has no stored credentials. Re-add with: cswap --add-account --slot 2")})
     );
     assert_eq!(live(&env), Some(creds("1")));
 }
@@ -594,7 +592,7 @@ fn a_failed_config_step_rolls_the_credentials_back() {
         std::fs::read_to_string(env.global_config_path()).unwrap(),
         config_before
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
     assert_eq!(
         backup(&env, 1).as_deref(),
         Some(rotated.as_str()),
@@ -626,7 +624,7 @@ fn a_failed_sequence_write_rolls_back_config_and_credentials() {
         "the original config bytes are restored"
     );
     assert_eq!(mode(&env.global_config_path()), 0o600);
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 // test_switch_holds_both_cc_locks_at_write_time
@@ -701,7 +699,7 @@ fn a_held_refresh_lock_times_out_before_anything_is_mutated() {
                "message": "Could not acquire .oauth_refresh.lock — Claude Code appears to be refreshing credentials. Retry in a few seconds."})
     );
     assert_eq!(live(&env), Some(creds("1")));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
     assert!(refresh_lock.is_dir(), "the holder's lock is left alone");
 }
 
@@ -769,7 +767,7 @@ fn a_session_shell_cannot_switch() {
         .run();
     out.assert_code(1);
     assert_eq!(out.json()["error"]["type"], "SwitchError");
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 // TestPerformSwitchPostDisplay (the list between "Switched to" and the

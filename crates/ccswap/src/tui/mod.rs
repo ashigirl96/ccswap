@@ -1,6 +1,3 @@
-//! `ccswap tui` / `ccswap watch` (and bare `ccswap` on a terminal): the
-//! interactive dashboard over the Snapshot / Actions surface.
-
 mod app;
 mod autoview;
 mod data;
@@ -31,11 +28,9 @@ const FRAME: Duration = Duration::from_millis(50);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
     Dashboard,
-    /// `ccswap watch`: the watch page stacked over the dashboard.
     Watch,
 }
 
-/// Runs the TUI until the user quits; returns the exit code.
 pub fn run(actions: Arc<dyn Actions>, env: &Environment, start: Start) -> i32 {
     // Probed even for an explicit theme so cycling to `auto` works; the
     // terminal must still be in cooked mode here.

@@ -33,8 +33,6 @@ fn switch_trigger(h: &Harness) -> Option<Trigger> {
     h.switch().map(|(t, ..)| t)
 }
 
-// --- TestIdleHold -------------------------------------------------------------
-
 #[test]
 fn idle_hold_test_token_expired_holds_instead_of_failover() {
     let h = Harness::three();
@@ -117,8 +115,6 @@ fn idle_hold_test_foreign_credential_sentinel_fails_over_instead_of_holding() {
     assert_eq!(e.idle_hold_since, None);
 }
 
-// --- TestFreshening -----------------------------------------------------------
-
 fn oauth_creds(access: &str, refresh: &str, expires_at: i64) -> String {
     json!({"claudeAiOauth": {"accessToken": access, "refreshToken": refresh,
                              "expiresAt": expires_at}})
@@ -163,8 +159,6 @@ fn freshening_test_live_session_near_expiry_is_skipped() {
     assert_eq!(h.host.refresh_calls.get(), 0);
     assert_eq!(h.active(), s("1"));
 }
-
-// --- TestTokenIdentity --------------------------------------------------------
 
 const FAR: i64 = 99_999_999_999_000;
 
@@ -332,8 +326,6 @@ fn token_identity_test_blank_uuid_slot_with_org_conflict_quarantines_not_backfil
     assert_eq!(h.host.creds.borrow()["2"], fresh);
 }
 
-// --- TestFreshenRoutesThroughGate ---------------------------------------------
-
 fn gate_verdict(error: &str) -> Freshen {
     let h = Harness::bare();
     h.host.seed_expiring(2, "b@example.com", Some(1));
@@ -435,8 +427,6 @@ fn freshen_routes_through_gate_test_freshen_calls_consume_gate() {
     assert_eq!(*calls.borrow(), [("2".to_string(), snapshot)]);
 }
 
-// --- TestConsumeFirstDepartureRecordsItsOwnTrigger ----------------------------
-
 fn recovered_after(state: Value) -> bool {
     let Value::Object(state) = state else {
         unreachable!()
@@ -516,8 +506,6 @@ fn consume_first_departure_test_end_to_end_failover_departure_records_its_own_tr
     assert_eq!(out, TickOutcome::Switched);
     assert_eq!(h.host.state()["leftTrigger"], json!("failover"));
 }
-
-// --- TestReviewFindings202 ----------------------------------------------------
 
 fn at(h: &Harness, seconds: f64) -> String {
     iso_utc(h.clock.now() + seconds)

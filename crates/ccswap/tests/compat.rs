@@ -1,12 +1,6 @@
-//! Running Python `cswap` and `ccswap` side by side on one store (#1's
-//! compatibility bar): each operates on what the other wrote, and the two
-//! queue on the same store and Claude Code locks.
-//!
-//! Every case here needs `CCSWAP_TEST_UPSTREAM` and is skipped without it.
-//! To cover a new command, add a [`Step`] to a scenario (or a new scenario):
-//! [`play`] checks after every step that both implementations read the store
-//! identically through every entry of [`READERS`], so a step only states its
-//! own outcome. A new read-only JSON command goes into [`READERS`].
+//! Runs Python `cswap` and `ccswap` side by side on one store; every case needs
+//! `CCSWAP_TEST_UPSTREAM`. [`play`] checks after every step that both read the
+//! store identically through [`READERS`], so a step only states its own outcome.
 
 mod support;
 
@@ -30,8 +24,6 @@ fn creds(num: usize) -> String {
     .to_string()
 }
 
-/// Claude Code logged in as account `num` (live Keychain item, `.claude.json`,
-/// and a profile endpoint that resolves its token).
 fn log_in(env: &TestEnv, num: usize) {
     let email = EMAILS[num];
     env.seed_login(email, &format!("org-{num}"), &format!("Org {num}"));
@@ -50,13 +42,11 @@ fn log_in(env: &TestEnv, num: usize) {
 }
 
 enum Step {
-    /// Run `args` with one implementation; it must exit 0.
+    /// Must exit 0.
     Run(Impl, &'static [&'static str]),
-    /// Claude Code `/login` as this account.
     LogIn(usize),
 }
 
-/// Run `steps`, checking after each that cswap and ccswap read the same store.
 fn play(env: &TestEnv, steps: &[Step]) {
     for step in steps {
         match step {
@@ -74,8 +64,7 @@ fn play(env: &TestEnv, steps: &[Step]) {
     }
 }
 
-/// Read-only commands whose JSON both implementations must agree on, with
-/// the fields that legitimately differ between runs blanked.
+/// Fields that legitimately differ between runs are blanked before comparing.
 type Reader = (&'static [&'static str], fn(&mut Value));
 
 const READERS: &[Reader] = &[
@@ -111,7 +100,7 @@ fn assert_reads_agree(env: &TestEnv, context: &str) {
     }
 }
 
-/// What cswap's `list --json` reports per slot: `(number, email, alias, disabled, active)`.
+/// `(number, email, alias, disabled, active)` per slot.
 fn cswap_listing(env: &TestEnv) -> Vec<(u64, String, Value, bool, bool)> {
     let out = env.cmd(["list", "--json"]).using(Impl::Upstream).run();
     out.assert_code(0);
@@ -131,7 +120,7 @@ fn cswap_listing(env: &TestEnv) -> Vec<(u64, String, Value, bool, bool)> {
         .collect()
 }
 
-/// Which account's token a stored credential holds (writers may re-serialize it).
+/// Compares by token because writers may re-serialize a credential.
 fn token_owner(stored: Option<String>) -> Option<usize> {
     let creds: Value = serde_json::from_str(&stored?).ok()?;
     creds["claudeAiOauth"]["accessToken"]
@@ -159,7 +148,6 @@ fn skip_without_upstream() -> bool {
     !is_upstream()
 }
 
-/// Accounts 1-3 registered (by cswap), account 3 live.
 fn three_accounts() -> TestEnv {
     let env = TestEnv::new();
     for num in 1..=3 {
@@ -169,7 +157,6 @@ fn three_accounts() -> TestEnv {
     env
 }
 
-/// How many processes have `path` open (`lsof -t`).
 fn openers(path: &Path) -> usize {
     let out = Command::new("lsof")
         .arg("-t")
@@ -187,8 +174,7 @@ fn wait_for(what: &str, timeout: Duration, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// The store is consistent: every slot holds its own account's token and the
-/// live token belongs to the slot cswap lists as active.
+/// Every slot holds its own account's token and the live token belongs to the slot cswap lists as active.
 #[track_caller]
 fn assert_store_intact(env: &TestEnv) {
     let listing = cswap_listing(env);
@@ -425,7 +411,6 @@ fn cswap_operates_on_a_ccswap_store_and_ccswap_reads_the_result() {
     assert_reads_agree(&env, "after the ccswap switches");
 }
 
-/// Usage per account (five-hour pct by token), swappable between runs.
 fn serve_usage(env: &TestEnv) -> Arc<Mutex<Vec<f64>>> {
     let pcts = Arc::new(Mutex::new(vec![0.0; 4]));
     let served = pcts.clone();
@@ -458,7 +443,6 @@ fn auto_once(env: &TestEnv, which: Impl, extra: &[&str]) -> i32 {
     out.code
 }
 
-/// Key order and JSON types of `autoswitch_state.json`.
 fn state_shape(env: &TestEnv) -> Vec<(String, &'static str)> {
     let state = env.read_json(env.store_dir().join("autoswitch_state.json"));
     state

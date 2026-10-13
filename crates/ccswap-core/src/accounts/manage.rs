@@ -1,5 +1,4 @@
-//! Managing registered slots: remove, disable/enable, alias, purge.
-
+use crate::pyjson::py_str;
 use serde_json::Value;
 
 use super::{Accounts, Console, accounts_mut, display_tag, sequence_mut};
@@ -9,6 +8,13 @@ use crate::migrations::LEGACY_KEYRING_SERVICE;
 use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
 use crate::session_profile::{self, join_pids, scan_live_sessions};
 use crate::store::{self, JsonObject};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedAccount {
+    pub number: String,
+    pub email: String,
+    pub organization_uuid: String,
+}
 
 impl Accounts<'_> {
     /// Deletes a slot's backups and record after confirmation (skipped with
@@ -65,7 +71,9 @@ impl Accounts<'_> {
 
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         let num = resolve_existing(&data, &identifier)?;
-        let email = python_str(record(&data, &num).and_then(|r| r.get("email")));
+        let email = record(&data, &num)
+            .and_then(|r| r.get("email"))
+            .map_or("None".into(), py_str);
         let org = text_field(&data, &num, "organizationUuid");
         session_profile::ensure_no_live_session(self.paths, &num, &email, "--remove-account")?;
 
@@ -121,7 +129,9 @@ impl Accounts<'_> {
         if !self.paths.sequence_file().exists() {
             return Err(Error::config("No accounts are managed yet"));
         }
-        let (num, email, _) = self.resolve_account(identifier)?;
+        let ResolvedAccount {
+            number: num, email, ..
+        } = self.resolve_account(identifier)?;
         let style = self.style;
         let verb = if disabled { "disabled" } else { "enabled" };
         let data = {
@@ -168,7 +178,7 @@ impl Accounts<'_> {
         }
         if self.switchable_account_numbers()?.is_empty() {
             console.line(&style.yellowed(
-                "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.",
+                "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with ccswap enable <num|email>.",
             ));
         }
         Ok(())
@@ -185,7 +195,7 @@ impl Accounts<'_> {
             .unwrap_or_default();
         Ok(sequence
             .iter()
-            .map(|v| python_str(Some(v)))
+            .map(py_str)
             .filter(|num| {
                 let Some(rec) = record(&data, num).filter(|r| !r.is_empty()) else {
                     return false;
@@ -204,7 +214,7 @@ impl Accounts<'_> {
     pub fn set_alias(&self, identifier: &str, alias: &str) -> Result<(String, String)> {
         self.refuse_session_shell()?;
         let normalized = store::normalize_alias(alias)?;
-        let (num, _, _) = self.resolve_account(identifier)?;
+        let num = self.resolve_account(identifier)?.number;
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
         let mut data = store::read_sequence(self.paths)?.unwrap_or_default();
         resolve_existing(&data, &num)?;
@@ -229,7 +239,7 @@ impl Accounts<'_> {
     /// Clears a slot's alias (a no-op when it has none); returns the slot.
     pub fn unset_alias(&self, identifier: &str) -> Result<String> {
         self.refuse_session_shell()?;
-        let (num, _, _) = self.resolve_account(identifier)?;
+        let num = self.resolve_account(identifier)?.number;
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
         let mut data = store::read_sequence(self.paths)?.unwrap_or_default();
         resolve_existing(&data, &num)?;
@@ -257,7 +267,7 @@ impl Accounts<'_> {
                     .map(|(num, rec)| {
                         (
                             num.clone(),
-                            python_str(rec.get("alias")),
+                            rec.get("alias").map_or("None".into(), py_str),
                             rec.get("email")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default()
@@ -384,15 +394,16 @@ impl Accounts<'_> {
         Ok(())
     }
 
-    /// `(slot, email, organizationUuid)` for a number, alias or email; an
-    /// ambiguous email is an error, never a prompt.
-    pub fn resolve_account(&self, identifier: &str) -> Result<(String, String, String)> {
+    /// An ambiguous email is an error, never a prompt.
+    pub fn resolve_account(&self, identifier: &str) -> Result<ResolvedAccount> {
         store::read_sequence_migrated(self.paths)?;
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
-        let num = resolve_existing(&data, identifier)?;
-        let email = text_field(&data, &num, "email");
-        let org = text_field(&data, &num, "organizationUuid");
-        Ok((num, email, org))
+        let number = resolve_existing(&data, identifier)?;
+        Ok(ResolvedAccount {
+            email: text_field(&data, &number, "email"),
+            organization_uuid: text_field(&data, &number, "organizationUuid"),
+            number,
+        })
     }
 }
 
@@ -463,18 +474,8 @@ fn text_field(data: &JsonObject, num: &str, key: &str) -> String {
         .to_string()
 }
 
-/// `str(value)` as an f-string renders it.
-fn python_str(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => "None".into(),
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Bool(true)) => "True".into(),
-        Some(Value::Bool(false)) => "False".into(),
-        Some(other) => other.to_string(),
-    }
-}
-
 /// `str(activeAccountNumber)`.
 fn active_number(data: &JsonObject) -> String {
-    python_str(data.get("activeAccountNumber"))
+    data.get("activeAccountNumber")
+        .map_or("None".into(), py_str)
 }

@@ -1,14 +1,4 @@
-//! The consume gate (upstream `consume_backup_grant`): every POST of a
-//! slot's backup refresh token goes through here. A refresh token is
-//! one-time-use, so the gate consumes the provably freshest copy under a
-//! per-slot consume lock held across re-read → POST → compare-and-swap, and
-//! never discards a consumed generation: a successor it cannot persist is
-//! parked in the unclaimed stash and adopted by the next pass. The store
-//! lock itself never covers the network call.
-//!
-//! The usage pass (expired inactive slots), auto's pre-switch freshen and
-//! `run`'s pre-seed refresh all call [`ConsumeGate::consume_backup_grant`];
-//! the active slot's locked refresh takes the same consume lock.
+//! Refresh tokens are one-time-use, so every POST of a backup's goes through upstream's `consume_backup_grant` protocol.
 
 use std::path::PathBuf;
 
@@ -74,10 +64,9 @@ enum Prepared {
 }
 
 impl ConsumeGate<'_> {
-    /// Refreshes slot `num`'s backup. `credentials` on the outcome is the
-    /// slot's now-current credential (ours, or a racing writer's newer
-    /// lineage); `error` is the refresh failure or the gate's own refusal.
-    /// Never fails. The caller must not hold the store lock.
+    /// `credentials` on the outcome is the slot's now-current credential,
+    /// possibly a racing writer's newer lineage. The caller must not hold the
+    /// store lock.
     pub fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome {
         if self
             .env
@@ -373,7 +362,7 @@ impl ConsumeGate<'_> {
                 Err(e) => {
                     stashed_reason = Some("consume-gate-unpersisted");
                     log::error(format!(
-                        "Account {num}'s consumed successor could not be persisted or stashed — it survives only for this pass. Fix the storage failure, then re-login and `cswap add` if the slot strikes. ({e})"
+                        "Account {num}'s consumed successor could not be persisted or stashed — it survives only for this pass. Fix the storage failure, then re-login and `ccswap add` if the slot strikes. ({e})"
                     ));
                 }
             }
@@ -400,7 +389,7 @@ enum Adopt {
 fn retire(stash: &UnclaimedStash<'_>, id: &str, num: &str) {
     if let Err(e) = stash.remove(id) {
         log::warning(format!(
-            "Could not retire account {num}'s stash entry {id}; leaving it for the next pass (`cswap unclaimed --purge` drops it by hand). ({e})"
+            "Could not retire account {num}'s stash entry {id}; leaving it for the next pass (`ccswap unclaimed --purge` drops it by hand). ({e})"
         ));
     }
 }

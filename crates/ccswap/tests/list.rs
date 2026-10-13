@@ -1,6 +1,3 @@
-//! `list` / `list --json` / `status` usage: fetch, `cache/usage.json`,
-//! stale-on-error, error classification and backoff.
-//!
 //! Ported from upstream test_switcher.py::TestListAccountsUsage
 //! (test_list_shows_usage, test_list_shows_alias_before_email,
 //! test_list_shows_usage_null_reset, test_list_no_credentials,
@@ -14,8 +11,8 @@
 //! test_stale_usage_is_decision_gated_in_json), TestStatusJson
 //! (test_status_managed, test_status_managed_includes_display_grade_last_good),
 //! test_oauth.py::TestClassifyUsageError and TestFetchUsage (request headers).
-//! Pace markers, duplicate/lockstep warnings and running instances belong
-//! to #10, so seeded reset times stay inside the pace suppression window.
+//! Seeded reset times stay inside the pace suppression window to keep pace
+//! markers out of these listings.
 
 mod support;
 
@@ -40,8 +37,6 @@ fn oauth(token: &str) -> String {
     .to_string()
 }
 
-/// Slot 1 (`a@`, personal, aliased `dev`) is the live login; slot 2 (`b@`,
-/// Acme) has a Keychain backup.
 fn two_accounts(env: &TestEnv) {
     env.seed_sequence(json!({
         "activeAccountNumber": 1,
@@ -65,7 +60,6 @@ fn identities() -> [(&'static str, &'static str, &'static str); 2] {
     [("1", A, ""), ("2", B, "org-2")]
 }
 
-/// Answer the usage endpoint per bearer token.
 fn stub_usage(env: &TestEnv, by_token: Vec<(&'static str, StubResponse)>) {
     env.http()
         .respond_with("GET", "/api/oauth/usage", move |req| {

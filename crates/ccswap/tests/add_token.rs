@@ -1,6 +1,3 @@
-//! `add-token` (`--add-token`): register a setup-token or managed API key
-//! without a browser login.
-//!
 //! Ported from upstream tests/test_switcher.py::TestAddAccountFromToken,
 //! test_api_key_accounts.py::TestKindDetection / TestAddTokenApiKey /
 //! TestCrossKindCollision and test_cli.py (add-token dispatch and flag checks).
@@ -13,10 +10,6 @@ use support::{TestEnv, is_upstream};
 const BACKUP_SERVICE: &str = "claude-swap";
 const API_KEY: &str = "sk-ant-api03-a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5";
 const OTHER_KEY: &str = "sk-ant-api03-z9y8x7w6v5z9y8x7w6v5z9y8x7w6v5z9y8x7w6v5";
-
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
 
 fn backup(env: &TestEnv, num: u32, email: &str) -> Option<String> {
     env.security()
@@ -83,7 +76,7 @@ fn a_setup_token_with_an_email_is_stored_as_an_oauth_account() {
         "Added Account 1: user@example.com [personal] (from token)\n"
     );
 
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1]));
     assert_eq!(
         seq["activeAccountNumber"],
@@ -136,7 +129,7 @@ fn an_api_key_is_stored_raw_with_the_api_key_kind_and_default_email() {
         out.stdout,
         "Added Account 1: api-key-1@token.local [personal] (from API key)\n"
     );
-    let record = &sequence(&env)["accounts"]["1"];
+    let record = &env.sequence()["accounts"]["1"];
     assert_eq!(record["email"], "api-key-1@token.local");
     assert_eq!(record["kind"], "api_key");
     let keys: Vec<&str> = record
@@ -162,7 +155,7 @@ fn a_setup_token_without_email_gets_the_setup_token_label() {
         out.stdout,
         "Added Account 1: setup-token-1@token.local [personal] (from token)\n"
     );
-    let record = &sequence(&env)["accounts"]["1"];
+    let record = &env.sequence()["accounts"]["1"];
     assert_eq!(record["email"], "setup-token-1@token.local");
     assert!(record.get("kind").is_none());
     assert!(
@@ -178,7 +171,7 @@ fn something_that_only_contains_an_api_key_is_a_setup_token() {
     env.run(["add-token", r#"{"x": "sk-ant-api03-inside-json"}"#])
         .assert_code(0);
     assert_eq!(
-        sequence(&env)["accounts"]["1"]["email"],
+        env.sequence()["accounts"]["1"]["email"],
         "setup-token-1@token.local"
     );
 }
@@ -192,7 +185,7 @@ fn the_default_email_follows_an_explicit_slot() {
     env.run(["add-token", "tok-b", "--slot", "8"])
         .assert_code(0);
 
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([4, 8]));
     assert_eq!(seq["accounts"]["4"]["email"], "setup-token-4@token.local");
     assert_eq!(seq["accounts"]["8"]["email"], "setup-token-8@token.local");
@@ -211,7 +204,7 @@ fn repeated_default_registrations_take_new_slots() {
         "Added Account 4: setup-token-4@token.local [personal] (from token)\n"
     );
     env.run(["add-token", "tok"]).assert_code(0);
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 3, 4, 5]));
     assert_eq!(seq["activeAccountNumber"], 1);
 }
@@ -229,7 +222,7 @@ fn an_explicit_email_wins_over_the_default() {
         "2",
     ])
     .assert_code(0);
-    assert_eq!(sequence(&env)["accounts"]["2"]["email"], "me@example.com");
+    assert_eq!(env.sequence()["accounts"]["2"]["email"], "me@example.com");
 }
 
 #[test]
@@ -254,7 +247,7 @@ fn the_sequence_stays_sorted_with_explicit_slots() {
         "2",
     ])
     .assert_code(0);
-    assert_eq!(sequence(&env)["sequence"], json!([2, 5]));
+    assert_eq!(env.sequence()["sequence"], json!([2, 5]));
 }
 
 #[test]
@@ -278,7 +271,7 @@ fn readding_the_same_email_refreshes_the_token_in_place() {
     seed_three(&env);
     env.run(["add-token", "token-v1", "--email", "user@example.com"])
         .assert_code(0);
-    let added = sequence(&env)["accounts"]["4"]["added"].clone();
+    let added = env.sequence()["accounts"]["4"]["added"].clone();
 
     let out = env.run(["add-token", "token-v2", "--email", "user@example.com"]);
     out.assert_code(0);
@@ -286,7 +279,7 @@ fn readding_the_same_email_refreshes_the_token_in_place() {
         out.stdout,
         "Updated token for Account 4 (user@example.com [personal]).\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 3, 4]));
     assert_eq!(seq["activeAccountNumber"], 1, "refresh never activates");
     assert_eq!(seq["accounts"]["4"]["added"], added);
@@ -315,7 +308,7 @@ fn readding_the_same_api_key_account_refreshes_it_in_place() {
         out.stdout,
         "Updated API key for Account 1 (me@example.com [personal]).\n"
     );
-    assert_eq!(sequence(&env)["accounts"].as_object().unwrap().len(), 1);
+    assert_eq!(env.sequence()["accounts"].as_object().unwrap().len(), 1);
     assert_eq!(
         backup(&env, 1, "me@example.com").as_deref(),
         Some(OTHER_KEY)
@@ -496,7 +489,7 @@ fn an_occupied_slot_is_replaced_after_yes() {
          Removed 1 directory mapping(s) for this account\n\
          Added Account 3: new@example.com [personal] (from token)\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 3]));
     assert_eq!(seq["accounts"]["3"]["email"], "new@example.com");
     assert_eq!(seq["activeAccountNumber"], 1);
@@ -527,7 +520,7 @@ fn slot_flag_moves_the_same_email_to_the_new_slot() {
         out.stdout,
         "Moved from slot 1 → 4\nAdded Account 4: user@example.com [personal] (from token)\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([4]));
     assert!(seq["accounts"].get("1").is_none());
     assert_eq!(backup(&env, 1, "user@example.com"), None);
@@ -550,7 +543,7 @@ fn the_flag_spelling_works_with_email_and_slot() {
         "3",
     ])
     .assert_code(0);
-    assert_eq!(sequence(&env)["accounts"]["3"]["email"], "u@example.com");
+    assert_eq!(env.sequence()["accounts"]["3"]["email"], "u@example.com");
 }
 
 #[test]

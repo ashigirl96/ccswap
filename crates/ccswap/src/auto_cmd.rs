@@ -1,7 +1,3 @@
-//! The pre-dispatched `auto`: the auto-switch engine in a foreground loop
-//! (SIGTERM ends it cleanly), or one tick with `--once` (exit code =
-//! outcome); JSONL with `--json`.
-
 use std::io::Write;
 use std::sync::atomic::Ordering;
 

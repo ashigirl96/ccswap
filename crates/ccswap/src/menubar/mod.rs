@@ -1,8 +1,3 @@
-//! `ccswap menubar`: an AppKit status item over the core's snapshot,
-//! actions and auto-switch engine (upstream `menubar.py`). Only the pure
-//! parts (strings, menu structure, settings file) are tested; AppKit never
-//! runs in tests.
-
 #[cfg(target_os = "macos")]
 mod app;
 #[cfg(target_os = "macos")]

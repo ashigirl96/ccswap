@@ -1,11 +1,9 @@
-//! `status` / `status --json`.
-//!
 //! Ported from upstream tests/test_json_output.py::TestStatusJson (no_active,
 //! unmanaged, managed, managed_includes_alias), TestJsonHelpers::
 //! test_error_envelope_shape, tests/test_cli.py::TestJsonOutputCli::
 //! test_error_envelope_on_stdout_with_exit_1, test_switcher.py::TestStatus and
-//! the status branch of switcher.py:5546-5582. Usage numbers (cache and fetch)
-//! belong to #9; these tests only cover verdicts that need no network.
+//! the status branch of switcher.py:5546-5582. Usage numbers are tested in
+//! list.rs, so these cover only verdicts that need no network.
 
 mod support;
 

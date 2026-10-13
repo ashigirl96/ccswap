@@ -12,7 +12,6 @@ use crate::store::{self, JsonObject};
 
 const SETUP_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
 
-/// Where the token comes from.
 #[derive(Debug, Clone)]
 pub enum TokenInput {
     Value(String),
@@ -26,7 +25,7 @@ pub enum TokenInput {
 pub struct AddTokenOptions {
     pub email: Option<String>,
     pub slot: Option<i64>,
-    /// Skip the overwrite prompt (callers that confirmed already).
+    /// Skip the overwrite prompt.
     pub assume_yes: bool,
 }
 
@@ -52,7 +51,7 @@ impl Accounts<'_> {
         let is_api_key = looks_like_api_key(token);
         let email = options.email.clone().filter(|e| !e.is_empty());
         if let Some(email) = &email
-            && !is_valid_email(email)
+            && !store::is_valid_email(email)
         {
             return Err(validation(format!("Invalid email format: {email}")));
         }
@@ -290,58 +289,4 @@ fn reject_cross_kind_collision(data: &JsonObject, email: &str, is_api_key: bool)
 
 fn validation(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::ValidationError, message)
-}
-
-/// `re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email)`;
-/// Python's `$` also matches before one trailing newline.
-fn is_valid_email(email: &str) -> bool {
-    let email = email.strip_suffix('\n').unwrap_or(email);
-    let Some((local, domain)) = email.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._%+-".contains(&b));
-    let Some((host, tld)) = domain.rsplit_once('.') else {
-        return false;
-    };
-    let host_ok = !host.is_empty()
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b));
-    let tld_ok = tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic());
-    local_ok && host_ok && tld_ok
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_valid_email;
-
-    #[test]
-    fn email_check_matches_the_upstream_pattern() {
-        for ok in [
-            "user@example.com",
-            "a.b+c%d_e-f@sub.example.co",
-            "x@a.b.cd",
-            "x@a..cd",
-            "setup-token-3@token.local",
-            "user@example.com\n",
-        ] {
-            assert!(is_valid_email(ok), "{ok:?}");
-        }
-        for bad in [
-            "not-an-email",
-            "@example.com",
-            "user@.com",
-            "user@example.c",
-            "user@example.c0m",
-            "us er@example.com",
-            "a@b@example.com",
-            "user@example.com\n\n",
-            "ü@example.com",
-        ] {
-            assert!(!is_valid_email(bad), "{bad:?}");
-        }
-    }
 }

@@ -1,7 +1,7 @@
-//! The switch: pick a target, then one transaction under the store lock and
-//! Claude Code's locks that backs up the outgoing login, activates the
-//! target and rolls every recorded step back if a later one fails.
+//! A switch is one transaction under the store lock and Claude Code's locks
+//! that rolls every recorded step back if a later one fails.
 
+use crate::pyjson::py_str;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -36,7 +36,8 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
     "pluginSecrets",
 ];
 
-/// Prints the account list after a human-mode switch.
+const ACCOUNT_CREDENTIAL_KEYS: [&str; 2] = ["claudeAiOauth", "trustedDeviceToken"];
+
 pub type Listing<'a> = dyn Fn(&mut dyn Console) -> Result<()> + 'a;
 
 pub struct Switcher<'a> {
@@ -45,8 +46,8 @@ pub struct Switcher<'a> {
     pub secrets: &'a SecretStore,
     pub client: &'a AnthropicClient,
     pub style: &'a Style,
-    /// Prints the account list after a human-mode switch; an error becomes
-    /// a one-line notice instead of failing the switch.
+    /// Printed after a human-mode switch; an error becomes a one-line notice
+    /// instead of failing the switch.
     pub listing: Option<&'a Listing<'a>>,
 }
 
@@ -344,7 +345,7 @@ impl Switcher<'_> {
                     label,
                     "unmanaged-account",
                     unmanaged,
-                    "Active account is not managed; run cswap --add-account".into(),
+                    "Active account is not managed; run ccswap --add-account".into(),
                     warnings,
                 )));
             }
@@ -357,7 +358,7 @@ impl Switcher<'_> {
             let active = self
                 .roster()?
                 .get("activeAccountNumber")
-                .map_or("None".into(), python_str);
+                .map_or("None".into(), py_str);
             console.line(&format!(
                 "It has been automatically added as Account-{active}."
             ));
@@ -421,7 +422,7 @@ impl Switcher<'_> {
 
         let mut next = None;
         for offset in 1..sequence.len() {
-            let candidate = python_str(&sequence[(start + offset) % sequence.len()]);
+            let candidate = py_str(&sequence[(start + offset) % sequence.len()]);
             if is_disabled(&data, &candidate) {
                 if json {
                     warnings.push(format!("Skipped Account-{candidate} (disabled)"));
@@ -440,7 +441,7 @@ impl Switcher<'_> {
                     ));
                 } else {
                     console.line(&format!(
-                        "{} Account-{candidate} (no stored credentials/config, re-add with cswap --add-account --slot {candidate})",
+                        "{} Account-{candidate} (no stored credentials/config, re-add with ccswap --add-account --slot {candidate})",
                         style.accent("Skipping")
                     ));
                 }
@@ -491,7 +492,7 @@ impl Switcher<'_> {
                 )));
             }
             console.line(&style.dimmed(
-                "No other accounts have valid stored credentials/config.\nRe-add a skipped slot with: cswap --add-account --slot <number>",
+                "No other accounts have valid stored credentials/config.\nRe-add a skipped slot with: ccswap --add-account --slot <number>",
             ));
             return Ok(None);
         };
@@ -535,18 +536,18 @@ impl Switcher<'_> {
         let sequence: Vec<String> = data
             .get("sequence")
             .and_then(Value::as_array)
-            .map(|s| s.iter().map(python_str).collect())
+            .map(|s| s.iter().map(py_str).collect())
             .unwrap_or_default();
         let preferred = data
             .get("activeAccountNumber")
             .filter(|v| truthy(v))
-            .map(python_str)
+            .map(py_str)
             .or_else(|| {
                 data.get("sequence")
                     .and_then(Value::as_array)
                     .and_then(|s| s.first())
                     .filter(|v| truthy(v))
-                    .map(python_str)
+                    .map(py_str)
             })
             .ok_or_else(|| Error::config("No accounts are managed yet"))?;
 
@@ -560,7 +561,7 @@ impl Switcher<'_> {
             (
                 "(no stored credentials/config)".to_string(),
                 format!(
-                    "(no stored credentials/config, re-add with cswap --add-account --slot {preferred})"
+                    "(no stored credentials/config, re-add with ccswap --add-account --slot {preferred})"
                 ),
             )
         };
@@ -579,11 +580,11 @@ impl Switcher<'_> {
         }
         if sequence.iter().any(|num| self.is_switchable(&data, num)) {
             return Err(Error::config(
-                "No accounts remain in rotation. Re-enable one with: cswap enable <num|email>",
+                "No accounts remain in rotation. Re-enable one with: ccswap enable <num|email>",
             ));
         }
         Err(Error::config(
-            "No managed accounts have valid stored credentials/config. Re-add a slot with: cswap --add-account --slot <number>",
+            "No managed accounts have valid stored credentials/config. Re-add a slot with: ccswap --add-account --slot <number>",
         ))
     }
 
@@ -602,10 +603,10 @@ impl Switcher<'_> {
         store::read_sequence_migrated(self.paths)?;
 
         let mut identifier = identifier.to_string();
-        if !is_digits(&identifier) {
+        if !store::is_slot_number(&identifier) {
             let data = self.roster()?;
             let is_alias = store::find_account_by_alias(&data, &identifier).is_some();
-            if !is_alias && !is_valid_email(&identifier) {
+            if !is_alias && !store::is_valid_email(&identifier) {
                 return Err(Error::new(
                     ErrorKind::ValidationError,
                     format!("Invalid account identifier: {identifier}"),
@@ -621,12 +622,13 @@ impl Switcher<'_> {
         }
 
         let data = self.roster()?;
-        let target = resolve_identifier(&data, &identifier)?.ok_or_else(|| {
-            Error::new(
-                ErrorKind::AccountNotFoundError,
-                format!("No account found with identifier: {identifier}"),
-            )
-        })?;
+        let target =
+            store::resolve_account_identifier(Some(&data), &identifier)?.ok_or_else(|| {
+                Error::new(
+                    ErrorKind::AccountNotFoundError,
+                    format!("No account found with identifier: {identifier}"),
+                )
+            })?;
         let Some(record) = store::accounts(&data).and_then(|a| a.get(&target)) else {
             return Err(Error::new(
                 ErrorKind::AccountNotFoundError,
@@ -656,7 +658,7 @@ impl Switcher<'_> {
                     self.style.accent("Already on")
                 ));
                 console.line(&self.style.dimmed(&format!(
-                    "To rewrite the live login from the stored backup (e.g. after --import), run: cswap --switch-to {target} --force"
+                    "To rewrite the live login from the stored backup (e.g. after --import), run: ccswap --switch-to {target} --force"
                 )));
                 return Ok(None);
             }
@@ -721,7 +723,7 @@ impl Switcher<'_> {
             .prompt("Enter account number to switch to: ")
             .map(|c| c.trim().to_string())
             .unwrap_or_default();
-        if is_digits(&choice) && matches.iter().any(|(num, _)| **num == choice) {
+        if store::is_slot_number(&choice) && matches.iter().any(|(num, _)| **num == choice) {
             Choice::Picked(choice)
         } else {
             console.line(&self.style.dimmed("Cancelled"));
@@ -729,7 +731,6 @@ impl Switcher<'_> {
         }
     }
 
-    /// The switch transaction. Human output is printed only when `emit`.
     /// `force` activates the target's stored login without backing up the
     /// live one; `provenance` is a pre-lock resolution already made.
     fn perform(
@@ -771,7 +772,7 @@ impl Switcher<'_> {
                 None => data
                     .get("activeAccountNumber")
                     .filter(|v| !v.is_null())
-                    .map(python_str),
+                    .map(py_str),
             };
 
             match (&identity, current_account) {
@@ -823,7 +824,7 @@ impl Switcher<'_> {
                 console.line(
                     &self
                         .style
-                        .dimmed("  (usage display unavailable — run `cswap --list` to retry)"),
+                        .dimmed("  (usage display unavailable — run `ccswap --list` to retry)"),
                 );
             }
             console.line("");
@@ -835,8 +836,6 @@ impl Switcher<'_> {
         Ok(Performed { from, to, warnings })
     }
 
-    /// The normal path: back up (or stash) the outgoing login, then the
-    /// recorded steps, rolled back newest first when a later one fails.
     #[allow(clippy::too_many_arguments)]
     fn switch_normally(
         &self,
@@ -904,8 +903,8 @@ impl Switcher<'_> {
         }
     }
 
-    /// Steps 1-5 of the normal path; every mutation of the live state is
-    /// recorded in `transaction` as soon as it lands.
+    /// Every mutation of the live state is recorded in `transaction` as soon
+    /// as it lands.
     #[allow(clippy::too_many_arguments)]
     fn run_steps(
         &self,
@@ -948,7 +947,7 @@ impl Switcher<'_> {
                 config_backup(self)?;
                 self.warn(
                     format!(
-                        "The live credential's tokens were wiped (Claude Code clears them when a refresh is rejected). Account-{current_account}'s stored backup was kept. If the account cannot authenticate after switching back, log in with Claude Code and run: cswap add"
+                        "The live credential's tokens were wiped (Claude Code clears them when a refresh is rejected). Account-{current_account}'s stored backup was kept. If the account cannot authenticate after switching back, log in with Claude Code and run: ccswap add"
                     ),
                     emit,
                     warnings,
@@ -978,7 +977,7 @@ impl Switcher<'_> {
             }
             Outgoing::Alien => self.warn(
                 format!(
-                    "The live login does not match a managed account. It was preserved and not written into Account-{current_account}. If you need that account, log in as it and run: cswap add"
+                    "The live login does not match a managed account. It was preserved and not written into Account-{current_account}. If you need that account, log in as it and run: ccswap add"
                 ),
                 emit,
                 warnings,
@@ -986,7 +985,7 @@ impl Switcher<'_> {
             ),
             Outgoing::KnownForeign => self.warn(
                 format!(
-                    "The live credential was previously identified as another account's. It was preserved and not written into Account-{current_account}. If the owning account later cannot authenticate, log in as it and run: cswap add"
+                    "The live credential was previously identified as another account's. It was preserved and not written into Account-{current_account}. If the owning account later cannot authenticate, log in as it and run: ccswap add"
                 ),
                 emit,
                 warnings,
@@ -994,7 +993,7 @@ impl Switcher<'_> {
             ),
             Outgoing::Foreign(slot) => self.warn(
                 format!(
-                    "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-{current_account}. If Account-{slot} later cannot authenticate, log in as it and run: cswap add --slot {slot}"
+                    "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-{current_account}. If Account-{slot} later cannot authenticate, log in as it and run: ccswap add --slot {slot}"
                 ),
                 emit,
                 warnings,
@@ -1064,9 +1063,8 @@ impl Switcher<'_> {
         }
     }
 
-    /// Fresh machine, unmanaged live login or `--force`: the target's stored
-    /// login replaces the live one with no backup step, so a live credential
-    /// that differs from it is stashed first.
+    /// There is no backup step here, so a live credential that differs from
+    /// the target's is stashed first.
     #[allow(clippy::too_many_arguments)]
     fn activate_directly(
         &self,
@@ -1162,15 +1160,25 @@ impl Switcher<'_> {
         if outcome.is_err() {
             if completed.contains(&Step::ConfigWritten)
                 && let Some(text) = &rollback_config
+                && let Err(e) = std::fs::write(&config_path, text)
+                    .and_then(|()| fsutil::chmod(&config_path, 0o600))
             {
-                let _ = std::fs::write(&config_path, text)
-                    .and_then(|()| fsutil::chmod(&config_path, 0o600));
+                log::error(format!("Failed to rollback config: {e}"));
             }
             if completed.contains(&Step::CredentialsWritten)
                 && let Some(credentials) = &rollback_credentials
+                && let Err(e) = self.secrets.write_active(credentials)
             {
-                let _ = self.secrets.write_active(credentials);
+                log::error(format!("Failed to rollback credentials: {e}"));
             }
+        } else if force && has_identity {
+            log::info(format!(
+                "Activated account {target} (forced, backup of current login skipped)"
+            ));
+        } else {
+            log::info(format!(
+                "Activated account {target} (no prior live account)"
+            ));
         }
         outcome
     }
@@ -1340,7 +1348,13 @@ impl Switcher<'_> {
             return None;
         }
         let provenance = self.prefetch_live_identity();
-        provenance.resolved.is_some().then_some(provenance)
+        if provenance.resolved.is_none() {
+            log::info(format!(
+                "Live credential diverges from Account-{slot}'s stored backup and ownership could not be verified; self-switch left everything untouched (pre-fix no-op)."
+            ));
+            return None;
+        }
+        Some(provenance)
     }
 
     /// Unreadable or empty live credentials count as matching: forcing a
@@ -1380,7 +1394,12 @@ impl Switcher<'_> {
         let Value::Object(context) = context else {
             unreachable!("json! object literal");
         };
-        UnclaimedStash::new(self.paths).write(live, context)
+        let id = UnclaimedStash::new(self.paths).write(live, context)?;
+        log::warning(format!(
+            "Live credential does not belong to Account-{config_slot} ({reason}): stashed as {id} (credentials mtime {}). Something outside cswap rewrote the live login after the last switch.",
+            credentials_mtime.as_deref().unwrap_or("unknown")
+        ));
+        Ok(id)
     }
 
     fn read_target_credentials(&self, num: &str, email: &str) -> Result<String> {
@@ -1394,7 +1413,7 @@ impl Switcher<'_> {
             )
         } else {
             format!(
-                "Account-{num} has no stored credentials. Re-add with: cswap --add-account --slot {num}"
+                "Account-{num} has no stored credentials. Re-add with: ccswap --add-account --slot {num}"
             )
         };
         Err(Error::new(ErrorKind::SwitchError, message))
@@ -1475,7 +1494,7 @@ impl Switcher<'_> {
         let pids = crate::session_profile::live_session_pids(self.paths, target, email);
         if !pids.is_empty() {
             let message = format!(
-                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'cswap run {target}'.",
+                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'ccswap run {target}'.",
                 crate::session_profile::join_pids(&pids)
             );
             self.warn(message, emit, warnings, console);
@@ -1541,6 +1560,21 @@ pub fn prepare_credentials_for_activation(target: &str, live: Option<&str>) -> S
     let Some(live) = live.and_then(credential_object) else {
         return target.to_string();
     };
+    if live.contains_key("claudeAiOauth") {
+        let mut unrecognized: Vec<&str> = live
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !SHARED_CREDENTIAL_KEYS.contains(k) && !ACCOUNT_CREDENTIAL_KEYS.contains(k))
+            .collect();
+        if !unrecognized.is_empty() {
+            unrecognized.sort_unstable();
+            let listed: Vec<String> = unrecognized.iter().map(|k| format!("'{k}'")).collect();
+            log::debug(format!(
+                "Live credential has sibling keys cswap does not recognize (a newer Claude Code?), treating them as slot-owned: [{}]",
+                listed.join(", ")
+            ));
+        }
+    }
     let Some(target_object) = credential_object(target).filter(|t| t.contains_key("claudeAiOauth"))
     else {
         return target.to_string();
@@ -1586,42 +1620,6 @@ fn followup(backend: ActiveBackend) -> &'static str {
     }
 }
 
-/// Number, then alias, then email; an email on several slots is an error.
-fn resolve_identifier(data: &JsonObject, identifier: &str) -> Result<Option<String>> {
-    if is_digits(identifier) {
-        return Ok(Some(identifier.to_string()));
-    }
-    if let Some(num) = store::find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let matches: Vec<(&String, &Value)> = store::accounts(data)
-        .into_iter()
-        .flatten()
-        .filter(|(_, r)| r.get("email").and_then(Value::as_str) == Some(identifier))
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [(num, _)] => Ok(Some((*num).clone())),
-        _ => {
-            let details: Vec<String> = matches
-                .iter()
-                .map(|(num, r)| {
-                    let org = r
-                        .get("organizationName")
-                        .and_then(Value::as_str)
-                        .filter(|o| !o.is_empty())
-                        .unwrap_or("personal");
-                    format!("{num} [{org}]")
-                })
-                .collect();
-            Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
-                details.join(", ")
-            )))
-        }
-    }
-}
-
 fn target_oauth_account(target_config: &Value) -> Result<Value> {
     target_config
         .get("oauthAccount")
@@ -1645,7 +1643,7 @@ fn no_config_backup(num: &str) -> Error {
     Error::new(
         ErrorKind::SwitchError,
         format!(
-            "Account-{num} has no stored config backup. Re-add with: cswap --add-account --slot {num}"
+            "Account-{num} has no stored config backup. Re-add with: ccswap --add-account --slot {num}"
         ),
     )
 }
@@ -1665,15 +1663,6 @@ fn slot_number(value: &Value) -> Option<i64> {
     }
 }
 
-/// Python's `str()` of a roster value, as slot keys are derived.
-fn python_str(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Null => "None".into(),
-        other => other.to_string(),
-    }
-}
-
 fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -1682,49 +1671,5 @@ fn truthy(value: &Value) -> bool {
         Value::String(s) => !s.is_empty(),
         Value::Array(a) => !a.is_empty(),
         Value::Object(o) => !o.is_empty(),
-    }
-}
-
-fn is_digits(text: &str) -> bool {
-    !text.is_empty() && text.chars().all(|c| c.is_ascii_digit())
-}
-
-/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`.
-fn is_valid_email(text: &str) -> bool {
-    let text = text.strip_suffix('\n').unwrap_or(text);
-    let Some((local, domain)) = text.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let domain_chars_ok = domain
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    let Some((host, tld)) = domain.rsplit_once('.') else {
-        return false;
-    };
-    local_ok
-        && domain_chars_ok
-        && !host.is_empty()
-        && tld.len() >= 2
-        && tld.chars().all(|c| c.is_ascii_alphabetic())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn email_validation_matches_the_upstream_pattern() {
-        assert!(is_valid_email("a.b+c@example.co"));
-        assert!(is_valid_email("a@b.example.com\n"));
-        assert!(!is_valid_email("a@example.c"));
-        assert!(!is_valid_email("a@example.c0m"));
-        assert!(!is_valid_email("a@.com"));
-        assert!(!is_valid_email("work"));
-        assert!(!is_valid_email("a@b@example.com"));
-        assert!(!is_valid_email("@example.com"));
     }
 }

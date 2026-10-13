@@ -1,6 +1,4 @@
-//! What the engine needs from the store and the switch: the port every
-//! frontend hands it ([`SwitcherHost`] in production, an in-memory fake in
-//! the engine's own tests).
+//! The engine's port to the store, the usage collector and the switch.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -22,7 +20,6 @@ use crate::switcher::Switcher;
 use crate::usage_collector::{UsageCollector, build_accounts_info};
 use crate::usage_store::UsageEntry;
 
-/// The result of an engine-driven switch (`switch_to(.., json=True)`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchResult {
     pub switched: bool,
@@ -34,7 +31,6 @@ pub struct SwitchResult {
 }
 
 pub trait EngineHost {
-    /// Where `autoswitch_state.json` lives.
     fn backup_root(&self) -> PathBuf;
     /// Slot of the live login; `None` when there is none or it is unmanaged.
     fn current_account_number(&self) -> Option<String>;
@@ -53,7 +49,6 @@ pub trait EngineHost {
     fn live_session_pids_for(&self, num: &str, email: &str) -> Vec<i32>;
     /// Refreshes a slot's backup credential under the consume gate.
     fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome;
-    /// The slot's stored identity.
     fn account_identity(&self, num: &str) -> SlotIdentity;
     /// Records a resolved uuid on a slot that has none; never rewrites one.
     fn backfill_account_uuid(&self, num: &str, uuid: &str);
@@ -71,7 +66,6 @@ impl Console for SilentConsole {
     }
 }
 
-/// The production host over the store, the usage collector and the switch.
 pub struct SwitcherHost<'a> {
     pub paths: &'a Paths,
     pub env: &'a Environment,

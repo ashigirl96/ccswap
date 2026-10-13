@@ -1,13 +1,12 @@
-//! `switch --strategy best|next-available` and `--model`.
-//!
 //! Ported from upstream tests/test_switcher.py::TestUsageAwareSwitch,
 //! test_best_strategy_ignores_disabled_candidate and
 //! tests/test_cli.py (strategy/model flag validation, model fallback to
-//! `autoswitch.model`, `models`/`modelSource` in `--json`). Usage is served
-//! by the stub usage endpoint per bearer token instead of patching
-//! `_usage_by_account`; a token without a stub answers 500 (usage unknown).
+//! `autoswitch.model`, `models`/`modelSource` in `--json`). A token without
+//! a usage stub answers 500 (usage unknown).
 
 mod support;
+
+use support::hint;
 
 use serde_json::{Value, json};
 use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, prog};
@@ -66,7 +65,6 @@ fn seed(env: &TestEnv, nums: &[u32], live: u32, recorded: u32) {
 /// Slot, then its five-hour utilization and optional Fable limit.
 type UsageRow = (u32, Option<(f64, Option<f64>)>);
 
-/// Five-hour utilization per slot, plus an optional Fable weekly limit.
 /// `None` leaves the slot's usage unknown.
 fn stub_usage(env: &TestEnv, rows: &[UsageRow]) {
     let bodies: Vec<(String, String)> = rows
@@ -98,7 +96,7 @@ fn five_hour(rows: &[(u32, f64)]) -> Vec<UsageRow> {
 }
 
 fn active(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))["activeAccountNumber"].clone()
+    env.sequence()["activeAccountNumber"].clone()
 }
 
 fn live_token(env: &TestEnv) -> String {
@@ -210,7 +208,7 @@ fn best_noop_reasons_and_messages() {
 
         let out = env.run(["switch", "--strategy", "best"]);
         out.assert_code(0);
-        assert_eq!(out.stdout, human, "{name}");
+        assert_eq!(out.stdout, hint(human), "{name}");
         assert_eq!(active(&env), 1, "{name}");
         assert_eq!(live_token(&env), "at-1", "{name}");
     }
@@ -220,7 +218,7 @@ fn best_noop_reasons_and_messages() {
 fn best_strategy_ignores_disabled_candidate() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1, 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["disabled"] = true.into();
     env.seed_sequence(data);
     stub_usage(&env, &five_hour(&[(1, 90.0), (2, 0.0)]));

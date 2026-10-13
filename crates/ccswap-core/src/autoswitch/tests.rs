@@ -1,6 +1,5 @@
-//! Tick sequences on an in-memory host with a stepped clock (upstream
-//! `tests/test_autoswitch.py`, `EngineHarness` + `FakeClock`). Test names
-//! keep upstream's `Class::test` names.
+//! Ported from upstream `tests/test_autoswitch.py` (`EngineHarness` +
+//! `FakeClock`); test names keep upstream's `Class::test` names.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -479,8 +478,6 @@ fn s(n: &str) -> Option<String> {
     Some(n.to_string())
 }
 
-// --- TestDecisionTable --------------------------------------------------------
-
 #[test]
 fn decision_table_test_below_threshold_is_no_action() {
     let h = Harness::three();
@@ -869,8 +866,6 @@ fn decision_table_test_all_exhausted_ignores_non_future_reset() {
     }
 }
 
-// --- TestApiKeyAccounts -------------------------------------------------------
-
 #[test]
 fn api_key_accounts_test_api_key_candidate_excluded_by_default() {
     let h = Harness::bare();
@@ -938,8 +933,6 @@ fn api_key_accounts_test_active_api_key_idles_engine() {
     assert_eq!(e.tick(), TickOutcome::NoAction);
     assert_eq!(h.reasons(), ["active-api-key"]);
 }
-
-// --- TestFreshening (the parts that need no consume gate) ---------------------
 
 #[test]
 fn freshening_test_fresh_target_is_not_refreshed() {
@@ -1045,8 +1038,6 @@ fn freshening_systemic_refusal_names_its_cause() {
     );
 }
 
-// --- TestQuarantineLifecycle --------------------------------------------------
-
 fn quarantine_two(h: &Harness) {
     let mut e = h.default_engine();
     e.quarantine("2", "b@example.com", "invalid_grant").unwrap();
@@ -1108,8 +1099,6 @@ fn quarantine_lifecycle_test_state_lock_preserves_concurrent_writes() {
     assert!(written["quarantine"].get("3").is_some());
 }
 
-// --- TestDryRunAndNoOp --------------------------------------------------------
-
 #[test]
 fn dry_run_and_noop_test_dry_run_mutates_nothing() {
     let h = Harness::two();
@@ -1168,8 +1157,6 @@ fn dry_run_and_noop_test_already_active_result_is_noop() {
     assert_eq!(out, TickOutcome::NoAction);
     assert!(h.host.state().get("lastSwitchAt").is_none());
 }
-
-// --- TestEventsShape ----------------------------------------------------------
 
 #[test]
 fn events_shape_test_every_event_has_envelope() {
@@ -1285,8 +1272,6 @@ fn events_shape_poll_json_matches_python_dumps() {
     );
 }
 
-// --- TestPctLabel (engine part) -----------------------------------------------
-
 #[test]
 fn pct_label_test_below_threshold_detail_shows_fractional_threshold() {
     let h = Harness::two();
@@ -1302,8 +1287,6 @@ fn pct_label_test_below_threshold_detail_never_shows_impossible_comparison() {
     h.tick(&mut e, &[("1", usage(99.85)), ("2", usage(10.0))]);
     assert_eq!(h.details(), ["99.85% < 99.9%"]);
 }
-
-// --- TestModelAwareSwitch -----------------------------------------------------
 
 fn model_engine<'h>(h: &'h Harness, model: Option<&str>) -> AutoSwitchEngine<'h> {
     h.engine(with(|s| s.model = model.map(str::to_string)))
@@ -1546,8 +1529,6 @@ fn model_aware_test_matching_name_never_warns() {
     );
     assert!(!h.has("config-warning"));
 }
-
-// --- TestConsumeFirstStrategy -------------------------------------------------
 
 const R_PAST: &str = "1970-01-10T00:00:00Z";
 const R_SOON: &str = "2024-01-05T00:00:00Z";
@@ -1958,8 +1939,6 @@ fn consume_first_test_threshold_crossed_in_phase_two_holds_then_escapes_next_tic
     assert_eq!(h.active(), s("2"));
     assert_eq!(h.switch().unwrap().0, Trigger::AtLimit);
 }
-
-// --- state written by a switch ------------------------------------------------
 
 #[test]
 fn a_switch_records_where_it_came_from_and_what_it_left() {

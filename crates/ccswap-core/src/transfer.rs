@@ -1,6 +1,6 @@
 //! `export` / `import`: accounts carried between machines in a JSON envelope
-//! (format version 1). Every human message goes to the `notice` sink (stderr
-//! in the CLI) so `export -` keeps stdout pure JSON.
+//! (format version 1). Every human message goes to the `notice` sink so
+//! `export -` keeps stdout pure JSON.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -63,11 +63,11 @@ impl Transfer<'_> {
         let accounts = store::accounts(&data)
             .filter(|a| !a.is_empty())
             .ok_or_else(|| {
-                transfer_error("no accounts to export — run cswap --add-account first")
+                transfer_error("no accounts to export — run ccswap --add-account first")
             })?;
 
         let targets: Vec<String> = match account {
-            Some(identifier) => match resolve_account_identifier(&data, identifier)? {
+            Some(identifier) => match store::resolve_account_identifier(Some(&data), identifier)? {
                 Some(num) if accounts.contains_key(&num) => vec![num],
                 _ => return Err(transfer_error(format!("account not found: {identifier}"))),
             },
@@ -119,7 +119,7 @@ impl Transfer<'_> {
                         )));
                     }
                     notice(&format!(
-                        "Skipping Account-{num} ({email}): no stored credentials/config — re-add with: cswap --add-account --slot {num}"
+                        "Skipping Account-{num} ({email}): no stored credentials/config — re-add with: ccswap --add-account --slot {num}"
                     ));
                     continue;
                 }
@@ -175,7 +175,7 @@ impl Transfer<'_> {
 
         if entries.is_empty() {
             return Err(transfer_error(
-                "no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>",
+                "no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: ccswap --add-account --slot <number>",
             ));
         }
 
@@ -270,7 +270,7 @@ impl Transfer<'_> {
         }
         if envelope.get("encrypted") == Some(&Value::Bool(true)) {
             return Err(transfer_error(
-                "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+                "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | ccswap --import -)",
             ));
         }
         let raw_accounts = match envelope.get("accounts") {
@@ -325,7 +325,7 @@ impl Transfer<'_> {
                         session_profile::live_session_pids(self.paths, &existing, &entry.email);
                     if !live.is_empty() {
                         notice(&format!(
-                            "Warning: {} (slot {existing}) has a live session-mode instance (PID {}); its session profile keeps the pre-import credentials until it is restarted via 'cswap run'.",
+                            "Warning: {} (slot {existing}) has a live session-mode instance (PID {}); its session profile keeps the pre-import credentials until it is restarted via 'ccswap run'.",
                             entry.email,
                             session_profile::join_pids(&live)
                         ));
@@ -438,7 +438,7 @@ impl Transfer<'_> {
             && written.contains(&live_slot)
         {
             notice(&format!(
-                "Note: {} is your current live login — activate the imported credentials with: cswap --switch-to {live_slot} --force",
+                "Note: {} is your current live login — activate the imported credentials with: ccswap --switch-to {live_slot} --force",
                 identity.email
             ));
         }
@@ -593,7 +593,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
         return Err(transfer_error("account entry must be a JSON object"));
     };
     let email = match account.get("email") {
-        Some(Value::String(e)) if is_valid_email(e) => e.clone(),
+        Some(Value::String(e)) if store::is_valid_email(e) => e.clone(),
         other => {
             return Err(transfer_error(format!(
                 "invalid or missing email in imported account: {}",
@@ -623,7 +623,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
             Some(other) => {
                 return Err(transfer_error(format!(
                     "{field} for {email} must be a string, got {}",
-                    py_type_name(other)
+                    crate::pyjson::py_type_name(other)
                 )));
             }
         }
@@ -633,66 +633,6 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
             .map_err(|e| transfer_error(format!("invalid alias for {email}: {e}")))?;
     }
     Ok((account, email, num))
-}
-
-/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`, whose
-/// `$` also matches before one trailing newline.
-fn is_valid_email(email: &str) -> bool {
-    let email = email.strip_suffix('\n').unwrap_or(email);
-    let Some((local, domain)) = email.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let domain_ok = domain
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    let tld_ok = domain.rfind('.').is_some_and(|dot| {
-        let tld = &domain[dot + 1..];
-        dot >= 1 && tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
-    });
-    local_ok && domain_ok && tld_ok
-}
-
-/// Number, then alias, then email; an email shared across organizations is ambiguous.
-fn resolve_account_identifier(data: &JsonObject, identifier: &str) -> Result<Option<String>> {
-    if !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(Some(identifier.to_string()));
-    }
-    if let Some(num) = store::find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let Some(accounts) = store::accounts(data) else {
-        return Ok(None);
-    };
-    let matches: Vec<&String> = accounts
-        .iter()
-        .filter(|(_, a)| a.get("email").and_then(Value::as_str) == Some(identifier))
-        .map(|(n, _)| n)
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some((*one).clone())),
-        many => {
-            let details: Vec<String> = many
-                .iter()
-                .map(|n| {
-                    let name = accounts[n.as_str()]
-                        .get("organizationName")
-                        .filter(|v| truthy(v))
-                        .and_then(Value::as_str)
-                        .unwrap_or("personal");
-                    format!("{n} [{name}]")
-                })
-                .collect();
-            Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
-                details.join(", ")
-            )))
-        }
-    }
 }
 
 fn parse_payload(text: &str, label: &str) -> Result<JsonObject> {
@@ -784,18 +724,6 @@ fn unset_active(value: Option<&Value>) -> bool {
     }
 }
 
-fn py_type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
-}
-
 /// Python `repr()` of a decoded JSON value.
 fn py_repr(value: &Value) -> String {
     match value {
@@ -876,27 +804,6 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn email_rule_matches_the_upstream_regex() {
-        for ok in ["a@b.co", "a.b+c%d_e-f@x-y.example.com", "a@b.co\n"] {
-            assert!(is_valid_email(ok), "{ok:?}");
-        }
-        for bad in [
-            "../../evil",
-            "a@b",
-            "a@.com",
-            "@b.com",
-            "a@b.c",
-            "a@b.c0m",
-            "a@@b.com",
-            "a b@c.com",
-            "a@b.com\n\n",
-            "é@b.com",
-        ] {
-            assert!(!is_valid_email(bad), "{bad:?}");
-        }
-    }
 
     #[test]
     fn repr_follows_python() {

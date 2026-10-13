@@ -1,9 +1,5 @@
-//! The harness itself: isolation guard and the contracts of its doubles.
-//!
-//! The fake `security` follows upstream tests/test_macos_keychain.py
-//! (exit 44 = not found, secret only with `-w`, `-i` reads commands from stdin
-//! with `-X <hex>`); the guard has the purpose of upstream
-//! tests/test_real_store_guard.py.
+//! The fake `security` follows upstream tests/test_macos_keychain.py and the
+//! isolation guard ports the purpose of tests/test_real_store_guard.py.
 
 mod support;
 

@@ -1,6 +1,4 @@
-//! The menu bar's strings: title, account rows, usage log lines and the
-//! switch history (upstream `menubar.py` pure helpers). `{:.0}` matches
-//! Python's `:.0f` (ties to even); `f64::round` would not.
+//! `{:.0}` matches Python's `:.0f` (ties to even); `f64::round` would not.
 
 use ccswap_core::pace::compute_pace;
 use ccswap_core::snapshot::AccountsSnapshot;
@@ -16,8 +14,6 @@ pub const SWITCH_HISTORY_LIMIT: usize = 10;
 const WEEKLY_PERIOD_S: f64 = 7.0 * 86400.0;
 const SEPARATOR: &str = " · ";
 
-/// What an account row shows: a sentinel note, the last good measurement,
-/// or nothing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DisplayUsage {
     Note(String),
@@ -57,7 +53,6 @@ pub struct MenuAccount {
 }
 
 impl MenuAccount {
-    /// `alias  (email)`, or the bare email.
     pub fn name(&self) -> String {
         if self.alias.is_empty() {
             self.email.clone()
@@ -67,7 +62,6 @@ impl MenuAccount {
     }
 }
 
-/// What the menu renders from one snapshot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuSnapshot {
     pub accounts: Vec<MenuAccount>,
@@ -141,8 +135,7 @@ fn resets_at_ts(window: Option<&Value>) -> f64 {
         .unwrap_or(f64::INFINITY)
 }
 
-/// Time left until a window resets, from `resets_at` (the stored
-/// countdown is frozen at fetch time).
+/// Reads `resets_at` because the stored countdown is frozen at fetch time.
 fn live_countdown(window: Option<&Value>, now: f64) -> Option<String> {
     let ts = resets_at_ts(window);
     if ts.is_infinite() {
@@ -216,8 +209,7 @@ fn named_pct(window: &Map<String, Value>) -> Option<(&str, f64)> {
     (!name.is_empty()).then_some((name, pct))
 }
 
-/// One account row's usage, countdowns computed live. `fetched_at` only
-/// drives the weekly "ahead of pace" marker.
+/// `fetched_at` only drives the weekly "ahead of pace" marker.
 pub fn usage_summary(usage: &DisplayUsage, now: f64, fetched_at: Option<f64>) -> String {
     let usage = match usage {
         DisplayUsage::Note(note) => return note.clone(),
@@ -286,7 +278,6 @@ pub fn format_account_label(account: &MenuAccount, now: f64) -> String {
     )
 }
 
-/// The email's local part, cut to `limit` characters with a `*` marker.
 fn local_part(email: &str) -> String {
     const LIMIT: usize = 12;
     let local = email.split('@').next().unwrap_or_default();

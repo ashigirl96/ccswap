@@ -1,14 +1,10 @@
 //! The active slot's usage fetch (upstream `_fetch_active_usage` and
-//! `_resync_rotated_backup`). An expired or server-rejected active token is
-//! refreshed under Claude Code's own lock protocol (locks → re-read →
-//! decide → POST → persist → release), which a live Claude Code serializes
-//! against and then adopts.
+//! `_resync_rotated_backup`), refreshing under Claude Code's own lock
+//! protocol so a live Claude Code serializes against and adopts the result.
 //!
-//! Two invariants: a live credential is consumed or written into the slot
-//! backup only when its lineage is attributed to the slot (backup lineage,
-//! a profile-oracle verdict, or our own POST); and a consumed generation is
-//! never discarded — the successor is written to both stores, each allowed
-//! to fail alone.
+//! A live credential is consumed or written into the slot backup only when
+//! its lineage is attributed to the slot, and a consumed generation is never
+//! discarded: the successor goes to both stores, each allowed to fail alone.
 
 use std::time::Duration;
 
@@ -324,10 +320,8 @@ impl Fetcher<'_> {
         Ok(Locked::Working(working))
     }
 
-    /// After the server accepted a live credential of another lineage than
-    /// the backup (Claude Code rotated during normal use), resync the backup
-    /// — but only once the profile endpoint attributes that lineage to the
-    /// slot, probed here before any lock. Best effort; never fails.
+    /// Resyncs the backup to a live lineage Claude Code rotated to only once
+    /// the profile endpoint, probed before any lock, attributes it to the slot.
     fn resync_rotated_backup(&self, info: &AccountInfo) {
         let (num, email, creds) = (&info.num, &info.email, &info.creds);
         if !extract_oauth_data(creds).is_some_and(|o| has_token_pair(&o)) {

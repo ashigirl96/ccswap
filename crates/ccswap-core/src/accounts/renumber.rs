@@ -1,11 +1,9 @@
-//! `swap` and `move`: renumbering slots. Everything keyed by the slot number
-//! follows its account (record incl. alias, credential and config backups,
-//! session profile, `sequence` membership, `activeAccountNumber`); directory
-//! mappings and usage-cache rows key on identity and are left alone.
+//! Directory mappings and usage-cache rows key on identity, so a renumber
+//! leaves them alone.
 //!
-//! The `sequence.json` write is the commit point. Destination keys are set
+//! The `sequence.json` write is the commit point: destination keys are set
 //! before it and old keys cleared only after it, so the roster never points
-//! at missing material; a failure before it restores both slots.
+//! at missing material.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -157,7 +155,7 @@ impl Renumber<'_, '_> {
 
         if a.email != b.email {
             for side in [&a, &b] {
-                self.delete_account_files(&side.num, &side.email);
+                self.delete_old_key(&side.num, &side.email);
             }
         }
         // The .prev generations written while overwriting the destination
@@ -239,8 +237,11 @@ impl Renumber<'_, '_> {
         let dst_dir = session_profile::session_dir_for(paths, target, email);
 
         let result = (|| -> Result<()> {
-            if src_dir.exists() && !dst_dir.exists() {
-                let _ = std::fs::rename(&src_dir, &dst_dir);
+            if src_dir.exists()
+                && !dst_dir.exists()
+                && let Err(e) = std::fs::rename(&src_dir, &dst_dir)
+            {
+                crate::log::warning(format!("Session profile move skipped during move: {e}"));
             }
             self.set_key(target, email, &side)?;
             let accounts = accounts_mut(&mut data);
@@ -256,16 +257,20 @@ impl Renumber<'_, '_> {
         })();
         if let Err(error) = result {
             self.acc.secrets.delete_backup(target, email);
-            if delete_config_strict(paths, target, email).is_ok()
-                && dst_dir.exists()
-                && !src_dir.exists()
-            {
-                let _ = std::fs::rename(&dst_dir, &src_dir);
+            let cleanup = delete_config_strict(paths, target, email).and_then(|()| {
+                if dst_dir.exists() && !src_dir.exists() {
+                    std::fs::rename(&dst_dir, &src_dir)
+                        .map_err(|e| Error::config(e.to_string()))?;
+                }
+                Ok(())
+            });
+            if let Err(e) = cleanup {
+                crate::log::error(format!("Cleanup after failed move incomplete: {e}"));
             }
             return Err(error);
         }
 
-        self.delete_account_files(source, email);
+        self.delete_old_key(source, email);
         if !side.creds.is_empty() {
             self.acc.secrets.delete_previous_backup(target, email);
         }
@@ -273,9 +278,8 @@ impl Renumber<'_, '_> {
         Ok(())
     }
 
-    /// Reads a slot's material before anything moves. An unreadable (not
-    /// absent) credential aborts: carrying it as "" would drop the slot's
-    /// live refresh token at its new number.
+    /// An unreadable (not absent) credential aborts: carrying it as "" would
+    /// drop the slot's live refresh token at its new number.
     fn snapshot(&self, num: String, email: String) -> Result<Side> {
         let read = self.acc.secrets.read_backup(&num, &email);
         if read.unreadable {
@@ -292,9 +296,8 @@ impl Renumber<'_, '_> {
         })
     }
 
-    /// Sets key `(num, email)` to `owner`'s exact state: writes what exists
-    /// and actively clears what does not, so an unbacked account never
-    /// adopts leftover material under its new key.
+    /// Clears what `owner` lacks, so an unbacked account never adopts leftover
+    /// material under its new key.
     fn set_key(&self, num: &str, email: &str, owner: &Side) -> Result<()> {
         self.restore(Kind::Creds, num, email, &owner.creds, true)?;
         self.restore(Kind::Config, num, email, &owner.config, true)
@@ -324,10 +327,15 @@ impl Renumber<'_, '_> {
         Ok(())
     }
 
-    /// Best-effort removal of a vacated key; a leftover is unreferenced.
-    fn delete_account_files(&self, num: &str, email: &str) {
+    /// Best-effort removal of a vacated key; a leftover is unreferenced but
+    /// would poison a later same-email account landing on that number.
+    fn delete_old_key(&self, num: &str, email: &str) {
         self.acc.secrets.delete_backup(num, email);
-        let _ = delete_config_strict(self.acc.paths, num, email);
+        if let Err(e) = delete_config_strict(self.acc.paths, num, email) {
+            crate::log::error(format!(
+                "Stale backup left under old key {num} ({email}): {e}"
+            ));
+        }
         session_profile::delete_slot_profile(
             self.acc.secrets.keychain(),
             self.acc.paths,
@@ -336,8 +344,7 @@ impl Renumber<'_, '_> {
         );
     }
 
-    /// Exchanges two profile dirs, staging the first through a temporary
-    /// name since same-email paths swap directly. Best effort: a profile
+    /// Same-email paths swap directly, hence the temporary name; a profile
     /// that cannot move costs only its history, as `run` re-seeds it.
     fn swap_session_dirs(&self, num_a: &str, email_a: &str, num_b: &str, email_b: &str) {
         let dir =
@@ -345,24 +352,26 @@ impl Renumber<'_, '_> {
         let (dir_a, dir_b) = (dir(num_a, email_a), dir(num_b, email_b));
         let (new_a, new_b) = (dir(num_b, email_a), dir(num_a, email_b));
         let mut parked: Option<PathBuf> = None;
-        'moves: {
+        let moved = (|| -> std::io::Result<()> {
             if dir_a.exists() {
                 let name = dir_a.file_name().unwrap_or_default().to_string_lossy();
                 let temp = dir_a.with_file_name(format!("{name}.swapping"));
-                if std::fs::rename(&dir_a, &temp).is_err() {
-                    break 'moves;
-                }
+                std::fs::rename(&dir_a, &temp)?;
                 parked = Some(temp);
             }
-            if dir_b.exists() && !new_b.exists() && std::fs::rename(&dir_b, &new_b).is_err() {
-                break 'moves;
+            if dir_b.exists() && !new_b.exists() {
+                std::fs::rename(&dir_b, &new_b)?;
             }
             if let Some(temp) = &parked
                 && !new_a.exists()
-                && std::fs::rename(temp, &new_a).is_ok()
             {
+                std::fs::rename(temp, &new_a)?;
                 parked = None;
             }
+            Ok(())
+        })();
+        if let Err(e) = moved {
+            crate::log::warning(format!("Session profile move skipped during swap: {e}"));
         }
         if let Some(temp) = parked
             && !dir_a.exists()
@@ -371,9 +380,8 @@ impl Renumber<'_, '_> {
         }
     }
 
-    /// Parks each side's material in `.swap-staging-<kind>-<num>.json`
-    /// (0600, `O_EXCL`). A leftover from an interrupted swap may be the only
-    /// surviving copy of a credential, so it is never overwritten.
+    /// A leftover from an interrupted swap may be the only surviving copy of a
+    /// credential, so it is never overwritten.
     fn stage_overlap_material(&mut self, sides: &[&Side]) -> Result<Vec<PathBuf>> {
         let dir = self.acc.paths.credentials_dir();
         let mut staged = Vec::new();
@@ -386,7 +394,7 @@ impl Renumber<'_, '_> {
                 if path.exists() {
                     self.discard_staging(&staged);
                     return Err(Error::config(format!(
-                        "Found leftover staging from an interrupted swap: {}. It holds that slot's pre-swap credentials and may be the only surviving copy. Verify both accounts still work (`cswap list`), then delete the file and retry.",
+                        "Found leftover staging from an interrupted swap: {}. It holds that slot's pre-swap credentials and may be the only surviving copy. Verify both accounts still work (`ccswap list`), then delete the file and retry.",
                         path.display()
                     )));
                 }
@@ -414,10 +422,13 @@ impl Renumber<'_, '_> {
         }
     }
 
-    /// Puts both slots back under their old keys after a failure before the
-    /// commit. Every step is attempted; if any fails, the staged copies stay
-    /// on disk for manual recovery.
+    /// Every step is attempted; if any fails, the staged copies stay on disk
+    /// for manual recovery.
     fn rollback_swap(&mut self, a: &Side, b: &Side, staging: &[PathBuf]) {
+        crate::log::error(format!(
+            "Swap {} <-> {} failed mid-write; restoring both slots",
+            a.num, b.num
+        ));
         self.swap_session_dirs(&b.num, &a.email, &a.num, &b.email);
         let overlap = a.email == b.email;
         let mut failures = 0;
@@ -433,18 +444,24 @@ impl Renumber<'_, '_> {
             };
             // An originally empty overlapping key may now hold the other
             // account's material and must read empty again.
-            if self
-                .restore(kind, &side.num, &side.email, original, overlap)
-                .is_err()
-            {
+            if let Err(e) = self.restore(kind, &side.num, &side.email, original, overlap) {
                 failures += 1;
+                let kind = match kind {
+                    Kind::Creds => "creds",
+                    Kind::Config => "config",
+                };
+                crate::log::error(format!(
+                    "Rollback {kind} restore failed for slot {}: {e}",
+                    side.num
+                ));
             }
         }
         if !overlap {
             for (num, email) in [(&b.num, &a.email), (&a.num, &b.email)] {
                 self.acc.secrets.delete_backup(num, email);
-                if delete_config_strict(self.acc.paths, num, email).is_err() {
+                if let Err(e) = delete_config_strict(self.acc.paths, num, email) {
                     failures += 1;
+                    crate::log::error(format!("Rollback cleanup failed for slot {num}: {e}"));
                 }
             }
         }
@@ -462,6 +479,10 @@ impl Renumber<'_, '_> {
         }
         if failures > 0 {
             let kept: Vec<String> = staging.iter().map(|p| p.display().to_string()).collect();
+            crate::log::error(format!(
+                "Rollback incomplete — staged pre-swap copies kept for manual recovery: {}",
+                kept.join(", ")
+            ));
             let style = self.acc.style;
             self.console.line(&style.yellowed(&format!(
                 "Swap rollback was incomplete; your pre-swap credentials are preserved in: {}",

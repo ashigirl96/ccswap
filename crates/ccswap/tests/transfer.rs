@@ -1,5 +1,3 @@
-//! `export` / `import`: accounts as a portable JSON envelope (version 1).
-//!
 //! Ported from upstream tests/test_transfer.py (TestRoundTrip,
 //! TestAliasTransfer, TestSelectiveExport, TestConflictPolicy, TestValidation,
 //! TestPipeMode, TestEmptyHome, TestFilePermissions,
@@ -10,6 +8,8 @@
 //! round trips with upstream `cswap`.
 
 mod support;
+
+use support::hint;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -92,7 +92,7 @@ impl<'a> Seed<'a> {
     }
 }
 
-/// Backup credential + config copy + roster record, like upstream `_seed_account`.
+/// Mirrors upstream `_seed_account`.
 fn seed(env: &TestEnv, s: Seed) {
     let creds = s.creds.clone().unwrap_or_else(|| creds_for(s.email));
     let config = s
@@ -150,13 +150,9 @@ fn seed_record(env: &TestEnv, s: &Seed) {
 }
 
 fn set_active(env: &TestEnv, active: Value) {
-    let mut data = sequence(env);
+    let mut data = env.sequence();
     data["activeAccountNumber"] = active;
     env.seed_sequence(data);
-}
-
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
 }
 
 fn stored_creds_text(env: &TestEnv, num: &str, email: &str) -> Option<String> {
@@ -258,8 +254,6 @@ fn sample_envelope(email: Value, number: Value) -> Value {
     })
 }
 
-// --- round trip -------------------------------------------------------------
-
 #[test]
 fn export_import_round_trip() {
     let src = TestEnv::new();
@@ -346,7 +340,7 @@ fn export_import_round_trip() {
         out.stderr,
         "Imported alice@example.com → slot 1\nImported bob@example.com → slot 2\nDone: 2 imported, 0 overwritten, 0 skipped\n"
     );
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["activeAccountNumber"], 1);
     assert_eq!(seq["sequence"], json!([1, 2]));
     assert_eq!(
@@ -378,7 +372,7 @@ fn active_state_carried_but_not_applied() {
     let dst = TestEnv::new();
     seed(&dst, Seed::new(9, "local@example.com"));
     import(&dst, &file, &[]).assert_code(0);
-    assert_eq!(sequence(&dst)["activeAccountNumber"], 9);
+    assert_eq!(dst.sequence()["activeAccountNumber"], 9);
 }
 
 #[test]
@@ -397,8 +391,6 @@ fn import_never_touches_the_live_login() {
     );
 }
 
-// --- aliases ----------------------------------------------------------------
-
 #[test]
 fn alias_round_trips() {
     let src = TestEnv::new();
@@ -411,7 +403,7 @@ fn alias_round_trips() {
 
     let dst = TestEnv::new();
     import(&dst, &file, &[]).assert_code(0);
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["1"]["alias"], "dev");
     assert!(seq["accounts"]["2"].get("alias").is_none());
 }
@@ -430,7 +422,7 @@ fn import_alias_collision_with_local_drops_and_warns() {
     assert!(out.stderr.starts_with(
         "Warning: alias 'dev' for alice@example.com already used by an existing account, dropping the imported alias\n"
     ), "{}", out.stderr);
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["9"]["alias"], "dev");
     assert!(seq["accounts"]["1"].get("alias").is_none());
 }
@@ -447,7 +439,7 @@ fn import_reexport_of_same_account_keeps_own_alias() {
     let out = import(&dst, &file, &["--force"]);
     out.assert_code(0);
     assert!(!out.stderr.contains("Warning"), "{}", out.stderr);
-    assert_eq!(sequence(&dst)["accounts"]["1"]["alias"], "dev");
+    assert_eq!(dst.sequence()["accounts"]["1"]["alias"], "dev");
 }
 
 #[test]
@@ -483,8 +475,6 @@ fn import_invalid_alias_format_rejected() {
         "Error: invalid alias for alice@example.com: alias '123' cannot be purely numeric (reserved for slot numbers)\n"
     );
 }
-
-// --- selective export -------------------------------------------------------
 
 #[test]
 fn export_single_by_number_or_email() {
@@ -522,7 +512,7 @@ fn export_unknown_account_or_empty_roster_fails() {
     out.assert_code(1);
     assert_eq!(
         out.stderr,
-        "Error: no accounts to export — run cswap --add-account first\n"
+        hint("Error: no accounts to export — run cswap --add-account first\n")
     );
 
     seed(&env, Seed::new(1, "a@example.com"));
@@ -531,8 +521,6 @@ fn export_unknown_account_or_empty_roster_fails() {
     assert_eq!(out.stderr, "Error: account not found: 999\n");
     assert!(!file.exists());
 }
-
-// --- conflicts --------------------------------------------------------------
 
 #[test]
 fn skip_when_account_exists_without_force() {
@@ -547,7 +535,7 @@ fn skip_when_account_exists_without_force() {
         out.stderr,
         "Skipped alice@example.com (already exists, use --force)\nDone: 0 imported, 0 overwritten, 1 skipped\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(
         seq["accounts"]
             .as_object()
@@ -584,7 +572,7 @@ fn force_overwrites_existing_slot_in_place() {
         "ALICE_NEW"
     );
     assert_eq!(stored_creds_text(&env, "1", "bob@example.com"), bob_before);
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["accounts"]["1"]["email"], "bob@example.com");
     assert_eq!(seq["accounts"]["3"]["email"], "alice@example.com");
 }
@@ -609,7 +597,7 @@ fn import_over_live_login_hints_force_activation() {
     out.assert_code(0);
     assert!(
         out.stderr.ends_with(
-            "Note: alice@example.com is your current live login — activate the imported credentials with: cswap --switch-to 1 --force\n"
+            &hint("Note: alice@example.com is your current live login — activate the imported credentials with: cswap --switch-to 1 --force\n")
         ),
         "{}",
         out.stderr
@@ -655,13 +643,11 @@ fn slot_allocation_when_exported_slot_taken() {
         out.stderr
             .starts_with("Imported alice@example.com → slot 5\n")
     );
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["1"]["email"], "bob@example.com");
     assert_eq!(seq["accounts"]["5"]["email"], "alice@example.com");
     assert_eq!(seq["sequence"], json!([1, 4, 5]));
 }
-
-// --- validation -------------------------------------------------------------
 
 fn assert_import_rejected(envelope: &Value, expected: &str) {
     let env = TestEnv::new();
@@ -722,7 +708,9 @@ fn envelope_checks_rejected() {
     env["encrypted"] = true.into();
     assert_import_rejected(
         &env,
-        "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+        &hint(
+            "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+        ),
     );
 
     let mut env = sample_envelope("user@example.com".into(), 1.into());
@@ -835,12 +823,10 @@ fn a_linux_export_imports_into_the_keychain() {
         stored_creds_text(&env, "3", "user@example.com").unwrap(),
         r#"{"accessToken": "tok-1", "refreshToken": "rtok-1", "expiresAt": 9999}"#
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["activeAccountNumber"], 3);
     assert_eq!(seq["accounts"]["3"]["uuid"], "u");
 }
-
-// --- pipes, empty home, permissions -----------------------------------------
 
 #[test]
 fn export_to_stdout_writes_only_json() {
@@ -860,7 +846,7 @@ fn import_from_stdin() {
     let out = env.cmd(["import", "-"]).stdin(&envelope.to_string()).run();
     out.assert_code(0);
     assert_eq!(
-        sequence(&env)["accounts"]["1"]["email"],
+        env.sequence()["accounts"]["1"]["email"],
         "alice@example.com"
     );
 }
@@ -878,7 +864,7 @@ fn import_into_empty_home_initializes_store() {
     for dir in ["", "configs", "credentials"] {
         assert_eq!(mode(&dst.store_dir().join(dir)), 0o700, "{dir}");
     }
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["1"]["email"], "alice@example.com");
     assert_eq!(
         seq.as_object().unwrap().keys().collect::<Vec<_>>(),
@@ -931,8 +917,6 @@ fn export_expands_tilde() {
     assert!(env.home().join("b.cswap").exists());
 }
 
-// --- clean-home activation seeding -------------------------------------------
-
 fn export_alice_bob_active_bob() -> (TestEnv, PathBuf) {
     let src = TestEnv::new();
     seed(&src, Seed::new(1, "alice@example.com"));
@@ -949,7 +933,7 @@ fn import_preserves_existing_active_account() {
     let dst = TestEnv::new();
     seed(&dst, Seed::new(5, "local@example.com"));
     import(&dst, &file, &[]).assert_code(0);
-    assert_eq!(sequence(&dst)["activeAccountNumber"], 5);
+    assert_eq!(dst.sequence()["activeAccountNumber"], 5);
 }
 
 #[test]
@@ -959,7 +943,7 @@ fn active_seeded_to_resolved_slot_not_envelope_slot() {
     seed(&dst, Seed::new(2, "local@example.com"));
     set_active(&dst, Value::Null);
     import(&dst, &file, &[]).assert_code(0);
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["2"]["email"], "local@example.com");
     let bob = slot_of(&seq, "bob@example.com");
     assert_ne!(bob, "2");
@@ -976,12 +960,10 @@ fn active_seeded_when_envelope_active_was_skipped() {
     seed(&dst, Seed::new(7, "bob@example.com"));
     set_active(&dst, json!(0));
     import(&dst, &file, &[]).assert_code(0);
-    let seq = sequence(&dst);
+    let seq = dst.sequence();
     assert_eq!(seq["accounts"]["7"]["email"], "bob@example.com");
     assert_eq!(seq["activeAccountNumber"], 7);
 }
-
-// --- slim vs full -----------------------------------------------------------
 
 fn bloated_config() -> Value {
     json!({
@@ -1083,7 +1065,7 @@ fn api_key_accounts_round_trip_as_raw_strings() {
         "account-1-api-key-1@token.local",
         "  sk-ant-api03-secret\n",
     );
-    let mut data = sequence(&src);
+    let mut data = src.sequence();
     data["accounts"]["1"]["kind"] = "api_key".into();
     src.seed_sequence(data);
     let file = backup_file(&src, "keys.cswap");
@@ -1100,7 +1082,7 @@ fn api_key_accounts_round_trip_as_raw_strings() {
         stored_creds_text(&dst, "1", "api-key-1@token.local").unwrap(),
         "sk-ant-api03-secret"
     );
-    let record = &sequence(&dst)["accounts"]["1"];
+    let record = &dst.sequence()["accounts"]["1"];
     assert_eq!(record["kind"], "api_key");
     let keys: Vec<&str> = record
         .as_object()
@@ -1120,8 +1102,6 @@ fn api_key_accounts_round_trip_as_raw_strings() {
         ]
     );
 }
-
-// --- broken slots -----------------------------------------------------------
 
 fn seed_alice_without_creds_and_bob(env: &TestEnv) {
     let alice = Seed::new(1, "alice@example.com");
@@ -1144,10 +1124,10 @@ fn all_accounts_skips_missing_credentials_with_stderr_warning() {
     out.assert_code(0);
     assert_eq!(
         out.stderr,
-        format!(
+        hint(&format!(
             "Skipping Account-1 (alice@example.com): no stored credentials/config — re-add with: cswap --add-account --slot 1\nExported 1 account(s) to {}\n",
             file.display()
-        )
+        ))
     );
     let envelope: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(emails(&envelope), ["bob@example.com"]);
@@ -1210,7 +1190,7 @@ fn all_slots_broken_raises() {
     let out = env.run(["export", "-"]);
     out.assert_code(1);
     assert!(out.stderr.ends_with(
-        "Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>\n"
+        &hint("Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>\n")
     ), "{}", out.stderr);
 }
 
@@ -1242,8 +1222,6 @@ fn active_account_without_live_credentials_fails() {
         "Error: failed to read live credentials for active account alice@example.com\n"
     );
 }
-
-// --- dead-token quarantine ----------------------------------------------------
 
 fn export_bob_with_marker(env: &TestEnv, marker: Option<&str>) -> PathBuf {
     let file = backup_file(env, "bob.cswap");
@@ -1370,7 +1348,7 @@ fn reimport_after_removal_lifts_orphan_quarantine() {
     seed(&env, Seed::new(2, "bob@example.com"));
     strike(&env, json!({"2": dead_row("bob@example.com", "", None)}));
     let file = export_bob_with_marker(&env, None);
-    let mut data = sequence(&env);
+    let mut data = env.sequence();
     data["accounts"].as_object_mut().unwrap().shift_remove("2");
     data["sequence"] = json!([]);
     env.seed_sequence(data);
@@ -1521,8 +1499,6 @@ fn fresh_slot_import_creates_no_quarantine() {
     assert_cleared(&row);
 }
 
-// --- cross-implementation ------------------------------------------------------
-
 fn normalize_volatile(text: &str) -> Value {
     let mut envelope: Value = serde_json::from_str(text).unwrap();
     envelope["exportedAt"] = Value::Null;
@@ -1597,7 +1573,7 @@ fn files_cross_between_ccswap_and_cswap() {
             .run();
         out.assert_code(0);
         assert!(out.stderr.contains("Done: 2 imported"), "{}", out.stderr);
-        let seq = sequence(&dst);
+        let seq = dst.sequence();
         assert_eq!(seq["accounts"]["1"]["alias"], "dev");
         assert_eq!(
             stored_creds(&dst, "1", "alice@example.com"),

@@ -18,3 +18,19 @@ fn version_flag_prints_program_name_and_version() {
     };
     assert_eq!(out.stdout, format!("{} {version}\n", prog()));
 }
+
+#[test]
+fn version_names_ccswap_whatever_the_invoked_name() {
+    if is_upstream() {
+        return;
+    }
+    let env = TestEnv::new();
+
+    let out = env.cmd(["--version"]).arg0("/opt/bin/cs").run();
+
+    out.assert_code(0);
+    assert_eq!(
+        out.stdout,
+        format!("ccswap {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}

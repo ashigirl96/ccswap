@@ -17,7 +17,6 @@ pub const HORIZON_HEADROOM_RATIO: f64 = 2.0;
 /// are noise.
 pub const SPENT_HEADROOM_PCT: f64 = 3.0;
 
-/// A slot's decision value: a measurement, a sentinel, or unknown.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UsageValue {
     Usage(Value),
@@ -51,7 +50,6 @@ impl Decisions {
         self.usage.iter().find(|(n, _)| n == num).map(|(_, v)| v)
     }
 
-    /// The measurement, when there is one.
     pub fn dict(&self, num: &str) -> Option<&Value> {
         match self.value(num) {
             Some(UsageValue::Usage(u)) => Some(u),
@@ -145,7 +143,6 @@ pub struct RankInput<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ranked {
     pub ordered: Vec<String>,
-    /// Some candidate had readable usage.
     pub any_known: bool,
     /// The active account's weekly reset (consume-first only).
     pub active_reset_ts: Option<f64>,

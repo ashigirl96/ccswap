@@ -4,7 +4,7 @@
 
 positional arguments:
   NUM|EMAIL             Account to run (number or email). Omit to use the
-                        current directory's mapping (see `cswap map`).
+                        current directory's mapping (see `ccswap map`).
 
 options:
   -h, --help            show this help message and exit

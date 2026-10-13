@@ -1,5 +1,5 @@
-//! The dropdown as data (upstream `rebuild_menu`): AppKit only renders it,
-//! so the structure is testable without a window server.
+//! The dropdown is plain data that AppKit only renders, so it is testable
+//! without a window server.
 
 use ccswap_core::ranking::Strategy;
 

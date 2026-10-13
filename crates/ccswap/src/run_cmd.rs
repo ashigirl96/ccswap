@@ -1,7 +1,3 @@
-//! `run [NUM|EMAIL] [options] [-- claude args]`: session mode. Everything
-//! after the first `--` goes to claude verbatim. Without an account, the
-//! working directory's mapping picks it, else plain `claude` launches.
-
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::Path;

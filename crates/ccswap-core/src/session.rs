@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 
-use crate::accounts::{Accounts, Console};
+use crate::accounts::{Accounts, Console, ResolvedAccount};
 use crate::anthropic_client::{AnthropicClient, credential_fingerprint};
 use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
@@ -103,7 +103,11 @@ impl Sessions<'_> {
         console: &mut dyn Console,
     ) -> Result<Launch> {
         let claude = self.claude_bin()?;
-        let (num, email, org) = self.accounts().resolve_account(identifier)?;
+        let ResolvedAccount {
+            number: num,
+            email,
+            organization_uuid: org,
+        } = self.accounts().resolve_account(identifier)?;
         self.ensure_not_api_key(&num, &email)?;
 
         if let Some(preset) = self.env.non_empty("CLAUDE_CONFIG_DIR") {
@@ -193,7 +197,7 @@ impl Sessions<'_> {
             .and_then(Value::as_str);
         if kind == Some("api_key") {
             return Err(session_error(format!(
-                "Account-{num} ({email}) is an API-key account; 'cswap run' (session mode) does not support API-key accounts yet. Use 'cswap --switch-to' to make it your default login instead."
+                "Account-{num} ({email}) is an API-key account; 'ccswap run' (session mode) does not support API-key accounts yet. Use 'ccswap --switch-to' to make it your default login instead."
             )));
         }
         Ok(())
@@ -214,8 +218,7 @@ impl Sessions<'_> {
             .collect()
     }
 
-    /// Ensures a valid profile exists. The stale marker is honoured only
-    /// while nothing runs against the profile.
+    /// The stale marker is honoured only while nothing runs against the profile.
     fn setup_session(
         &self,
         target: &Target,
@@ -267,7 +270,7 @@ impl Sessions<'_> {
             Verdict::Invalid => {
                 session_profile::delete_profile(self.secrets.keychain(), dir);
                 Err(session_error(format!(
-                    "Session profile for Account-{num} ({email}) failed validation. Log in with that account and re-add it: cswap --add-account --slot {num}"
+                    "Session profile for Account-{num} ({email}) failed validation. Log in with that account and re-add it: ccswap --add-account --slot {num}"
                 )))
             }
         }
@@ -297,7 +300,7 @@ impl Sessions<'_> {
                 )
             } else {
                 format!(
-                    "Account-{num}'s refreshed credential could neither be stored nor stashed, so the backup holds a spent grant and the successor is gone. Fix the storage failure first; retrying before that spends nothing but earns a strike. If the slot strikes, log in again and re-add it: cswap --add-account --slot {num}"
+                    "Account-{num}'s refreshed credential could neither be stored nor stashed, so the backup holds a spent grant and the successor is gone. Fix the storage failure first; retrying before that spends nothing but earns a strike. If the slot strikes, log in again and re-add it: ccswap --add-account --slot {num}"
                 )
             }));
         }
@@ -324,7 +327,7 @@ impl Sessions<'_> {
                 )));
             }
             return Err(session_error(format!(
-                "Account-{num} has no stored credentials. Re-add with: cswap --add-account --slot {num}"
+                "Account-{num} has no stored credentials. Re-add with: ccswap --add-account --slot {num}"
             )));
         }
 
@@ -339,7 +342,7 @@ impl Sessions<'_> {
             .cloned()
             .ok_or_else(|| {
                 session_error(format!(
-                    "Account-{num} has no stored config backup. Re-add with: cswap --add-account --slot {num}"
+                    "Account-{num} has no stored config backup. Re-add with: ccswap --add-account --slot {num}"
                 ))
             })?;
 
@@ -499,7 +502,6 @@ fn judge_auth_status(report: &Map<String, Value>, email: &str, org: &str) -> Ver
     Verdict::Valid
 }
 
-/// `shutil.which`: the first executable regular file named `name` on `PATH`.
 /// Setup-token credentials have no refresh token by design; an unknown
 /// shape lets the refresh attempt decide.
 fn has_refresh_token(creds: &str) -> bool {
@@ -515,6 +517,7 @@ fn has_refresh_token(creds: &str) -> bool {
     }
 }
 
+/// `shutil.which`: the first executable regular file named `name` on `PATH`.
 pub fn which(env: &Environment, name: &str) -> Option<PathBuf> {
     let path = env.get("PATH")?.clone();
     std::env::split_paths(&path)

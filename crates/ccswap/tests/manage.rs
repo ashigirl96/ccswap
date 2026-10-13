@@ -1,6 +1,3 @@
-//! `remove`/`rm`, `disable`/`enable`, `alias` and `purge`: managing slots that
-//! are already registered.
-//!
 //! Ported from upstream tests/test_switcher.py::TestResolveAccountIdentifier,
 //! TestResolveByAlias, TestResolveIdentifierAmbiguity, TestAliasValidation,
 //! TestAliasCommand, TestSwitchRemoveGatesAcceptAlias (remove half),
@@ -11,6 +8,8 @@
 //! TestSubcommandAliases (rm).
 
 mod support;
+
+use support::hint;
 
 use serde_json::{Value, json};
 use support::{KEYCHAIN_ACCOUNT, Output, TestEnv, is_upstream, prog};
@@ -40,7 +39,6 @@ fn config_path(num: u32, email: &str) -> String {
     format!(".claude-swap-backup/configs/.claude-config-{num}-{email}.json")
 }
 
-/// Slots 1..=3 (a@, b@, c@example.com), all switchable, slot 1 active.
 fn seed_three(env: &TestEnv) {
     env.seed_sequence(json!({
         "activeAccountNumber": 1,
@@ -61,12 +59,8 @@ fn seed_three(env: &TestEnv) {
     }
 }
 
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
-
 fn set_record_field(env: &TestEnv, num: &str, key: &str, value: Value) {
-    let mut data = sequence(env);
+    let mut data = env.sequence();
     data["accounts"][num][key] = value;
     env.seed_sequence(data);
 }
@@ -74,8 +68,6 @@ fn set_record_field(env: &TestEnv, num: &str, key: &str, value: Value) {
 fn err_line(out: &Output) -> &str {
     out.stderr.trim_end()
 }
-
-// -- remove ------------------------------------------------------------------
 
 #[test]
 fn remove_by_number_deletes_backups_and_record_after_confirming() {
@@ -91,7 +83,7 @@ fn remove_by_number_deletes_backups_and_record_after_confirming() {
         out.stdout,
         "Are you sure you want to permanently remove Account-2 (b@example.com)? [y/N] Removed Account-2 (b@example.com)\n"
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["sequence"], json!([1, 3]));
     assert!(data["accounts"].get("2").is_none());
     assert_eq!(data["activeAccountNumber"], json!(1));
@@ -131,14 +123,14 @@ fn remove_deletes_file_backups_too() {
 fn remove_is_cancelled_by_anything_but_y() {
     let env = TestEnv::new();
     seed_three(&env);
-    let before = sequence(&env);
+    let before = env.sequence();
 
     for answer in ["n\n", "yes\n", "\n"] {
         let out = env.cmd(["remove", "2"]).stdin(answer).run();
         out.assert_code(0);
         assert!(out.stdout.ends_with("[y/N] Cancelled\n"), "{}", out.stdout);
     }
-    assert_eq!(sequence(&env), before);
+    assert_eq!(env.sequence(), before);
     assert!(
         env.security()
             .item(BACKUP_SERVICE, "account-2-b@example.com")
@@ -146,7 +138,7 @@ fn remove_is_cancelled_by_anything_but_y() {
     );
 
     env.cmd(["remove", "2"]).stdin("Y\n").run().assert_code(0);
-    assert!(sequence(&env)["accounts"].get("2").is_none());
+    assert!(env.sequence()["accounts"].get("2").is_none());
 }
 
 #[test]
@@ -166,7 +158,7 @@ fn removing_the_active_account_warns_and_leaves_active_number() {
         "{}",
         out.stdout
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["sequence"], json!([2, 3]));
     assert_eq!(data["activeAccountNumber"], json!(1));
 }
@@ -179,7 +171,7 @@ fn remove_by_alias() {
 
     env.cmd(["remove", "DEV"]).stdin("y\n").run().assert_code(0);
 
-    let data = sequence(&env);
+    let data = env.sequence();
     assert!(data["accounts"].get("2").is_none());
     assert!(data["accounts"].get("1").is_some());
 }
@@ -239,7 +231,7 @@ fn remove_asks_which_slot_when_an_email_is_in_two_orgs() {
         out.stdout,
         "Multiple accounts found for 'u@example.com':\n  1: u@example.com [personal]\n  2: u@example.com [Acme]\nEnter account number to remove: Are you sure you want to permanently remove Account-2 (u@example.com)? [y/N] Removed Account-2 (u@example.com)\n"
     );
-    assert_eq!(sequence(&env)["sequence"], json!([1]));
+    assert_eq!(env.sequence()["sequence"], json!([1]));
 }
 
 #[test]
@@ -289,8 +281,6 @@ fn remove_without_an_identifier_is_a_usage_error() {
     );
 }
 
-// -- disable / enable ----------------------------------------------------------
-
 #[test]
 fn disable_sets_the_flag_and_keeps_the_slot_explicitly_reachable() {
     let env = TestEnv::new();
@@ -300,7 +290,7 @@ fn disable_sets_the_flag_and_keeps_the_slot_explicitly_reachable() {
 
     out.assert_code(0);
     assert_eq!(out.stdout, "Disabled Account-2 (b@example.com).\n");
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["2"]["disabled"], json!(true));
     assert_eq!(
         data["accounts"]["2"]
@@ -333,7 +323,7 @@ fn enable_removes_the_flag() {
         out.stdout,
         "Enabled Account-2 (b@example.com).\n  It is back in the rotation.\n"
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert!(data["accounts"]["2"].get("disabled").is_none());
     assert_eq!(data["sequence"], json!([1, 2, 3]));
 }
@@ -346,13 +336,13 @@ fn disable_and_enable_accept_email_alias_and_legacy_flags() {
 
     env.run(["disable", "b@example.com"]).assert_code(0);
     env.run(["--disable-account", "DEV"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["2"]["disabled"], json!(true));
     assert_eq!(data["accounts"]["3"]["disabled"], json!(true));
 
     env.run(["--enable-account", "dev"]).assert_code(0);
     env.run(["enable", "b@example.com"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert!(data["accounts"]["2"].get("disabled").is_none());
     assert!(data["accounts"]["3"].get("disabled").is_none());
 }
@@ -370,14 +360,14 @@ fn repeating_disable_or_enable_is_a_noop() {
     );
 
     env.run(["disable", "2"]).assert_code(0);
-    let before = sequence(&env);
+    let before = env.sequence();
     let out = env.run(["disable", "2"]);
     out.assert_code(0);
     assert_eq!(
         out.stdout,
         "Account-2 (b@example.com) is already disabled.\n"
     );
-    assert_eq!(sequence(&env), before);
+    assert_eq!(env.sequence(), before);
 }
 
 #[test]
@@ -407,7 +397,7 @@ fn disabling_the_last_switchable_slot_warns() {
     out.assert_code(0);
     assert!(
         out.stdout.ends_with(
-            "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.\n"
+            &hint("  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.\n")
         ),
         "{}",
         out.stdout
@@ -439,7 +429,9 @@ fn disable_reports_unresolvable_identifiers() {
         ),
         (
             "u@example.com",
-            "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
+            &hint(
+                "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
+            ),
         ),
     ];
     for (identifier, expected) in cases {
@@ -455,8 +447,6 @@ fn disable_without_a_target_is_a_usage_error() {
     env.run(["disable"]).assert_code(2);
 }
 
-// -- alias ---------------------------------------------------------------------
-
 #[test]
 fn alias_sets_by_number_or_email_and_lowercases() {
     let env = TestEnv::new();
@@ -465,12 +455,12 @@ fn alias_sets_by_number_or_email_and_lowercases() {
     let out = env.run(["alias", "2", "DEV"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Set alias 'dev' for Account 2\n");
-    assert_eq!(sequence(&env)["accounts"]["2"]["alias"], json!("dev"));
+    assert_eq!(env.sequence()["accounts"]["2"]["alias"], json!("dev"));
 
     let out = env.run(["alias", "c@example.com", "ops"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Set alias 'ops' for Account 3\n");
-    assert_eq!(sequence(&env)["accounts"]["3"]["alias"], json!("ops"));
+    assert_eq!(env.sequence()["accounts"]["3"]["alias"], json!("ops"));
 }
 
 #[test]
@@ -496,7 +486,7 @@ fn alias_rejects_invalid_and_duplicate_names() {
     let env = TestEnv::new();
     seed_three(&env);
     env.run(["alias", "1", "dev"]).assert_code(0);
-    let before = sequence(&env);
+    let before = env.sequence();
 
     let cases: [(&[&str], &str); 5] = [
         (
@@ -525,7 +515,7 @@ fn alias_rejects_invalid_and_duplicate_names() {
         out.assert_code(1);
         assert_eq!(err_line(&out), expected, "{args:?}");
     }
-    assert_eq!(sequence(&env), before);
+    assert_eq!(env.sequence(), before);
 }
 
 #[test]
@@ -551,7 +541,7 @@ fn alias_unset_is_idempotent() {
         let out = env.run(["alias", "2", "--unset"]);
         out.assert_code(0);
         assert_eq!(out.stdout, "Removed alias for Account 2\n");
-        assert!(sequence(&env)["accounts"]["2"].get("alias").is_none());
+        assert!(env.sequence()["accounts"]["2"].get("alias").is_none());
     }
 }
 
@@ -632,8 +622,6 @@ fn alias_help_describes_the_command() {
     );
     assert!(out.stdout.contains(&format!("  {p} alias 2 --unset\n")));
 }
-
-// -- purge ---------------------------------------------------------------------
 
 fn purge_banner(env: &TestEnv) -> String {
     format!(

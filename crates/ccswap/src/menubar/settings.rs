@@ -1,5 +1,5 @@
-//! `menubar_settings.json`: the menu bar's display preferences and the
-//! auto-switch on/off toggle. Upstream's Python cswap reads the same file.
+//! Python cswap reads the same `menubar_settings.json`, so its format is
+//! upstream's.
 
 use std::path::Path;
 

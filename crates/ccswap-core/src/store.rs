@@ -39,9 +39,7 @@ pub fn current_identity(paths: &Paths) -> Option<Identity> {
     })
 }
 
-/// `sequence.json`: `None` only when it does not exist; unreadable or
-/// non-object content is an error so callers never rebuild the roster from
-/// an empty read.
+/// `None` only when absent: rebuilding the roster from an unreadable file would drop accounts.
 pub fn read_sequence(paths: &Paths) -> Result<Option<JsonObject>> {
     read_json_strict(&paths.sequence_file())
 }
@@ -94,7 +92,6 @@ pub fn setup_directories(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// Writes an empty roster unless one exists.
 pub fn init_sequence(paths: &Paths) -> Result<()> {
     if paths.sequence_file().exists() {
         return Ok(());
@@ -310,7 +307,7 @@ pub fn resolve_account_identifier(
                 })
                 .collect();
             Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
+                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., ccswap --switch-to 1).",
                 details.join(", ")
             )))
         }
@@ -435,44 +432,40 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 pub fn read_json_strict(path: &Path) -> Result<Option<JsonObject>> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    let shown = path.display();
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
+            crate::log::warning(format!("Could not read {shown}: {e}"));
             return Err(Error::config(format!(
-                "{} exists but could not be read ({e}). Fix what is blocking the read, then retry.",
-                path.display()
+                "{shown} exists but could not be read ({e}). Fix what is blocking the read, then retry."
             )));
         }
     };
-    match serde_json::from_str::<Value>(&text) {
+    let parsed = std::str::from_utf8(&bytes)
+        .map_err(|e| e.to_string())
+        .and_then(|text| serde_json::from_str::<Value>(text).map_err(|e| e.to_string()));
+    match parsed {
         Ok(Value::Object(map)) => Ok(Some(map)),
-        Ok(other) => Err(Error::config(format!(
-            "{} holds {}, not a JSON object. Repair or move it, then retry.",
-            path.display(),
-            python_type_name(&other)
-        ))),
-        Err(e) => Err(Error::config(format!(
-            "{} exists but could not be parsed ({e}). Repair or move it, then retry — refusing to overwrite it unread.",
-            path.display()
-        ))),
+        Ok(other) => {
+            let kind = crate::pyjson::py_type_name(&other);
+            crate::log::warning(format!("{shown} holds {kind}, not a JSON object"));
+            Err(Error::config(format!(
+                "{shown} holds {kind}, not a JSON object. Repair or move it, then retry."
+            )))
+        }
+        Err(e) => {
+            crate::log::warning(format!("Invalid JSON in {shown}"));
+            Err(Error::config(format!(
+                "{shown} exists but could not be parsed ({e}). Repair or move it, then retry — refusing to overwrite it unread."
+            )))
+        }
     }
 }
 
 pub fn read_json_lenient(path: &Path) -> Option<JsonObject> {
     read_json_strict(path).ok().flatten()
-}
-
-fn python_type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
 }
 
 #[cfg(test)]
@@ -484,6 +477,35 @@ mod tests {
         assert_eq!(format_timestamp(0), "1970-01-01T00:00:00Z");
         assert_eq!(format_timestamp(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(format_timestamp(1_704_067_199), "2023-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn email_check_matches_the_upstream_pattern() {
+        for ok in [
+            "user@example.com",
+            "a.b+c%d_e-f@sub.example.co",
+            "x@a.b.cd",
+            "x@a..cd",
+            "setup-token-3@token.local",
+            "user@example.com\n",
+        ] {
+            assert!(is_valid_email(ok), "{ok:?}");
+        }
+        for bad in [
+            "not-an-email",
+            "../../evil",
+            "a@b",
+            "@example.com",
+            "user@.com",
+            "user@example.c",
+            "user@example.c0m",
+            "us er@example.com",
+            "a@b@example.com",
+            "user@example.com\n\n",
+            "ü@example.com",
+        ] {
+            assert!(!is_valid_email(bad), "{bad:?}");
+        }
     }
 
     #[test]

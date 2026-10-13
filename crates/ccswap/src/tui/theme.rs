@@ -60,7 +60,6 @@ impl Palette {
     }
 }
 
-/// The `ui.theme` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeName {
     Dark,

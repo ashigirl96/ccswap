@@ -1,5 +1,3 @@
-//! `config list|get|set|unset|path` and the lenient settings.json read.
-//!
 //! Ported from upstream tests/test_config_cli.py (all classes) and the
 //! CLI-observable parts of tests/test_settings.py (TestLoadSettings,
 //! TestUiSettings, TestSetUnsetSetting, TestEffectiveSettings,

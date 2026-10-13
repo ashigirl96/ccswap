@@ -1,18 +1,13 @@
-//! `run N [-- args]`: session mode, and the live-session guards it imposes
-//! on remove, purge, swap/move, switch, import and backup writes.
-//!
 //! Ported from upstream tests/test_session.py::TestRun, TestBootstrap
 //! (happy_path, profile_permissions, missing_credentials, missing_config,
 //! validation_failure_cleans_up, stale_marker_*), TestSharingPosix,
 //! TestShareHistoryPosix (links, creates_missing_source, merges, toggle),
 //! TestMcpMirror (bootstrap_launch_mirrors, no_share_*), TestGuards and
 //! TestHelpers::test_session_dir_naming. Slots hold setup-token-shaped
-//! credentials (no refresh token), so neither implementation refreshes
-//! before seeding.
+//! credentials so neither implementation refreshes before seeding.
 //!
-//! Upstream's `os.execvpe` does not flush Python's block-buffered stdout, so
-//! lines printed before the exec are lost when stdout is a pipe; those
-//! assertions run against ccswap only.
+//! Upstream's `os.execvpe` drops Python's unflushed stdout under a pipe, so
+//! pre-exec lines are asserted for ccswap only.
 
 mod support;
 
@@ -44,7 +39,6 @@ fn oauth_account(num: u32) -> Value {
            "organizationUuid": org(num), "organizationName": "Acme"})
 }
 
-/// Slots 1..=3 with backups; the default login is slot `active`.
 fn seed(env: &TestEnv, active: u32) {
     let accounts: serde_json::Map<String, Value> = (1..=3)
         .map(|n| {
@@ -153,8 +147,6 @@ fn assert_error(out: &Output, needle: &str) {
     );
     assert!(out.stderr.contains(needle), "stderr: {}", out.stderr);
 }
-
-// -- launch ------------------------------------------------------------------
 
 #[test]
 fn run_execs_claude_in_the_profile_with_forwarded_args() {
@@ -349,7 +341,7 @@ fn claude_missing_from_path_is_an_error() {
 fn api_key_slots_are_refused() {
     let env = TestEnv::new();
     seed(&env, 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.seed_sequence(data);
 
@@ -370,8 +362,6 @@ fn unknown_account_is_an_error() {
         "No account found with identifier: zed@example.com",
     );
 }
-
-// -- bootstrap failures --------------------------------------------------------
 
 #[test]
 fn auth_status_for_another_account_refuses_and_cleans_up() {
@@ -420,8 +410,6 @@ fn missing_config_backup_refuses() {
         "Account-2 has no stored config backup",
     );
 }
-
-// -- reuse and the stale marker --------------------------------------------------
 
 #[test]
 fn valid_profile_is_reused_without_reseeding() {
@@ -480,8 +468,6 @@ fn stale_marker_is_kept_while_the_session_is_live() {
     );
     assert!(stale_marker(&env, 2).exists());
 }
-
-// -- sharing -----------------------------------------------------------------
 
 fn seed_default_profile(env: &TestEnv) -> PathBuf {
     let home = env.home().join(".claude");
@@ -730,8 +716,6 @@ fn mcp_no_share_before_adoption_leaves_local_servers() {
     );
 }
 
-// -- guards on other commands ----------------------------------------------------
-
 #[test]
 fn remove_is_refused_while_the_slot_has_a_live_session() {
     let env = TestEnv::new();
@@ -822,7 +806,7 @@ fn overwriting_a_live_slot_is_refused() {
 
     assert_error(&out, "Exit it first, then retry the operation.");
     assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["accounts"]["2"]["email"],
+        env.sequence()["accounts"]["2"]["email"],
         json!("b@example.com")
     );
     assert_eq!(
@@ -840,10 +824,7 @@ fn swap_and_move_are_refused_while_a_slot_is_live() {
 
     assert_error(&env.run(["swap", "1", "2"]), "retry --swap-accounts.");
     assert_error(&env.run(["move", "2", "7"]), "retry --move-account.");
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["sequence"],
-        json!([1, 2, 3])
-    );
+    assert_eq!(env.sequence()["sequence"], json!([1, 2, 3]));
 }
 
 #[test]
@@ -880,10 +861,7 @@ fn switch_to_a_live_session_account_warns_marks_the_outgoing_profile_and_complet
         "{}",
         out.stdout
     );
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["activeAccountNumber"],
-        json!(2)
-    );
+    assert_eq!(env.sequence()["activeAccountNumber"], json!(2));
     assert!(!outgoing.join(".credentials.json").exists());
 }
 
@@ -927,9 +905,6 @@ fn import_force_warns_about_a_live_session_and_marks_it_stale() {
     assert!(stale_marker(&env, 2).exists());
 }
 
-// -- usage of session-owned slots ------------------------------------------------
-
-/// Records which bearer tokens hit the usage endpoint.
 fn usage_bearers(env: &TestEnv) -> Vec<String> {
     env.http()
         .requests()
@@ -1034,8 +1009,6 @@ fn list_does_not_request_an_expired_live_session_token() {
         "{bearers:?}"
     );
 }
-
-// -- CLI surface ---------------------------------------------------------------
 
 #[test]
 fn run_parser_errors_match_argparse() {

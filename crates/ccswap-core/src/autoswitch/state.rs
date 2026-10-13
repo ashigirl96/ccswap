@@ -1,5 +1,4 @@
-//! `<backup_root>/autoswitch_state.json`: cooldown, quarantine and the last
-//! move, shared with every other engine (loop, cron `--once`, cswap) through
+//! Concurrent engines share `autoswitch_state.json` only through
 //! read-modify-write under `.autoswitch_state.lock`.
 
 use std::path::{Path, PathBuf};
@@ -58,7 +57,7 @@ impl StateFile {
     }
 
     /// Read-modify-write under the state lock; returns the written state.
-    /// Never called while another lock is held.
+    /// Must not be called while another lock is held.
     pub fn mutate(&self, mutator: impl FnOnce(&mut State)) -> Result<State> {
         let _lock = self.lock()?;
         let mut state = self.read();

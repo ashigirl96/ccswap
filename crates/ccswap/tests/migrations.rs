@@ -1,10 +1,7 @@
-//! Run-once migrations (`.migrations.json`) and the lazy org-field back-fill.
-//!
 //! Ported from upstream tests/test_migrations.py::TestMacosKeyringToSecurity,
 //! ::TestSkips, ::TestAccountNoneFallback, ::TestFailures, ::TestRunner and
 //! tests/test_switcher.py::TestUpgradeMigration. Upstream runs with `keyring`
-//! unimportable (see upstream_shim.py), so both sides take the `security`
-//! fallback path: legacy items are copied, never deleted.
+//! unimportable (see upstream_shim.py), so both sides copy legacy items via `security`.
 
 mod support;
 
@@ -437,10 +434,6 @@ fn pre_v06(env: &TestEnv) {
     }));
 }
 
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
-
 #[test]
 fn status_after_upgrade_with_org_uuid() {
     let env = TestEnv::new();
@@ -475,7 +468,7 @@ fn migration_uses_live_config_over_backup_and_appends_fields() {
 
     env.run(["status"]).assert_code(0);
 
-    let data = sequence(&env);
+    let data = env.sequence();
     let first = data["accounts"]["1"].as_object().unwrap();
     assert_eq!(
         first.keys().collect::<Vec<_>>(),
@@ -511,7 +504,7 @@ fn migration_skips_already_migrated() {
 
     env.run(["status"]).assert_code(0);
 
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["1"]["organizationUuid"], "existing-org");
     assert_eq!(data["accounts"]["1"]["organizationName"], "Existing Org");
     assert_eq!(data["accounts"]["2"]["organizationUuid"], "");

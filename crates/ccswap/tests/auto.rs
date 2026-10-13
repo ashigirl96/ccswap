@@ -1,11 +1,6 @@
-//! `auto --once` / `--dry-run` / `--json`: one engine tick through the
-//! binary.
-//!
-//! Ported from upstream tests/test_cli.py::TestAutoCommand (exit codes,
-//! flags over settings.json, pure JSONL, `--bogus`, help) and
+//! Ported from upstream tests/test_cli.py::TestAutoCommand and
 //! tests/test_config_cli.py::test_auto_picks_up_configured_threshold, with
-//! the real engine instead of a FakeEngine: usage is served by the stub
-//! usage endpoint per bearer token (unknown tokens answer 500).
+//! the real engine in place of FakeEngine.
 
 mod support;
 
@@ -27,7 +22,6 @@ fn oauth_account(num: u32) -> Value {
     json!({"emailAddress": EMAILS[num as usize], "accountUuid": format!("uuid-{num}")})
 }
 
-/// Slots `nums` with stored credentials and configs; `live` is logged in.
 fn seed(env: &TestEnv, nums: &[u32], live: u32) {
     let accounts: serde_json::Map<String, Value> = nums
         .iter()
@@ -66,7 +60,6 @@ fn three(env: &TestEnv) {
     seed(env, &[1, 2, 3], 1);
 }
 
-/// Usage endpoint bodies per slot; slots left out answer 500.
 fn stub(env: &TestEnv, bodies: Vec<(u32, Value)>) {
     let bodies: Vec<(String, String)> = bodies
         .into_iter()
@@ -435,7 +428,7 @@ fn model_flag_binds_the_per_model_limit() {
 fn api_key_flag_pair_is_last_wins() {
     let env = TestEnv::new();
     three(&env);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.write_json(env.store_dir().join("sequence.json"), &data);
     env.security().set_item(
@@ -470,7 +463,7 @@ fn dry_run_reports_and_mutates_nothing() {
     let env = TestEnv::new();
     three(&env);
     stub_five_hour(&env, &[(1, 95.0), (2, 40.0), (3, 20.0)]);
-    let sequence_before = env.read_json(env.store_dir().join("sequence.json"));
+    let sequence_before = env.sequence();
 
     let out = env.run(["auto", "--once", "--json", "--dry-run"]);
     out.assert_code(0);
@@ -480,10 +473,7 @@ fn dry_run_reports_and_mutates_nothing() {
     assert_eq!(switch[0]["to"], json!({"number": 3, "email": EMAILS[3]}));
     assert_eq!(live_token(&env), "at-1");
     assert!(!state_path(&env).exists());
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json")),
-        sequence_before
-    );
+    assert_eq!(env.sequence(), sequence_before);
 
     let human = env.run(["auto", "--once", "--dry-run"]);
     human.assert_code(0);
@@ -556,8 +546,6 @@ fn auto_help() {
     assert!(out.stdout.contains("--once"));
     assert!(out.stdout.contains("Exit codes"));
 }
-
-// --- the loop (no --once) -------------------------------------------------------
 
 const LOOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 

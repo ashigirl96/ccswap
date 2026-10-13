@@ -1,12 +1,8 @@
-//! Contract with the real `/usr/bin/security`: ccswap's items round-trip
-//! through an actual keychain, and cswap and ccswap read each other's items.
 //! Ported from upstream tests/test_macos_keychain_contract.py (real-keychain layer).
 //!
 //! Runs on macOS GitHub Actions only, or locally with
-//! `CCSWAP_TEST_REAL_KEYCHAIN=1`. Every `security` call goes to a throwaway
-//! keychain file: the binary under test is pointed at a wrapper that appends
-//! that file to each command, so the login keychain, the default keychain and
-//! the search list are never consulted or changed.
+//! `CCSWAP_TEST_REAL_KEYCHAIN=1`; a wrapper appends a throwaway keychain file to
+//! every `security` command so the login keychain and search list are never touched.
 
 mod support;
 
@@ -33,7 +29,6 @@ fn enabled() -> bool {
     enabled
 }
 
-/// A keychain file inside the test root, deleted on drop.
 struct ThrowawayKeychain {
     path: PathBuf,
     wrapper: PathBuf,
@@ -66,7 +61,6 @@ impl ThrowawayKeychain {
         keychain
     }
 
-    /// `env.cmd(args)` with `security` routed into this keychain.
     fn cmd<'a>(&self, env: &'a TestEnv, args: &[&str]) -> Cmd<'a> {
         env.cmd(args)
             .env(support::SECURITY_ENV, self.wrapper.to_str().unwrap())

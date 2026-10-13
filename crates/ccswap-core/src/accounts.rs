@@ -1,6 +1,3 @@
-//! Account management on top of Store, SecretStore and the profile
-//! endpoint. `add` captures the live login into a slot.
-
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -21,8 +18,7 @@ mod manage;
 mod token;
 pub use token::{AddTokenOptions, TokenInput, getpass};
 
-/// Where account operations print and ask. The CLI writes to the terminal;
-/// the TUI and menu bar collect lines and confirm on their own.
+/// Where account operations print and ask.
 pub trait Console {
     fn line(&mut self, text: &str);
     /// Shows `question` and returns the reply, `None` on end of input.
@@ -45,7 +41,7 @@ pub struct Accounts<'a> {
 pub struct AddOptions {
     pub slot: Option<i64>,
     pub alias: Option<String>,
-    /// Skip the overwrite prompt (callers that confirmed already).
+    /// Skip the overwrite prompt.
     pub assume_yes: bool,
 }
 
@@ -57,8 +53,7 @@ struct Plan {
     carried_alias: Option<String>,
 }
 
-/// The store `.lock`, then Claude Code's credential and config locks, held
-/// for the local re-checks and writes of a registration, never across the
+/// Held for a registration's local re-checks and writes, never across the
 /// network.
 struct CommitLocks {
     _config: locks::DirLock,
@@ -67,6 +62,7 @@ struct CommitLocks {
 }
 
 mod renumber;
+pub use manage::ResolvedAccount;
 pub use renumber::MoveOutcome;
 
 impl Accounts<'_> {
@@ -344,7 +340,7 @@ impl Accounts<'_> {
         if looks_like_api_key(&creds) {
             return Err(Error::new(
                 ErrorKind::ValidationError,
-                "Active login is an API-key account. Add it with 'cswap --add-token sk-ant-api...' instead of --add-account.",
+                "Active login is an API-key account. Add it with 'ccswap --add-token sk-ant-api...' instead of --add-account.",
             ));
         }
         self.reject_foreign_credential(&creds, identity, console)?;

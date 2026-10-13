@@ -3,9 +3,10 @@
 
 use serde_json::Value;
 
-use super::{AccountRef, SwitchReport, Switcher, is_disabled, python_str};
+use super::{AccountRef, SwitchReport, Switcher, is_disabled};
 use crate::accounts::Console;
 use crate::error::Result;
+use crate::pyjson::py_str;
 use crate::ranking::{self, BestPick, DecisionUsage, Strategy};
 use crate::store::JsonObject;
 use crate::usage_collector::{UsageCollector, build_accounts_info};
@@ -142,7 +143,7 @@ impl Switcher<'_> {
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .map(python_str)
+            .map(py_str)
             .filter(|n| n != current && self.is_switchable(data, n) && !is_disabled(data, n))
             .collect();
         let style = self.style;
@@ -159,14 +160,14 @@ impl Switcher<'_> {
                     let m = format!(
                         "Current account usage is unavailable — staying on Account-{current}."
                     );
-                    let h = style.dimmed(&format!("{m} Run cswap --switch to rotate."));
+                    let h = style.dimmed(&format!("{m} Run ccswap --switch to rotate."));
                     ("usage-unavailable", m, h)
                 }
                 BestPick::NoComparison => {
                     let m = format!(
                         "No other account has usage data to compare — staying on Account-{current}."
                     );
-                    let h = style.dimmed(&format!("{m} Run cswap --switch to rotate."));
+                    let h = style.dimmed(&format!("{m} Run ccswap --switch to rotate."));
                     ("usage-unavailable", m, h)
                 }
                 BestPick::IncompleteComparison => {

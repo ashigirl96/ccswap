@@ -1,12 +1,8 @@
 //! In-process memory of who a credential lineage belongs to (upstream
-//! `_probe_verdicts` / `_provenance_warned`). The usage pass fills it from
-//! the profile endpoint or from its own refresh POSTs; the locked refresh
-//! paths and the switch consult it because no network may run under their
-//! locks. Only definitive verdicts are kept, so a partial answer never
-//! blocks a later resync.
-//!
-//! A verdict is keyed by the slot's full stored identity as well as the
-//! lineage: a slot re-created for another account misses rather than
+//! `_probe_verdicts` / `_provenance_warned`), for decisions made under locks
+//! where no network may run. Only definitive verdicts are kept, so a partial
+//! answer never blocks a later resync. Keys include the slot's full stored
+//! identity, so a slot re-created for another account misses rather than
 //! inheriting its predecessor's verdict.
 
 use std::collections::{HashMap, HashSet};

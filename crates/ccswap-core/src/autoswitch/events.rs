@@ -1,6 +1,6 @@
-//! What the engine reports. Every outcome is one event; frontends render
-//! them as human lines or as one JSON object per line.
+//! Every engine outcome is one event, rendered as a human line or a JSONL object.
 
+use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
 
 use crate::presentation::SCHEMA_VERSION;
@@ -217,7 +217,7 @@ impl AutoSwitchEvent {
         Value::Object(out)
     }
 
-    /// The line `auto` prints without `--json` (after its timestamp).
+    /// The human line, without its timestamp prefix.
     pub fn human(&self) -> String {
         match &self.kind {
             EventKind::Poll {
@@ -259,7 +259,7 @@ impl AutoSwitchEvent {
                 email,
                 reason,
             } => format!(
-                "Account-{number} ({email}) quarantined: {reason}. Log in with it and run 'cswap --add-account --slot {number}' to recover."
+                "Account-{number} ({email}) quarantined: {reason}. Log in with it and run 'ccswap --add-account --slot {number}' to recover."
             ),
             EventKind::Unquarantined {
                 number,
@@ -346,17 +346,6 @@ fn poll_human(
     )
 }
 
-/// Python `str()` of a JSON scalar as the human lines print it.
-fn py_str(value: &Value) -> String {
-    match value {
-        Value::Null => "None".into(),
-        Value::String(s) => s.clone(),
-        Value::Bool(true) => "True".into(),
-        Value::Bool(false) => "False".into(),
-        other => other.to_string(),
-    }
-}
-
 /// Python `f"{v:.0f}"`.
 pub(crate) fn fixed0(value: f64) -> String {
     let s = format!("{value:.0}");
@@ -368,9 +357,7 @@ fn py_round1(value: f64) -> f64 {
     s.parse().unwrap_or(value)
 }
 
-/// A percentage for display, as configured (`f"{v:.10g}"`): 85.555555 stays
-/// itself and 99.9 never renders as a rounded 100, while float noise in
-/// computed utilizations is absorbed.
+/// Python `f"{v:.10g}"`: 99.9 never renders as 100, yet float noise in computed utilizations is absorbed.
 pub fn pct_label(value: f64) -> String {
     if value == 0.0 {
         return "0".into();

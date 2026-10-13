@@ -1,12 +1,12 @@
-//! `map [NUM|EMAIL] [PATH]`, `unmap [PATH]` and `run` without an account
-//! (upstream cli.py `_map_command` / `_unmap_command` / bare `_run_command`,
-//! switcher `slot_for_directory` / `list_mappings`). MappingStore's own
-//! cases (tests/test_mappings.py) are unit tests in ccswap-core's `mappings`.
-//!
+//! Ported from upstream cli.py `_map_command` / `_unmap_command` / bare
+//! `_run_command`; MappingStore's own cases (tests/test_mappings.py) are unit
+//! tests in ccswap-core's `mappings`.
 //! Upstream loses pre-exec stdout under a pipe (see tests/session.rs), so the
 //! bare-run notices are asserted for ccswap only.
 
 mod support;
+
+use support::hint;
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,6 @@ fn oauth_account(num: u32) -> Value {
            "organizationUuid": format!("org-{num}"), "organizationName": "Acme"})
 }
 
-/// Slots 1..=3 (slot 3 personal) with backups; slot 1 is the default login.
 fn seed(env: &TestEnv) {
     let accounts: serde_json::Map<String, Value> = (1..=3)
         .map(|n| {
@@ -93,8 +92,6 @@ fn launched(env: &TestEnv) -> Option<ClaudeCall> {
         .into_iter()
         .rfind(|c| c.argv != ["auth", "status", "--json"])
 }
-
-// -- map -----------------------------------------------------------------------
 
 #[test]
 fn map_records_the_account_identity_under_the_resolved_path() {
@@ -243,11 +240,9 @@ fn map_without_arguments_and_no_mappings_shows_how_to_add_one() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        "No directory mappings yet.\nMap one with: cswap map <NUM|EMAIL> [PATH]\n"
+        hint("No directory mappings yet.\nMap one with: cswap map <NUM|EMAIL> [PATH]\n")
     );
 }
-
-// -- unmap ---------------------------------------------------------------------
 
 #[test]
 fn unmap_removes_the_mapping_then_reports_none_left() {
@@ -270,8 +265,6 @@ fn unmap_removes_the_mapping_then_reports_none_left() {
     again.assert_code(0);
     assert_eq!(again.stdout, format!("No mapping for {}\n", key(&repo)));
 }
-
-// -- argument parsing ----------------------------------------------------------
 
 #[test]
 fn map_and_unmap_help_and_usage_errors_follow_argparse() {
@@ -347,8 +340,6 @@ fn mappings_written_by_one_implementation_are_read_by_the_other() {
         .run();
     assert_eq!(out.stdout, format!("Unmapped {}\n", key(&a)));
 }
-
-// -- run without an account ----------------------------------------------------
 
 #[test]
 fn bare_run_launches_the_account_mapped_to_an_ancestor_in_session_mode() {
