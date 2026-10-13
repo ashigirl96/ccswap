@@ -1,10 +1,13 @@
 use serde_json::Value;
 
+use crate::anthropic_client::AnthropicClient;
+use crate::env::Environment;
 use crate::error::Result;
 use crate::paths::Paths;
 use crate::secret_store::SecretStore;
 use crate::store::{self, find_account_slot};
-use crate::usage::{UsageEntry, static_active_sentinel};
+use crate::usage_collector::{AccountInfo, UsageCollector};
+use crate::usage_store::UsageEntry;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatusReport {
@@ -19,12 +22,17 @@ pub enum StatusReport {
         organization_uuid: String,
         alias: String,
         total_managed: usize,
-        usage: UsageEntry,
+        usage: Box<UsageEntry>,
     },
 }
 
-/// Which managed account, if any, the live login is.
-pub fn status(paths: &Paths, secrets: &SecretStore) -> Result<StatusReport> {
+/// Which managed account, if any, the live login is, with its usage.
+pub fn status(
+    paths: &Paths,
+    env: &Environment,
+    secrets: &SecretStore,
+    client: &AnthropicClient,
+) -> Result<StatusReport> {
     let Some(identity) = store::current_identity(paths) else {
         return Ok(StatusReport::NoActiveAccount);
     };
@@ -49,10 +57,19 @@ pub fn status(paths: &Paths, secrets: &SecretStore) -> Result<StatusReport> {
             .to_string()
     };
     let active = secrets.read_active();
-    let usage = match static_active_sentinel(&active) {
-        Some(sentinel) => UsageEntry::Sentinel(sentinel),
-        None => UsageEntry::Unavailable,
+    let info = AccountInfo {
+        number: Value::from(num.parse::<i64>().unwrap_or_default()),
+        num: num.clone(),
+        email: identity.email.clone(),
+        org_name: String::new(),
+        org_uuid: identity.organization_uuid.clone(),
+        alias: String::new(),
+        is_active: true,
+        creds: active.value.clone().unwrap_or_default(),
+        unreadable: active.keychain_unavailable || active.value.is_none(),
     };
+    let mut entries =
+        UsageCollector::new(paths, env, secrets, client).collect(&[info], Some(&active));
     Ok(StatusReport::Managed {
         number: num.parse().unwrap_or_default(),
         email: identity.email.clone(),
@@ -60,6 +77,6 @@ pub fn status(paths: &Paths, secrets: &SecretStore) -> Result<StatusReport> {
         organization_uuid: text("organizationUuid"),
         alias: text("alias"),
         total_managed: accounts.len(),
-        usage,
+        usage: Box::new(entries.remove(&num).unwrap_or_default()),
     })
 }
