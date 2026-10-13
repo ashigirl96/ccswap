@@ -412,6 +412,9 @@ pub fn list_json(report: &ListReport) -> Value {
     if !listed.lockstep_warnings.is_empty() {
         payload["lockstepUsageWarnings"] = json!(listed.lockstep_warnings);
     }
+    if !listed.unclaimed.is_empty() {
+        payload["unclaimedCredentials"] = json!(listed.unclaimed);
+    }
     payload
 }
 
@@ -539,7 +542,10 @@ mod tests {
         let usage = json!({"scoped": [{"name": "Fable", "pct": 50.0, "resets_at": iso_after(6.0 * 86400.0)}]});
         let scoped = &usage_to_json(&usage, Some(NOW))["scoped"][0];
         assert_eq!(scoped["aheadOfPace"], json!(true));
-        assert_eq!(scoped.as_object().unwrap().keys().last().unwrap(), "name");
+        assert_eq!(
+            scoped.as_object().unwrap().keys().next_back().unwrap(),
+            "name"
+        );
     }
 
     #[test]

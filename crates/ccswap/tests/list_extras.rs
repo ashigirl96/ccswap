@@ -134,7 +134,10 @@ fn weekly_windows_ahead_of_pace_are_marked_and_projected() {
     let opus = &usage["scoped"][1];
     assert_eq!(opus["aheadOfPace"], false);
     assert_eq!(opus["willLastToReset"], true);
-    assert_eq!(opus.as_object().unwrap().keys().last().unwrap(), "name");
+    assert_eq!(
+        opus.as_object().unwrap().keys().next_back().unwrap(),
+        "name"
+    );
 }
 
 #[test]
@@ -444,6 +447,29 @@ fn token_status_ignores_a_drifted_session_profile_and_unknown_expiry() {
             "stored backup: unknown expiry, refresh token yes",
         ]
     );
+}
+
+#[test]
+fn unclaimed_credentials_are_listed_sorted_in_json_only() {
+    let env = TestEnv::new();
+    two_accounts(&env, &oauth("tok-a"), "");
+    stub_usage(&env, vec![]);
+    let creds = env.store_dir().join("credentials");
+    env.write_file(creds.join(".unclaimed-zz9.enc"), "x");
+    env.write_json(
+        creds.join(".unclaimed-manifest.json"),
+        &json!({"entries": {"bb2": {"createdAt": "2024-01-01T00:00:00Z"},
+                            "aa1": {"createdAt": "2024-01-01T00:00:00Z"}}}),
+    );
+
+    let payload = env.run(["list", "--json"]).json();
+    assert_eq!(
+        payload["unclaimedCredentials"],
+        json!(["aa1", "bb2", "zz9"])
+    );
+    let out = env.run(["list"]);
+    out.assert_code(0);
+    assert!(!out.stdout.contains("zz9"), "{}", out.stdout);
 }
 
 #[test]

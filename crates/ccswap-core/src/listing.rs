@@ -12,6 +12,7 @@ use crate::process_detection::{InstanceGroup, get_running_instances, group_insta
 use crate::secret_store::{Keychain, SecretStore, looks_like_api_key};
 use crate::session_profile;
 use crate::store::{self, JsonObject};
+use crate::unclaimed::UnclaimedStash;
 use crate::usage::truthy;
 use crate::usage_collector::{AccountInfo, UsageCollector, build_accounts_info};
 use crate::usage_store::{DecisionValue, UsageEntry};
@@ -32,6 +33,8 @@ pub struct ListedAccounts {
     pub lockstep_warnings: Vec<String>,
     /// Human view only.
     pub instances: Vec<InstanceGroup>,
+    /// Sorted stash ids; JSON only, since users cannot act on them.
+    pub unclaimed: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,17 +97,20 @@ pub fn list(
             info,
         })
         .collect();
-    let instances = if options.json {
-        Vec::new()
+    let (instances, unclaimed) = if options.json {
+        let ids = UnclaimedStash::new(paths).list().into_keys().collect();
+        (Vec::new(), ids)
     } else {
         let (sessions, ides) = get_running_instances(&paths.claude_config_home());
-        group_instances(&sessions, &ides, &paths.home().display().to_string())
+        let home = paths.home().display().to_string();
+        (group_instances(&sessions, &ides, &home), Vec::new())
     };
     Ok(ListReport::Accounts(ListedAccounts {
         rows,
         duplicate_warnings,
         lockstep_warnings,
         instances,
+        unclaimed,
     }))
 }
 
