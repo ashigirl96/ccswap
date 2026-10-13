@@ -1,5 +1,6 @@
-//! The three atomic-write recipes upstream uses, each kept distinct because
-//! their temp-file names and symlink handling are observable on disk.
+//! Upstream's roster and credential-file write recipes, kept distinct
+//! because their temp-file names are observable on disk. The state-file
+//! writer is `settings::atomic_write_json`.
 
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -41,27 +42,6 @@ fn pid_temp_path(path: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     path.with_file_name(format!("{stem}.{}.tmp", std::process::id()))
-}
-
-/// The state-file writer (`settings.atomic_write_json`): writes through a
-/// symlink, hardens the link's own parent to 0700, random `.tmp` name.
-pub fn atomic_write_json(path: &Path, data: &Value) -> std::io::Result<()> {
-    let target = if path.is_symlink() {
-        std::fs::canonicalize(path).or_else(|_| std::fs::read_link(path))?
-    } else {
-        path.to_path_buf()
-    };
-    let parent = target.parent().unwrap_or(Path::new("/"));
-    std::fs::create_dir_all(parent)?;
-    if let Some(own_parent) = path.parent() {
-        chmod(own_parent, 0o700)?;
-    }
-    write_private_in(
-        parent,
-        "",
-        &target,
-        pyjson::to_string_pretty(data).as_bytes(),
-    )
 }
 
 /// The credential-file writer: random `.tmp` in `dir`, renamed over `target`,
@@ -106,17 +86,5 @@ mod tests {
             0o600
         );
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn state_writer_writes_through_a_symlink() {
-        let dir = tempfile::tempdir().unwrap();
-        let real = dir.path().join("real.json");
-        std::fs::write(&real, "{}").unwrap();
-        let link = dir.path().join("link.json");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        atomic_write_json(&link, &serde_json::json!({"k": 1})).unwrap();
-        assert!(link.is_symlink());
-        assert_eq!(std::fs::read_to_string(&real).unwrap(), "{\n  \"k\": 1\n}");
     }
 }

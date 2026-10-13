@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
-use crate::error::{Error, ErrorKind, Result};
-use crate::fsutil;
+use crate::error::Result;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
+use crate::settings::atomic_write_json;
 
 pub const SCHEMA_VERSION: i64 = 2;
 
@@ -68,12 +68,7 @@ impl UsageStore {
             }
         }
         let data = json!({"schemaVersion": SCHEMA_VERSION, "accounts": Value::Object(rows)});
-        fsutil::atomic_write_json(&self.path, &data).map_err(|e| {
-            Error::new(
-                ErrorKind::ClaudeSwitchError,
-                format!("Could not write {}: {e}", self.path.display()),
-            )
-        })
+        atomic_write_json(&self.path, &data)
     }
 
     fn read_rows(&self) -> Map<String, Value> {
