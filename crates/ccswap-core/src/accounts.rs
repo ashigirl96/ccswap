@@ -16,12 +16,19 @@ use crate::secret_store::{SecretStore, looks_like_api_key};
 use crate::store::{self, Identity, JsonObject};
 use crate::usage_store::UsageStore;
 
+mod token;
+pub use token::{AddTokenOptions, TokenInput, getpass};
+
 /// Where account operations print and ask. The CLI writes to the terminal;
 /// the TUI and menu bar collect lines and confirm on their own.
 pub trait Console {
     fn line(&mut self, text: &str);
     /// Shows `question` and returns the reply, `None` on end of input.
     fn prompt(&mut self, question: &str) -> Option<String>;
+    /// Like `prompt`, without echoing the reply.
+    fn secret(&mut self, question: &str) -> Option<String> {
+        self.prompt(question)
+    }
 }
 
 pub struct Accounts<'a> {
