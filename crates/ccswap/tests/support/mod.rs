@@ -487,6 +487,18 @@ impl Cmd<'_> {
     /// `keys` once the program has written its first output. `stdout` is the
     /// raw terminal output; the run is killed after `timeout`.
     pub fn run_in_terminal(self, keys: &str, timeout: std::time::Duration) -> Output {
+        self.run_in_terminal_on(None, keys, timeout)
+    }
+
+    /// Like a terminal, answers the DA1 query and, given `background`
+    /// (e.g. `rgb:ffff/ffff/ffff`), the OSC 11 background query; the keys
+    /// are typed once something beyond those queries was drawn.
+    pub fn run_in_terminal_on(
+        self,
+        background: Option<&str>,
+        keys: &str,
+        timeout: std::time::Duration,
+    ) -> Output {
         use std::os::fd::FromRawFd;
         check_isolation(&self.vars, &self.env.root())
             .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
@@ -534,11 +546,25 @@ impl Cmd<'_> {
         let deadline = std::time::Instant::now() + timeout;
         let mut output = Vec::new();
         let mut typed = false;
+        let mut answered = false;
+        const OSC11: &[u8] = b"\x1b]11;?\x07";
+        const DA1: &[u8] = b"\x1b[c";
+        let contains = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
         let code = loop {
             while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_millis(50)) {
                 output.extend(chunk);
             }
-            if !typed && !output.is_empty() {
+            if !answered && contains(&output, DA1) {
+                if let Some(bg) = background.filter(|_| contains(&output, OSC11)) {
+                    master
+                        .write_all(format!("\x1b]11;{bg}\x07").as_bytes())
+                        .unwrap();
+                }
+                master.write_all(b"\x1b[?1;2c").unwrap();
+                answered = true;
+            }
+            let drawn = output.len() > [OSC11, DA1].concat().len() || !contains(&output, DA1);
+            if !typed && !output.is_empty() && drawn {
                 thread::sleep(std::time::Duration::from_millis(300));
                 master.write_all(keys.as_bytes()).unwrap();
                 typed = true;
