@@ -12,6 +12,7 @@ use ccswap_core::pyjson;
 use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
 use ccswap_core::status;
+use ccswap_core::switcher::Switcher;
 use ccswap_core::transfer::Transfer;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
@@ -196,6 +197,8 @@ impl Cli {
             self.import(&paths, source, parsed.flag("--force"))
         } else if let Some(token) = parsed.value("--add-token") {
             self.add_token(&paths, &style, token, &parsed)
+        } else if parsed.flag("--switch") || nonempty(&parsed, "--switch-to") {
+            self.switch(&paths, &style, &parsed)
         } else if let Some(result) = crate::manage_cmd::dispatch(&self.env, &paths, &style, &parsed)
         {
             result
@@ -287,6 +290,34 @@ impl Cli {
             &mut |line| eprintln!("{line}"),
         )? {
             self.stdout.push(envelope);
+        }
+        Ok(())
+    }
+
+    fn switch(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
+        if parsed.value("--strategy").is_some() {
+            return Err(not_implemented_error("switch --strategy"));
+        }
+        let secrets = self.secrets(paths);
+        let client = AnthropicClient::new(Endpoints::new(&self.env));
+        let switcher = Switcher {
+            paths,
+            env: &self.env,
+            secrets: &secrets,
+            client: &client,
+            style,
+            listing: None,
+        };
+        let json = parsed.flag("--json");
+        let report = match parsed.value("--switch-to") {
+            Some(target) => {
+                switcher.switch_to(target, json, parsed.flag("--force"), &mut TerminalConsole)?
+            }
+            None => switcher.switch_next(json, &mut TerminalConsole)?,
+        };
+        if let Some(report) = report.filter(|_| json) {
+            self.stdout
+                .push(pyjson::to_string_pretty(&report.to_json()));
         }
         Ok(())
     }

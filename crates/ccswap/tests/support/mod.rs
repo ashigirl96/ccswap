@@ -558,6 +558,8 @@ pub struct FakeSecurity {
 pub struct SecurityCall {
     pub argv: Vec<String>,
     pub stdin: Option<String>,
+    /// Whether each path given to [`FakeSecurity::observe`] existed when the call ran.
+    pub observed: BTreeMap<String, bool>,
 }
 
 impl FakeSecurity {
@@ -630,12 +632,23 @@ impl FakeSecurity {
         .unwrap();
     }
 
+    /// Record, on every later call, whether each of `paths` exists (e.g. a lock).
+    pub fn observe(&self, paths: &[&Path]) {
+        let list: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+        std::fs::write(
+            self.state.join("observe.json"),
+            serde_json::to_string(&list).unwrap(),
+        )
+        .unwrap();
+    }
+
     pub fn calls(&self) -> Vec<SecurityCall> {
         read_jsonl(&self.state.join("calls.jsonl"))
             .into_iter()
             .map(|c| SecurityCall {
                 argv: serde_json::from_value(c["argv"].clone()).unwrap(),
                 stdin: c["stdin"].as_str().map(str::to_string),
+                observed: serde_json::from_value(c["observed"].clone()).unwrap_or_default(),
             })
             .collect()
     }

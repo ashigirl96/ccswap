@@ -14,6 +14,9 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 use crate::paths::Paths;
 
+mod active_write;
+pub use active_write::ActiveBackend;
+
 pub const ACTIVE_OAUTH_SERVICE: &str = "Claude Code-credentials";
 pub const MANAGED_KEY_SERVICE: &str = "Claude Code";
 pub const BACKUP_SERVICE: &str = "claude-swap";
