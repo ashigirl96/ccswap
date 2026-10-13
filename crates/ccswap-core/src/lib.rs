@@ -6,6 +6,7 @@ pub mod error;
 pub mod fsutil;
 pub mod locks;
 pub mod mappings;
+pub mod migrations;
 pub mod paths;
 pub mod presentation;
 pub mod pyjson;

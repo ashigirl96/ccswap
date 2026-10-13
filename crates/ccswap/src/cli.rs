@@ -5,6 +5,7 @@ use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
+use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
@@ -171,13 +172,17 @@ impl Cli {
         let paths = Paths::new(&self.env);
         let style = Style::detect(&self.env, &paths);
         let json = parsed.flag("--json");
-        let result = if is_root() {
+        if is_root() {
             eprintln!(
                 "{}",
                 style.red("Error: Do not run this script as root (unless running in a container)")
             );
             return 1;
-        } else if parsed.flag("--status") {
+        }
+        if !parsed.flag("--upgrade") {
+            run_store_migrations(&self.env, &paths);
+        }
+        let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
@@ -359,6 +364,17 @@ impl Cli {
     fn not_implemented(&self, verb: &str) -> i32 {
         eprintln!("Error: {}", not_implemented_error(verb));
         1
+    }
+}
+
+/// Upstream runs these wherever it builds its switcher: every command but
+/// `upgrade`, before the root check (ccswap runs them after it so root never
+/// writes into the user's store).
+pub fn run_store_migrations(env: &Environment, paths: &Paths) {
+    let keychain = Keychain::new(Endpoints::new(env).security, env);
+    let secrets = SecretStore::new(keychain, paths.clone(), env);
+    for line in migrations::run_migrations(paths, &secrets).stderr {
+        eprintln!("{line}");
     }
 }
 
