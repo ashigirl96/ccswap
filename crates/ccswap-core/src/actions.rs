@@ -69,6 +69,16 @@ pub trait Actions: Send + Sync {
     /// effective settings) instead of reading settings.json.
     fn set_poll_policy_inputs(&self, threshold: f64, models: Vec<String>);
     fn clear_poll_policy_inputs(&self);
+    /// The live login's email from the Claude Code config alone: no
+    /// Keychain, cheap enough to poll.
+    fn live_email(&self) -> Option<String> {
+        None
+    }
+    /// The Claude Code config a login rewrites; its mtime signals a switch
+    /// made elsewhere.
+    fn claude_config_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The outcome of one captured action.
@@ -322,6 +332,14 @@ impl Actions for LiveActions {
     fn clear_poll_policy_inputs(&self) {
         *self.poll_inputs.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
+
+    fn live_email(&self) -> Option<String> {
+        store::current_identity(&self.paths).map(|i| i.email)
+    }
+
+    fn claude_config_path(&self) -> Option<PathBuf> {
+        Some(self.paths.global_config_path())
+    }
 }
 
 #[cfg(test)]
@@ -408,6 +426,11 @@ mod tests {
         assert!(snap.accounts.iter().all(|a| a.usage.sentinel.is_some()));
         assert!(snap.taken_at > 0.0);
         assert_eq!(live.current_account_number().as_deref(), Some("1"));
+        assert_eq!(live.live_email().as_deref(), Some("test@example.com"));
+        assert_eq!(
+            live.claude_config_path(),
+            Some(home.path().join(".claude.json"))
+        );
     }
 
     #[test]

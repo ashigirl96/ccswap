@@ -4,6 +4,7 @@ mod cli;
 mod config_cmd;
 mod manage_cmd;
 mod map_cmd;
+mod menubar;
 mod renumber_cmd;
 mod run_cmd;
 mod tui;

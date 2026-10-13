@@ -17,6 +17,11 @@ libc = "0.2"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29", "layout-cache"] }
 serde_json.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSTimer", "NSDate", "NSRunLoop", "NSObjCRuntime", "NSGeometry", "NSUserNotification", "NSThread"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSAlert", "NSTextField", "NSCell", "NSWindow", "NSRunningApplication", "NSGraphics", "objc2-core-foundation"] }
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile = "3"
