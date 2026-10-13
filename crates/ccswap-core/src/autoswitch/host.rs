@@ -15,16 +15,11 @@ use crate::error::Result;
 use crate::paths::Paths;
 use crate::presentation::Style;
 use crate::secret_store::SecretStore;
+use crate::snapshot::AccountKind;
 use crate::store::{self, JsonObject};
 use crate::switcher::Switcher;
 use crate::usage_collector::{UsageCollector, build_accounts_info};
 use crate::usage_store::UsageEntry;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccountKind {
-    OAuth,
-    ApiKey,
-}
 
 /// The result of an engine-driven switch (`switch_to(.., json=True)`).
 #[derive(Debug, Clone, PartialEq)]

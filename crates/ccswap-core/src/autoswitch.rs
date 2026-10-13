@@ -17,6 +17,7 @@ use crate::error::Result;
 use crate::poll_policy::{
     self, ESCALATION_MARGIN_PCT, RESET_SLACK_S, binding_pct, limiting_reset_ts,
 };
+use crate::snapshot::AccountKind;
 use crate::store::format_timestamp;
 use crate::usage::{Sentinel, relevant_windows};
 use crate::usage_store::{DecisionValue, UsageEntry, due_candidate, plan_oversleeps_interval};
@@ -31,7 +32,7 @@ pub mod state;
 mod tests;
 
 pub use events::{AutoSwitchEvent, EventKind, Trigger, pct_label};
-pub use host::{AccountKind, EngineHost, SwitchResult, SwitcherHost};
+pub use host::{EngineHost, SwitchResult, SwitcherHost};
 pub use rank::{Decisions, UsageValue};
 pub use settings::{AutoStrategy, AutoSwitchSettings, CliOverrides};
 pub use state::{STATE_FILENAME, STATE_SCHEMA_VERSION, State, StateFile};
