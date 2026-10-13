@@ -5,7 +5,8 @@
 //! Every case here needs `CCSWAP_TEST_UPSTREAM` and is skipped without it.
 //! To cover a new command, add a [`Step`] to a scenario (or a new scenario):
 //! [`play`] checks after every step that both implementations read the store
-//! identically (`export - --full`), so a step only states its own outcome.
+//! identically through every entry of [`READERS`], so a step only states its
+//! own outcome. A new read-only JSON command goes into [`READERS`].
 
 mod support;
 
@@ -72,16 +73,37 @@ fn play(env: &TestEnv, steps: &[Step]) {
     }
 }
 
-fn assert_reads_agree(env: &TestEnv, context: &str) {
-    let read = |which: Impl| {
-        let out = env.cmd(["export", "-", "--full"]).using(which).run();
-        out.assert_code(0);
-        let mut envelope = out.json();
+/// Read-only commands whose JSON both implementations must agree on, with
+/// the fields that legitimately differ between runs blanked.
+type Reader = (&'static [&'static str], fn(&mut Value));
+
+const READERS: &[Reader] = &[
+    (&["export", "-", "--full"], |envelope| {
         envelope["exportedAt"] = Value::Null;
         envelope["swapVersion"] = Value::Null;
-        envelope
-    };
-    assert_eq!(read(Impl::Ccswap), read(Impl::Upstream), "{context}");
+    }),
+    (&["list", "--json"], |listing| {
+        for row in listing["accounts"].as_array_mut().into_iter().flatten() {
+            row["usage"] = Value::Null;
+        }
+    }),
+];
+
+fn assert_reads_agree(env: &TestEnv, context: &str) {
+    for (args, blank_volatile) in READERS {
+        let read = |which: Impl| {
+            let out = env.cmd(*args).using(which).run();
+            out.assert_code(0);
+            let mut value = out.json();
+            blank_volatile(&mut value);
+            value
+        };
+        assert_eq!(
+            read(Impl::Ccswap),
+            read(Impl::Upstream),
+            "{args:?} {context}"
+        );
+    }
 }
 
 /// What cswap's `list --json` reports per slot: `(number, email, alias, disabled, active)`.
@@ -273,6 +295,37 @@ fn concurrent_switches_from_both_leave_the_store_intact() {
         );
     }
     assert_store_intact(&env);
+}
+
+#[test]
+fn slots_renumbered_by_one_are_renumbered_again_by_the_other() {
+    if skip_without_upstream() {
+        return;
+    }
+    let env = three_accounts();
+    let (cswap, ccswap) = (Impl::Upstream, Impl::Ccswap);
+    play(
+        &env,
+        &[
+            Step::Run(ccswap, &["alias", "1", "dev"]),
+            Step::Run(cswap, &["swap", "dev", "2"]),
+            Step::Run(ccswap, &["move", "dev", "5"]),
+            Step::Run(cswap, &["move", "dev", "1"]),
+            Step::Run(ccswap, &["swap", "1", "3"]),
+        ],
+    );
+    let listing: Vec<(u64, String)> = cswap_listing(&env)
+        .into_iter()
+        .map(|row| (row.0, row.1))
+        .collect();
+    assert_eq!(
+        listing,
+        vec![
+            (1, EMAILS[3].into()),
+            (3, EMAILS[1].into()),
+            (5, EMAILS[2].into()),
+        ]
+    );
 }
 
 #[test]
