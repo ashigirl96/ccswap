@@ -299,8 +299,18 @@ impl Settings {
         &self.path
     }
 
+    /// Logs what upstream's three lenient reads behind `effective_settings`
+    /// log: the raw file, then the autoswitch and ui sections.
     pub fn effective(&self) -> Vec<EffectiveSetting> {
-        let raw = self.read_lenient();
+        let (raw, read_warning) = self.read_lenient_with_warning();
+        let warnings = read_warning
+            .iter()
+            .cloned()
+            .chain(self.choice_load_warnings("autoswitch"))
+            .chain(self.ui_load_warnings());
+        for warning in warnings {
+            crate::log::warning(warning);
+        }
         SETTING_SPECS
             .iter()
             .map(|spec| {
@@ -378,30 +388,36 @@ impl Settings {
     /// What upstream logs while loading the `ui` section at startup, before
     /// logging is configured, so it reaches stderr on every command.
     pub fn ui_load_warnings(&self) -> Vec<String> {
+        self.choice_load_warnings("ui")
+    }
+
+    /// One lenient read of `section`: the unreadable-file warning, else one
+    /// per stored choice value that is not a valid choice.
+    fn choice_load_warnings(&self, section: &str) -> Vec<String> {
         let (raw, warning) = self.read_lenient_with_warning();
         if let Some(warning) = warning {
             return vec![warning];
         }
-        let spec = setting_spec("ui.theme").expect("registered");
-        let theme = match raw.get(spec.section) {
-            Some(Value::Object(section)) => section.get(spec.json_key),
-            _ => None,
+        let Some(Value::Object(stored)) = raw.get(section) else {
+            return Vec::new();
         };
-        match (theme, spec.kind) {
-            (Some(theme), Kind::Choice(choices))
-                if !theme.as_str().is_some_and(|t| choices.contains(&t)) =>
-            {
-                vec![format!(
-                    "settings.json: unsupported ui.theme {}; using 'auto'",
-                    python_repr(theme)
-                )]
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    fn read_lenient(&self) -> Map<String, Value> {
-        self.read_lenient_with_warning().0
+        SETTING_SPECS
+            .iter()
+            .filter(|spec| spec.section == section)
+            .filter_map(|spec| match (stored.get(spec.json_key), spec.kind) {
+                (Some(value), Kind::Choice(choices))
+                    if !value.as_str().is_some_and(|v| choices.contains(&v)) =>
+                {
+                    Some(format!(
+                        "settings.json: unsupported {} {}; using {}",
+                        spec.dotted(),
+                        python_repr(value),
+                        python_repr(&spec.default_value().to_json())
+                    ))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn read_lenient_with_warning(&self) -> (Map<String, Value>, Option<String>) {

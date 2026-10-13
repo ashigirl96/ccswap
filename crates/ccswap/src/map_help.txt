@@ -1,0 +1,17 @@
+usage: {prog} map [-h] [--debug] [NUM|EMAIL] [PATH]
+
+Map a stored account to a directory so `cswap run` (with no account) auto-launches it there. With no arguments, lists all mappings.
+
+positional arguments:
+  NUM|EMAIL   Account to map (number or email). Omit to list mappings.
+  PATH        Directory to map (default: current directory)
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging
+
+Examples:
+  {prog} map 2 ~/work/client-app
+  {prog} map user@example.com          # map the current directory
+  {prog} map                           # list all mappings
+        

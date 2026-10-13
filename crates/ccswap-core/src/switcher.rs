@@ -12,6 +12,7 @@ use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 use crate::locks::{self, STORE_LOCK_TIMEOUT, StoreLock};
+use crate::log;
 use crate::paths::Paths;
 use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::pyjson;
@@ -219,6 +220,16 @@ enum Step {
     SequenceUpdated,
 }
 
+impl Step {
+    fn name(&self) -> &'static str {
+        match self {
+            Step::CredentialsWritten => "credentials_written",
+            Step::ConfigWritten => "config_written",
+            Step::SequenceUpdated => "sequence_updated",
+        }
+    }
+}
+
 /// The live state before the switch and the steps applied since, undone
 /// newest first.
 struct SwitchTransaction {
@@ -248,7 +259,13 @@ impl SwitchTransaction {
                     .map_err(|e| Error::config(e.to_string())),
                 Step::SequenceUpdated => self.restore_active_number(switcher.paths),
             };
-            ok &= undone.is_ok();
+            match undone {
+                Ok(()) => log::info(format!("Rolled back step: {}", step.name())),
+                Err(e) => {
+                    log::error(format!("Failed to rollback step {}: {e}", step.name()));
+                    ok = false;
+                }
+            }
         }
         ok
     }
@@ -721,6 +738,7 @@ impl Switcher<'_> {
     ) -> Result<Performed> {
         self.accounts().refuse_session_shell()?;
         let mut warnings = Vec::new();
+        self.warn_live_session_target(target, emit, &mut warnings, console);
         let provenance = match provenance {
             Some(p) => p,
             None if force => Provenance::default(),
@@ -795,8 +813,9 @@ impl Switcher<'_> {
             ));
             if !direct
                 && let Some(listing) = self.listing
-                && listing(console).is_err()
+                && let Err(e) = listing(console)
             {
+                log::warning(format!("Post-switch usage display failed: {e}"));
                 console.line(
                     &self
                         .style
@@ -860,13 +879,18 @@ impl Switcher<'_> {
             warnings,
             console,
         );
+        if let Err(e) = &outcome {
+            log::error(format!("Switch failed: {e}, attempting rollback"));
+        }
         match outcome {
             Ok(backend) => Ok(backend),
             Err(e) if transaction.completed.is_empty() => Err(e),
             Err(e) => {
                 let message = if transaction.rollback(self) {
+                    log::info("Rollback successful");
                     format!("Switch failed and was rolled back: {e}")
                 } else {
+                    log::error("Rollback failed!");
                     format!(
                         "Switch failed and rollback also failed: {e}. Manual recovery may be needed."
                     )
@@ -910,7 +934,12 @@ impl Switcher<'_> {
             )?;
         }
         match &outgoing {
-            Outgoing::OwnBytes => config_backup(self)?,
+            Outgoing::OwnBytes => {
+                config_backup(self)?;
+                log::info(format!(
+                    "Backed up account {current_account} (config only; credentials unchanged)"
+                ));
+            }
             Outgoing::Wiped => {
                 config_backup(self)?;
                 self.warn(
@@ -925,10 +954,23 @@ impl Switcher<'_> {
             Outgoing::OwnFamily | Outgoing::OwnRotated | Outgoing::Unresolved => {
                 self.secrets
                     .write_backup(current_account, current_email, &live)?;
+                crate::session_profile::after_backup_write(
+                    self.secrets.keychain(),
+                    self.paths,
+                    current_account,
+                    current_email,
+                );
                 config_backup(self)?;
                 if outgoing == Outgoing::OwnRotated {
                     self.backfill_slot_uuid(data, current_account, provenance);
                 }
+                log::info(if outgoing == Outgoing::Unresolved {
+                    format!(
+                        "Backed up account {current_account} (lineage differs from the stored backup and ownership could not be verified — pre-fix backup)"
+                    )
+                } else {
+                    format!("Backed up account {current_account}")
+                });
             }
             Outgoing::Alien => self.warn(
                 format!(
@@ -969,6 +1011,7 @@ impl Switcher<'_> {
                 Some(&live),
             ))?;
         transaction.record(Step::CredentialsWritten);
+        log::info("Wrote target credentials");
 
         let target_config: Value =
             serde_json::from_str(&target_config).map_err(|e| Error::config(e.to_string()))?;
@@ -982,9 +1025,13 @@ impl Switcher<'_> {
             console,
         )?;
         transaction.record(Step::ConfigWritten);
+        log::info("Updated config file");
 
         record_active(self.paths, data, target)?;
         transaction.record(Step::SequenceUpdated);
+        log::info(format!(
+            "Switched from account {current_account} to {target}"
+        ));
         Ok(backend)
     }
 
@@ -1370,6 +1417,11 @@ impl Switcher<'_> {
                     ),
                 )
             })?;
+        log::warning(format!(
+            "{} could not be parsed; a copy was kept at {} before it was replaced",
+            path.display(),
+            salvage.display()
+        ));
         let message = format!(
             "{name} could not be parsed — a copy was kept at {}",
             salvage.file_name().unwrap_or_default().to_string_lossy()
@@ -1379,6 +1431,37 @@ impl Switcher<'_> {
             console.line(&self.style.yellowed(&message));
         }
         Ok(())
+    }
+
+    /// Default login and a live session on one account can each leave the
+    /// other's token stale; warned, never blocked.
+    fn warn_live_session_target(
+        &self,
+        target: &str,
+        emit: bool,
+        warnings: &mut Vec<String>,
+        console: &mut dyn Console,
+    ) {
+        let data = store::read_sequence(self.paths)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let email = store::accounts(&data)
+            .and_then(|a| a.get(target))
+            .and_then(|r| r.get("email"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if email.is_empty() {
+            return;
+        }
+        let pids = crate::session_profile::live_session_pids(self.paths, target, email);
+        if !pids.is_empty() {
+            let message = format!(
+                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'cswap run {target}'.",
+                crate::session_profile::join_pids(&pids)
+            );
+            self.warn(message, emit, warnings, console);
+        }
     }
 
     fn warn(

@@ -54,9 +54,7 @@ pub trait EngineHost {
     /// The slot's backup credential; empty when missing.
     fn read_account_credentials(&self, num: &str, email: &str) -> String;
     /// PIDs of live `run` sessions on this slot.
-    fn live_session_pids_for(&self, _num: &str, _email: &str) -> Vec<u32> {
-        Vec::new()
-    }
+    fn live_session_pids_for(&self, num: &str, email: &str) -> Vec<i32>;
     /// Refreshes a slot's backup credential under the consume gate.
     fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome;
     fn switch_to(&self, num: &str) -> Result<SwitchResult>;
@@ -179,6 +177,10 @@ impl EngineHost for SwitcherHost<'_> {
 
     fn read_account_credentials(&self, num: &str, email: &str) -> String {
         self.secrets.read_backup(num, email).value
+    }
+
+    fn live_session_pids_for(&self, num: &str, email: &str) -> Vec<i32> {
+        crate::session_profile::live_session_pids(self.paths, num, email)
     }
 
     /// The consume gate does not exist yet: every refresh is declined as

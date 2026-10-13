@@ -101,7 +101,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, parsed.flag("--debug"));
     let settings = AutoSwitchSettings::load(&paths).merged_with_cli(&overrides(&parsed));
 
     if !parsed.flag("--once") {

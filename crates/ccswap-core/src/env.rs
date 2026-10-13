@@ -44,6 +44,10 @@ impl Environment {
             .map(|v| v.to_string_lossy().into_owned())
     }
 
+    pub fn vars(&self) -> impl Iterator<Item = (&str, &OsString)> {
+        self.vars.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     pub fn is_set(&self, name: &str) -> bool {
         self.vars.contains_key(name)
     }

@@ -156,7 +156,7 @@ impl EngineHost for FakeHost {
         self.creds.borrow().get(num).cloned().unwrap_or_default()
     }
 
-    fn live_session_pids_for(&self, num: &str, _email: &str) -> Vec<u32> {
+    fn live_session_pids_for(&self, num: &str, _email: &str) -> Vec<i32> {
         if self.live_sessions.borrow().contains(num) {
             vec![4242]
         } else {

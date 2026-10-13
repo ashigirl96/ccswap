@@ -480,6 +480,10 @@ impl<'a> AutoSwitchEngine<'a> {
                         );
                         return Ok(TickOutcome::NoAction);
                     }
+                    crate::log::warning(format!(
+                        "Active token expired and owned for over {} minutes; resuming unhealthy counting (dead refresh token?)",
+                        events::fixed0(IDLE_HOLD_MAX_S / 60.0)
+                    ));
                 } else {
                     self.idle_hold_since = None;
                 }

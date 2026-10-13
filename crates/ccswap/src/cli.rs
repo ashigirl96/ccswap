@@ -5,7 +5,7 @@ use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
-use ccswap_core::listing::{self, ListReport};
+use ccswap_core::listing::{self, ListOptions, ListReport};
 use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
@@ -16,6 +16,7 @@ use ccswap_core::settings::{Settings, parse_model_names};
 use ccswap_core::status;
 use ccswap_core::switcher::{ModelSource, SwitchStrategy, Switcher};
 use ccswap_core::transfer::Transfer;
+use ccswap_core::update_check;
 use ccswap_core::usage_view;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
@@ -146,11 +147,20 @@ impl Cli {
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }
+        if args.first().is_some_and(|v| v == "run") {
+            return crate::run_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if args.first().is_some_and(|v| v == "alias") {
             return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "auto") {
             return crate::auto_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
+        if args.first().is_some_and(|v| v == "map") {
+            return crate::map_cmd::run_map(&self.prog, &self.env, &args[1..]);
+        }
+        if args.first().is_some_and(|v| v == "unmap") {
+            return crate::map_cmd::run_unmap(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "unclaimed") {
             return crate::unclaimed_cmd::run(&self.prog, &self.env, &args[1..]);
@@ -186,6 +196,12 @@ impl Cli {
             return self.usage_error(&msg);
         }
 
+        // Before any store access, so a broken store cannot block it.
+        if parsed.flag("--upgrade") {
+            println!("{}", update_check::UPGRADE_INSTRUCTIONS);
+            return 0;
+        }
+
         let paths = Paths::new(&self.env);
         let style = Style::detect(&self.env, &paths);
         let json = parsed.flag("--json");
@@ -196,13 +212,11 @@ impl Cli {
             );
             return 1;
         }
-        if !parsed.flag("--upgrade") {
-            run_store_migrations(&self.env, &paths);
-        }
+        run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--list") {
-            self.list(&paths, &style, json)
+            self.list(&paths, &style, json, parsed.flag("--token-status"))
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
         } else if let Some(destination) = parsed.value("--export") {
@@ -228,6 +242,15 @@ impl Cli {
             Ok(()) => {
                 for line in self.stdout.drain(..) {
                     println!("{line}");
+                }
+                // After purge the check would recreate the store it just removed.
+                if !json && !parsed.flag("--purge") {
+                    let endpoints = Endpoints::new(&self.env);
+                    if let Some(notice) =
+                        update_check::check_for_update(&paths, &endpoints, ccswap_core::VERSION)
+                    {
+                        eprintln!("\n{}", style.muted(&notice));
+                    }
                 }
                 0
             }
@@ -263,12 +286,19 @@ impl Cli {
         Ok(())
     }
 
-    fn list(&mut self, paths: &Paths, style: &Style, json: bool) -> Result<(), Error> {
+    fn list(
+        &mut self,
+        paths: &Paths,
+        style: &Style,
+        json: bool,
+        token_status: bool,
+    ) -> Result<(), Error> {
         let endpoints = Endpoints::new(&self.env);
         let keychain = Keychain::new(endpoints.security.clone(), &self.env);
         let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
         let client = AnthropicClient::new(endpoints);
-        let report = listing::list(paths, &self.env, &secrets, &client)?;
+        let options = ListOptions { token_status, json };
+        let report = listing::list(paths, &self.env, &secrets, &client, options)?;
         if json {
             self.stdout
                 .push(pyjson::to_string_pretty(&usage_view::list_json(&report)));
@@ -370,7 +400,7 @@ impl Cli {
         let env = &self.env;
         let show_list = |console: &mut dyn Console| -> Result<(), Error> {
             let list_secrets = self.secrets(paths);
-            let report = listing::list(paths, env, &list_secrets, &client)?;
+            let report = listing::list(paths, env, &list_secrets, &client, ListOptions::default())?;
             for line in usage_view::list_lines(&report, style) {
                 console.line(&line);
             }
@@ -532,10 +562,11 @@ impl Cli {
     }
 }
 
-/// Upstream runs these wherever it builds its switcher: every command but
-/// `upgrade`, before the root check (ccswap runs them after it so root never
-/// writes into the user's store).
-pub fn run_store_migrations(env: &Environment, paths: &Paths) {
+/// Upstream's switcher start-up: logging, then the store migrations. Every
+/// command but `upgrade` runs it, upstream before the root check (ccswap
+/// after it, so root never writes into the user's store).
+pub fn run_store_migrations(env: &Environment, paths: &Paths, debug: bool) {
+    ccswap_core::log::setup(&paths.backup_root(), debug);
     let keychain = Keychain::new(Endpoints::new(env).security, env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);
     for line in migrations::run_migrations(paths, &secrets).stderr {
