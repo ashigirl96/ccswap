@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::anthropic_client::RefreshOutcome;
+use crate::store::SlotIdentity;
 use crate::usage::Sentinel;
 use crate::usage_store::UsageEntry;
 
@@ -21,6 +22,8 @@ mod run_loop;
 const START: f64 = 1_000_000.0;
 
 type Provider = Box<dyn FnMut(&HashSet<String>) -> Vec<(String, UsageEntry)>>;
+/// `(slot, snapshot)` to the gate's outcome.
+type RefreshFn = Box<dyn Fn(&str, &str) -> RefreshOutcome>;
 
 struct FakeHost {
     root: tempfile::TempDir,
@@ -33,7 +36,10 @@ struct FakeHost {
     switch_override: RefCell<Option<SwitchResult>>,
     live_sessions: RefCell<HashSet<String>>,
     refresh: RefCell<Option<RefreshOutcome>>,
+    refresh_fn: RefCell<Option<RefreshFn>>,
     refresh_calls: Cell<usize>,
+    identities: RefCell<HashMap<String, SlotIdentity>>,
+    backfills: RefCell<Vec<(String, String)>>,
 }
 
 impl FakeHost {
@@ -49,7 +55,10 @@ impl FakeHost {
             switch_override: RefCell::new(None),
             live_sessions: RefCell::new(HashSet::new()),
             refresh: RefCell::new(None),
+            refresh_fn: RefCell::new(None),
             refresh_calls: Cell::new(0),
+            identities: RefCell::new(HashMap::new()),
+            backfills: RefCell::new(Vec::new()),
         }
     }
 
@@ -69,6 +78,14 @@ impl FakeHost {
         self.slots
             .borrow_mut()
             .push((num.to_string(), email.to_string(), AccountKind::OAuth));
+        self.identities.borrow_mut().insert(
+            num.to_string(),
+            SlotIdentity {
+                email: email.to_string(),
+                organization_uuid: String::new(),
+                uuid: format!("uuid-{num}"),
+            },
+        );
     }
 
     fn mark_api_key(&self, num: u32) {
@@ -166,12 +183,41 @@ impl EngineHost for FakeHost {
         }
     }
 
-    fn consume_backup_grant(&self, _num: &str, _email: &str, _snapshot: &str) -> RefreshOutcome {
+    /// Like the real gate, a successful refresh persists the successor.
+    fn consume_backup_grant(&self, num: &str, _email: &str, snapshot: &str) -> RefreshOutcome {
         self.refresh_calls.set(self.refresh_calls.get() + 1);
-        self.refresh.borrow().clone().unwrap_or(RefreshOutcome {
-            error: Some("consume-busy".into()),
-            ..Default::default()
-        })
+        let outcome = match self.refresh_fn.borrow().as_ref() {
+            Some(f) => f(num, snapshot),
+            None => self.refresh.borrow().clone().unwrap_or(RefreshOutcome {
+                error: Some("consume-busy".into()),
+                ..Default::default()
+            }),
+        };
+        if outcome.error.is_none()
+            && let Some(creds) = &outcome.credentials
+        {
+            self.creds.borrow_mut().insert(num.into(), creds.clone());
+        }
+        outcome
+    }
+
+    fn account_identity(&self, num: &str) -> SlotIdentity {
+        self.identities
+            .borrow()
+            .get(num)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn backfill_account_uuid(&self, num: &str, uuid: &str) {
+        self.backfills
+            .borrow_mut()
+            .push((num.to_string(), uuid.to_string()));
+        if let Some(identity) = self.identities.borrow_mut().get_mut(num)
+            && identity.uuid.is_empty()
+        {
+            identity.uuid = uuid.to_string();
+        }
     }
 
     fn switch_to(&self, num: &str) -> crate::error::Result<SwitchResult> {
@@ -1956,3 +2002,7 @@ fn iso_utc_keeps_microseconds_only_when_present() {
     assert_eq!(iso_utc(1_783_074_600.0), "2026-07-03T10:30:00Z");
     assert_eq!(iso_utc(1_783_074_600.5), "2026-07-03T10:30:00.500000Z");
 }
+
+mod no_flap;
+mod no_return;
+mod safety;

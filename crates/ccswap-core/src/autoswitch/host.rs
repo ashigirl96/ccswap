@@ -10,13 +10,14 @@ use serde_json::Value;
 
 use crate::accounts::{Accounts, Console};
 use crate::anthropic_client::{AnthropicClient, RefreshOutcome};
+use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::error::Result;
 use crate::paths::Paths;
 use crate::presentation::Style;
 use crate::secret_store::SecretStore;
 use crate::snapshot::AccountKind;
-use crate::store::{self, JsonObject};
+use crate::store::{self, JsonObject, SlotIdentity};
 use crate::switcher::Switcher;
 use crate::usage_collector::{UsageCollector, build_accounts_info};
 use crate::usage_store::UsageEntry;
@@ -52,6 +53,10 @@ pub trait EngineHost {
     fn live_session_pids_for(&self, num: &str, email: &str) -> Vec<i32>;
     /// Refreshes a slot's backup credential under the consume gate.
     fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome;
+    /// The slot's stored identity.
+    fn account_identity(&self, num: &str) -> SlotIdentity;
+    /// Records a resolved uuid on a slot that has none; never rewrites one.
+    fn backfill_account_uuid(&self, num: &str, uuid: &str);
     fn switch_to(&self, num: &str) -> Result<SwitchResult>;
     /// Pins the threshold and models that poll plans are computed with.
     fn set_poll_policy_inputs(&self, threshold: f64, models: &[String]);
@@ -177,12 +182,23 @@ impl EngineHost for SwitcherHost<'_> {
         crate::session_profile::live_session_pids(self.paths, num, email)
     }
 
-    /// The consume gate does not exist yet: every refresh is declined as
-    /// busy, so nothing is consumed.
-    fn consume_backup_grant(&self, _num: &str, _email: &str, _snapshot: &str) -> RefreshOutcome {
-        RefreshOutcome {
-            error: Some("consume-busy".into()),
-            ..Default::default()
+    fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome {
+        ConsumeGate {
+            paths: self.paths,
+            env: self.env,
+            secrets: self.secrets,
+            client: self.client,
+        }
+        .consume_backup_grant(num, email, snapshot)
+    }
+
+    fn account_identity(&self, num: &str) -> SlotIdentity {
+        store::slot_identity(&self.data(), num)
+    }
+
+    fn backfill_account_uuid(&self, num: &str, uuid: &str) {
+        if let Err(e) = store::backfill_account_uuid(self.paths, num, uuid, None) {
+            crate::log::debug(format!("uuid backfill failed for account {num}: {e}"));
         }
     }
 

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::anthropic_client::{credential_fingerprint, extract_oauth_data};
+use crate::anthropic_client::{TokenAccount, credential_fingerprint, extract_oauth_data};
 use crate::error::Result;
 use crate::poll_policy::{
     self, ESCALATION_MARGIN_PCT, RESET_SLACK_S, binding_pct, limiting_reset_ts,
@@ -99,6 +99,8 @@ pub type EventSink<'a> = Box<dyn FnMut(AutoSwitchEvent) + 'a>;
 enum Freshen {
     Ok,
     InvalidGrant,
+    /// Alive, but authenticates as a different account than the slot.
+    IdentityConflict,
     Transient,
     SkipLiveSession,
     Systemic(&'static str),
@@ -372,7 +374,11 @@ impl<'a> AutoSwitchEngine<'a> {
                 .as_deref()
                 .is_some_and(|c| !c.is_empty()) =>
             {
-                Freshen::Ok
+                if self.note_token_identity(number, outcome.token_account.as_ref()) {
+                    Freshen::IdentityConflict
+                } else {
+                    Freshen::Ok
+                }
             }
             Some("invalid_grant" | "no_refresh_token") => Freshen::InvalidGrant,
             Some(other) => match systemic_rank(other) {
@@ -381,6 +387,29 @@ impl<'a> AutoSwitchEngine<'a> {
             },
             None => Freshen::Transient,
         }
+    }
+
+    /// Checks the token endpoint's free identity against the slot: `true`
+    /// on a conflict (org first, when both record one; then uuid). A blank
+    /// slot uuid is backfilled, but never across an org conflict.
+    fn note_token_identity(&self, number: &str, token_account: Option<&TokenAccount>) -> bool {
+        let Some(account) = token_account.filter(|a| !a.uuid.trim().is_empty()) else {
+            return false;
+        };
+        let slot = self.host.account_identity(number);
+        if let Some(org) = account.organization_uuid.as_deref()
+            && !org.is_empty()
+            && !slot.organization_uuid.is_empty()
+            && org != slot.organization_uuid
+        {
+            return true;
+        }
+        let uuid = account.uuid.trim();
+        if slot.uuid.is_empty() {
+            self.host.backfill_account_uuid(number, uuid);
+            return false;
+        }
+        slot.uuid != uuid
     }
 
     fn decisions(&self, entries: &[(String, UsageEntry)]) -> Decisions {
@@ -631,6 +660,7 @@ impl<'a> AutoSwitchEngine<'a> {
                 return self.perform(num, &email, trigger, left);
             }
             match self.freshen_target(num, &email) {
+                Freshen::IdentityConflict => self.quarantine(num, &email, "identity-conflict")?,
                 Freshen::InvalidGrant => self.quarantine(num, &email, "invalid_grant")?,
                 Freshen::Transient => transient_failure = true,
                 Freshen::Systemic(status) => {
