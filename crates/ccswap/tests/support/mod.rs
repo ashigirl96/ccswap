@@ -646,6 +646,29 @@ impl FakeSecurity {
         .unwrap();
     }
 
+    /// Hold the next `command` call (also via `security -i`) until [`Self::release`],
+    /// for at most 4.5 s since callers time out at 5 s.
+    pub fn pause_next(&self, command: &str) {
+        let _ = std::fs::remove_file(self.state.join("release"));
+        std::fs::write(self.state.join(format!("pause_{command}")), "").unwrap();
+    }
+
+    /// Wait until a call is held by [`Self::pause_next`]; false on timeout.
+    pub fn wait_until_paused(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while !self.state.join("paused").exists() {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        true
+    }
+
+    pub fn release(&self) {
+        std::fs::write(self.state.join("release"), "").unwrap();
+    }
+
     pub fn calls(&self) -> Vec<SecurityCall> {
         read_jsonl(&self.state.join("calls.jsonl"))
             .into_iter()
