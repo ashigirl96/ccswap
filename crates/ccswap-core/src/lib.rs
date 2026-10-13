@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod actions;
 pub mod anthropic_client;
 pub mod endpoints;
 pub mod env;
@@ -20,6 +21,7 @@ pub mod secret_store;
 pub mod session;
 pub mod session_profile;
 pub mod settings;
+pub mod snapshot;
 pub mod status;
 pub mod store;
 pub mod switcher;

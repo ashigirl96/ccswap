@@ -3,7 +3,7 @@
 //! of the slots that are due, parallel fetches outside every lock, and a
 //! claim-fenced record. Everything else is served from `cache/usage.json`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -156,6 +156,19 @@ impl<'a> UsageCollector<'a> {
         infos: &[AccountInfo],
         active: Option<&ActiveCredentials>,
     ) -> HashMap<String, UsageEntry> {
+        self.collect_with(infos, active, None, false)
+    }
+
+    /// `fetch = None` makes every account a candidate under the persisted
+    /// poll plans; a set restricts the candidates and lets them beat the
+    /// plans (an empty set reads the store only).
+    pub fn collect_with(
+        &self,
+        infos: &[AccountInfo],
+        active: Option<&ActiveCredentials>,
+        fetch: Option<&HashSet<String>>,
+        scheduled: bool,
+    ) -> HashMap<String, UsageEntry> {
         let identities: Vec<(String, Identity)> = infos
             .iter()
             .map(|i| (i.num.clone(), i.identity()))
@@ -184,11 +197,16 @@ impl<'a> UsageCollector<'a> {
         let requested: Vec<String> = infos
             .iter()
             .filter(|i| !sentinels.contains_key(&i.num))
+            .filter(|i| fetch.is_none_or(|f| f.contains(&i.num)))
             .map(|i| i.num.clone())
             .collect();
+        let (respect_plans, repair_overslept) = match fetch {
+            None => (true, true),
+            Some(_) => (false, scheduled),
+        };
         let claims = self
             .store
-            .reserve(&requested, &identities, true, true)
+            .reserve(&requested, &identities, respect_plans, repair_overslept)
             .unwrap_or_default();
 
         for info in infos.iter().filter(|i| i.is_active) {

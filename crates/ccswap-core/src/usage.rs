@@ -225,7 +225,8 @@ pub fn format_reset(resets_at: &Value) -> Result<(String, String), PyError> {
     Ok((countdown, reset_clock(reset, now)))
 }
 
-fn reset_clock(reset: DateTime<Utc>, now: DateTime<Utc>) -> String {
+/// Local `20:39` on the same day, else `Jul 5 08:59`.
+pub fn reset_clock(reset: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let reset_local = reset.with_timezone(&Local);
     if reset_local.date_naive() == now.with_timezone(&Local).date_naive() {
         return reset_local.format("%H:%M").to_string();
