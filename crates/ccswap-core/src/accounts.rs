@@ -57,6 +57,9 @@ struct CommitLocks {
     _store: StoreLock,
 }
 
+mod renumber;
+pub use renumber::MoveOutcome;
+
 impl Accounts<'_> {
     pub fn add_account(&self, options: &AddOptions, console: &mut dyn Console) -> Result<()> {
         self.refuse_session_shell()?;

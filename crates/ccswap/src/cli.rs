@@ -140,6 +140,9 @@ impl Cli {
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }
+        if let Some(verb @ ("swap" | "move")) = args.first().map(String::as_str) {
+            return crate::renumber_cmd::run(&self.prog, &self.env, verb, &args[1..]);
+        }
         if let Some(verb) = args
             .first()
             .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
@@ -331,7 +334,7 @@ impl Cli {
 
 /// Prints as it goes, so output already shown survives a later error the
 /// way Python's `print` does.
-struct TerminalConsole;
+pub(crate) struct TerminalConsole;
 
 impl Console for TerminalConsole {
     fn line(&mut self, text: &str) {
