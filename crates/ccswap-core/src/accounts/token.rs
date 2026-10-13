@@ -99,7 +99,7 @@ impl Accounts<'_> {
             && let Some(num) = store::find_account_slot(&data, &email, "")
         {
             let _lock = self.store_lock()?;
-            self.secrets.write_backup(&num, &email, &credentials)?;
+            self.write_backup(&num, &email, &credentials)?;
             store::write_account_config(self.paths, &num, &email, &config)?;
             self.clear_dead_token(&num, &email, "")?;
             let mut data = self.roster()?;
@@ -168,17 +168,17 @@ impl Accounts<'_> {
 
         let _lock = self.store_lock()?;
         if let Some((d_num, d_email, d_org)) = &displace {
-            self.delete_account_files(d_num, d_email);
+            self.delete_account_files(d_num, d_email)?;
             self.drop_record(d_num)?;
             self.prune_mappings(d_email, d_org, console);
         }
         if let Some(old) = &migrate_from {
             let old_email = record_text(&self.roster()?, old, "email");
-            self.delete_account_files(old, &old_email);
+            self.delete_account_files(old, &old_email)?;
             self.drop_record(old)?;
         }
 
-        self.secrets.write_backup(&num, &email, &credentials)?;
+        self.write_backup(&num, &email, &credentials)?;
         store::write_account_config(self.paths, &num, &email, &config)?;
         self.clear_dead_token(&num, &email, "")?;
 

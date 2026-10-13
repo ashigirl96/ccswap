@@ -142,8 +142,11 @@ impl Renumber<'_, '_> {
         let record_b = record(&data, &num_b)
             .cloned()
             .ok_or_else(|| not_found(format!("Account-{num_b} does not exist")))?;
-        let a = self.snapshot(num_a, email_of(&record_a))?;
-        let b = self.snapshot(num_b, email_of(&record_b))?;
+        let (email_a, email_b) = (email_of(&record_a), email_of(&record_b));
+        session_profile::ensure_no_live_session(paths, &num_a, &email_a, "--swap-accounts")?;
+        session_profile::ensure_no_live_session(paths, &num_b, &email_b, "--swap-accounts")?;
+        let a = self.snapshot(num_a, email_a)?;
+        let b = self.snapshot(num_b, email_b)?;
 
         let mut staging = Vec::new();
         let result = self.swap_before_commit(&a, &b, record_a, record_b, &mut data, &mut staging);
@@ -224,7 +227,9 @@ impl Renumber<'_, '_> {
                 "Slot {target} is already occupied — retry the move"
             )));
         }
-        let side = self.snapshot(source.to_string(), email_of(&record_value))?;
+        let email = email_of(&record_value);
+        session_profile::ensure_no_live_session(paths, source, &email, "--move-account")?;
+        let side = self.snapshot(source.to_string(), email)?;
         let email = &side.email;
         let src_dir = session_profile::session_dir_for(paths, source, email);
         let dst_dir = session_profile::session_dir_for(paths, target, email);
@@ -305,9 +310,11 @@ impl Renumber<'_, '_> {
     /// seeded with.
     fn write_credentials(&self, num: &str, email: &str, creds: &str) -> Result<()> {
         self.acc.secrets.write_backup(num, email, creds)?;
-        session_profile::invalidate_credentials(
+        session_profile::after_backup_write(
             self.acc.secrets.keychain(),
-            &session_profile::session_dir_for(self.acc.paths, num, email),
+            self.acc.paths,
+            num,
+            email,
         );
         Ok(())
     }
