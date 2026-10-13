@@ -916,3 +916,63 @@ fn adaptive_scheduler_test_consume_first_hold_never_escalates_below_threshold() 
     let all: HashSet<String> = ["1", "2", "3"].iter().map(|s| s.to_string()).collect();
     assert!(!host.fetch_sets.borrow().contains(&all));
 }
+
+#[test]
+fn adaptive_scheduler_test_engine_repairs_legacy_reset_parked_active_plan() {
+    let h = scheduler(1);
+    let host = StoreHost::real(&h.host, h.clock.clock());
+    let reset = START + 86_400.0;
+    served(&host, &[("1", usage_reset(100.0, &iso_utc(reset)))]);
+    let mut engine = h.engine_on(&host, AutoSwitchSettings::default());
+    engine.tick();
+    host.set_plan("1", reset, 300.0);
+    h.clock.advance(400.0);
+    engine.tick();
+    assert_eq!(host.count("1"), 2);
+    assert!(host.entry("1").next_poll_at.unwrap() < reset);
+}
+
+#[test]
+fn adaptive_scheduler_test_consume_first_stale_target_holds_then_switches() {
+    let h = scheduler(3);
+    let host = StoreHost::real(&h.host, h.clock.clock());
+    let soon = iso_utc(START + 86_400.0);
+    let later = iso_utc(START + 3.0 * 86_400.0);
+    let latest = iso_utc(START + 5.0 * 86_400.0);
+    served(
+        &host,
+        &[
+            ("1", usage7(50.0, 20.0, Some(&soon))),
+            ("2", usage7(10.0, 10.0, Some(&later))),
+            ("3", usage7(10.0, 10.0, Some(&latest))),
+        ],
+    );
+    let mut engine = h.engine_on(&host, with(|s| s.strategy = AutoStrategy::ConsumeFirst));
+    engine.tick();
+    h.clock.advance(60.0);
+    engine.tick();
+    assert_eq!(host.counts(), counts(&[("1", 1), ("2", 1), ("3", 1)]));
+    host.store
+        .as_ref()
+        .unwrap()
+        .record(
+            &[("2".into(), FetchRecord::error("http-429", Some(600.0)))],
+            &host.identities(),
+            None,
+            &HashMap::new(),
+        )
+        .unwrap();
+    h.clock.advance(181.0);
+    h.events.borrow_mut().clear();
+    host.set("1", usage7(50.0, 20.0, Some(&latest)));
+    assert_eq!(engine.tick(), TickOutcome::NoAction);
+    assert_eq!(h.active(), s("1"));
+    assert!(h.reasons().contains(&"stale-usage"));
+    assert_eq!(host.count("2"), 1);
+    h.events.borrow_mut().clear();
+    h.clock.advance(700.0);
+    assert_eq!(engine.tick(), TickOutcome::Switched);
+    assert_eq!(h.active(), s("2"));
+    let (trigger, ..) = h.switch().unwrap();
+    assert_eq!(trigger, Trigger::ConsumeFirst);
+}

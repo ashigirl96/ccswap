@@ -958,6 +958,180 @@ mod tests {
         assert!(!e.recent_429(START + 120.0 + 3600.0));
     }
 
+    fn iso_at(ts: f64) -> String {
+        chrono::DateTime::from_timestamp(ts as i64, 0)
+            .unwrap()
+            .to_rfc3339()
+    }
+
+    fn fable() -> Vec<String> {
+        vec!["Fable".into()]
+    }
+
+    fn backoff_until(f: &Fixture, models: &[String]) -> f64 {
+        f.store.entries(&ident(), models)["1"]
+            .backoff_until
+            .unwrap()
+    }
+
+    #[test]
+    fn a_non_429_ask_is_bounded_at_its_own_trust_ceiling() {
+        for ask in [601.0, 3600.0] {
+            assert_eq!(failure_backoff_s(1, Some(ask), false), ask);
+        }
+        for ask in [
+            3601.0,
+            4500.0,
+            7200.0,
+            10_000.0,
+            20_000.0,
+            86_400.0,
+            f64::INFINITY,
+        ] {
+            assert_eq!(
+                failure_backoff_s(1, Some(ask), false),
+                TRUST_MAX_AGE_S,
+                "ask={ask}"
+            );
+        }
+        let overflow: f64 = "1e400".parse().unwrap();
+        assert_eq!(failure_backoff_s(1, Some(overflow), false), TRUST_MAX_AGE_S);
+        assert_eq!(failure_backoff_s(1, Some(3600.0), true), 4500.0);
+        assert_eq!(failure_backoff_s(1, Some(f64::INFINITY), true), 4500.0);
+    }
+
+    #[test]
+    fn shortening_a_429_wait_cannot_move_when_the_row_goes_unknown() {
+        let decision_at = |stride: f64, checkpoint: f64| {
+            let f = Fixture::new();
+            f.ok(
+                "1",
+                json!({"five_hour": {"pct": 50.0, "resets_at": iso_at(START + 1800.0)}}),
+            );
+            let mut elapsed = 0.0;
+            while elapsed < checkpoint {
+                f.fail("1", "http-429", Some(3600.0));
+                let step = stride.min(checkpoint - elapsed);
+                f.advance(step);
+                elapsed += step;
+            }
+            assert_eq!(f.store.now() - START, checkpoint);
+            f.entry("1").decision_value() == DecisionValue::Unavailable
+        };
+        for (checkpoint, expect_unknown) in [(1799.0, false), (1801.0, true)] {
+            let hammered = decision_at(37.0, checkpoint);
+            let honored = decision_at(1801.0, checkpoint);
+            assert_eq!(
+                (hammered, honored),
+                (expect_unknown, expect_unknown),
+                "at +{checkpoint}s"
+            );
+        }
+    }
+
+    #[test]
+    fn a_re_block_chain_spends_one_request_per_block() {
+        let f = Fixture::new();
+        f.ok("1", u(50.0));
+        let mut polls = 0;
+        for _ in 0..4 {
+            polls += 1;
+            f.fail("1", "http-429", Some(3600.0));
+            let until = backoff_until(&f, &[]);
+            f.advance(until - f.store.now());
+        }
+        assert_eq!(polls, 4);
+        assert!(f.store.now() - START >= 4.0 * 3600.0);
+    }
+
+    #[test]
+    fn the_margin_is_not_traded_away_for_a_dead_scoped_window() {
+        let f = Fixture::new();
+        f.ok(
+            "1",
+            json!({
+                "five_hour": {"pct": 50.0, "resets_at": iso_at(START + 14_400.0)},
+                "seven_day": {"pct": 10.0, "resets_at": iso_at(START + 400_000.0)},
+                "scoped": [{"name": "Fable", "pct": 60.0, "resets_at": iso_at(START + 1800.0)}],
+            }),
+        );
+        f.fail("1", "http-429", Some(3600.0));
+        assert_eq!(backoff_until(&f, &fable()) - START, 4500.0);
+    }
+
+    #[test]
+    fn an_expired_trust_does_not_turn_one_block_into_a_request_storm() {
+        let block_s = 3600.0;
+        let f = Fixture::new();
+        f.ok(
+            "1",
+            json!({
+                "five_hour": {"pct": 50.0, "resets_at": iso_at(START + 1800.0)},
+                "seven_day": {"pct": 10.0, "resets_at": iso_at(START + 400_000.0)},
+            }),
+        );
+        let mut requests = 0;
+        while f.store.now() - START < block_s && requests < 40 {
+            requests += 1;
+            let remaining = block_s - (f.store.now() - START);
+            f.fail("1", "http-429", Some(remaining));
+            let until = backoff_until(&f, &fable());
+            f.advance(until - f.store.now());
+        }
+        assert!(requests <= 2, "{requests} requests inside one block");
+        assert!(f.store.now() - START >= block_s + RETRY_AFTER_MARGIN_S);
+        assert_eq!(
+            failure_backoff_s(1, Some(4000.0), true),
+            RETRY_AFTER_FLOOR_CAP_S
+        );
+    }
+
+    #[test]
+    fn the_trim_never_lands_inside_the_re_block_band() {
+        let measured_band_s = 900.0;
+        let f = Fixture::new();
+        f.ok(
+            "1",
+            json!({
+                "five_hour": {"pct": 50.0, "resets_at": iso_at(START + 7200.0)},
+                "seven_day": {"pct": 10.0, "resets_at": iso_at(START + 30.0 * 86_400.0)},
+                "scoped": [{"name": "Fable", "pct": 60.0, "resets_at": iso_at(START + 4000.0)}],
+            }),
+        );
+        f.fail("1", "http-429", Some(3600.0));
+        assert!(backoff_until(&f, &fable()) - START >= 3600.0 + measured_band_s);
+    }
+
+    #[test]
+    fn a_re_block_chain_does_not_shorten_its_own_waits() {
+        let f = Fixture::new();
+        f.ok(
+            "1",
+            json!({
+                "five_hour": {"pct": 50.0, "resets_at": iso_at(START + 16_000.0)},
+                "seven_day": {"pct": 0.0},
+            }),
+        );
+        for block in 0..4 {
+            f.fail("1", "http-429", Some(3600.0));
+            let waited = backoff_until(&f, &[]) - f.store.now();
+            assert_eq!(waited, 4500.0, "block {block}");
+            f.advance(waited);
+        }
+    }
+
+    #[test]
+    fn a_non_429_recorded_through_record_does_not_take_the_margin() {
+        let f = Fixture::new();
+        f.ok("1", u(50.0));
+        f.advance(120.0);
+        assert_ne!(f.entry("1").decision_value(), DecisionValue::Unavailable);
+        let t1 = f.store.now();
+        let ask = (TRUST_MAX_AGE_S + RETRY_AFTER_FLOOR_CAP_S) / 2.0;
+        f.fail("1", "http-503", Some(ask));
+        assert_eq!(backoff_until(&f, &[]) - t1, TRUST_MAX_AGE_S);
+    }
+
     #[test]
     fn identity_guard_hides_and_replaces_other_accounts_rows() {
         let f = Fixture::new();
