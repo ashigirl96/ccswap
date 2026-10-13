@@ -4,6 +4,7 @@ mod config_cmd;
 mod manage_cmd;
 mod renumber_cmd;
 mod run_cmd;
+mod unclaimed_cmd;
 
 use ccswap_core::env::Environment;
 
