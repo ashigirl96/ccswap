@@ -16,7 +16,7 @@ use crate::paths::Paths;
 use crate::presentation::Style;
 use crate::secret_store::SecretStore;
 use crate::snapshot::AccountKind;
-use crate::store::{self, JsonObject};
+use crate::store::{self, JsonObject, SlotIdentity};
 use crate::switcher::Switcher;
 use crate::usage_collector::{UsageCollector, build_accounts_info};
 use crate::usage_store::UsageEntry;
@@ -52,6 +52,10 @@ pub trait EngineHost {
     fn live_session_pids_for(&self, num: &str, email: &str) -> Vec<i32>;
     /// Refreshes a slot's backup credential under the consume gate.
     fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome;
+    /// The slot's stored identity.
+    fn account_identity(&self, num: &str) -> SlotIdentity;
+    /// Records a resolved uuid on a slot that has none; never rewrites one.
+    fn backfill_account_uuid(&self, num: &str, uuid: &str);
     fn switch_to(&self, num: &str) -> Result<SwitchResult>;
     /// Pins the threshold and models that poll plans are computed with.
     fn set_poll_policy_inputs(&self, threshold: f64, models: &[String]);
@@ -183,6 +187,16 @@ impl EngineHost for SwitcherHost<'_> {
         RefreshOutcome {
             error: Some("consume-busy".into()),
             ..Default::default()
+        }
+    }
+
+    fn account_identity(&self, num: &str) -> SlotIdentity {
+        store::slot_identity(&self.data(), num)
+    }
+
+    fn backfill_account_uuid(&self, num: &str, uuid: &str) {
+        if let Err(e) = store::backfill_account_uuid(self.paths, num, uuid, None) {
+            crate::log::debug(format!("uuid backfill failed for account {num}: {e}"));
         }
     }
 

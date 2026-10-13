@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::anthropic_client::RefreshOutcome;
+use crate::store::SlotIdentity;
 use crate::usage::Sentinel;
 use crate::usage_store::UsageEntry;
 
@@ -32,6 +33,8 @@ struct FakeHost {
     live_sessions: RefCell<HashSet<String>>,
     refresh: RefCell<Option<RefreshOutcome>>,
     refresh_calls: Cell<usize>,
+    identities: RefCell<HashMap<String, SlotIdentity>>,
+    backfills: RefCell<Vec<(String, String)>>,
 }
 
 impl FakeHost {
@@ -48,6 +51,8 @@ impl FakeHost {
             live_sessions: RefCell::new(HashSet::new()),
             refresh: RefCell::new(None),
             refresh_calls: Cell::new(0),
+            identities: RefCell::new(HashMap::new()),
+            backfills: RefCell::new(Vec::new()),
         }
     }
 
@@ -67,6 +72,14 @@ impl FakeHost {
         self.slots
             .borrow_mut()
             .push((num.to_string(), email.to_string(), AccountKind::OAuth));
+        self.identities.borrow_mut().insert(
+            num.to_string(),
+            SlotIdentity {
+                email: email.to_string(),
+                organization_uuid: String::new(),
+                uuid: format!("uuid-{num}"),
+            },
+        );
     }
 
     fn mark_api_key(&self, num: u32) {
@@ -170,6 +183,25 @@ impl EngineHost for FakeHost {
             error: Some("consume-busy".into()),
             ..Default::default()
         })
+    }
+
+    fn account_identity(&self, num: &str) -> SlotIdentity {
+        self.identities
+            .borrow()
+            .get(num)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn backfill_account_uuid(&self, num: &str, uuid: &str) {
+        self.backfills
+            .borrow_mut()
+            .push((num.to_string(), uuid.to_string()));
+        if let Some(identity) = self.identities.borrow_mut().get_mut(num)
+            && identity.uuid.is_empty()
+        {
+            identity.uuid = uuid.to_string();
+        }
     }
 
     fn switch_to(&self, num: &str) -> crate::error::Result<SwitchResult> {

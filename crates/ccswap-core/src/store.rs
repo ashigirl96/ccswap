@@ -112,6 +112,73 @@ pub fn write_sequence(paths: &Paths, data: &JsonObject) -> Result<()> {
     fsutil::write_json_pid_tmp(&paths.sequence_file(), &Value::Object(data.clone()))
 }
 
+/// A slot's identity as `sequence.json` stores it (blank when unknown).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SlotIdentity {
+    pub email: String,
+    pub organization_uuid: String,
+    pub uuid: String,
+}
+
+pub fn slot_identity(data: &JsonObject, num: &str) -> SlotIdentity {
+    let record = accounts(data).and_then(|a| a.get(num));
+    let text = |key: &str| {
+        record
+            .and_then(|r| r.get(key))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    SlotIdentity {
+        email: text("email"),
+        organization_uuid: text("organizationUuid"),
+        uuid: text("uuid").trim().to_string(),
+    }
+}
+
+/// Records `uuid` on a slot without one, under the store lock. With
+/// `expected`, the slot must still hold that `(email, org)`: a re-add in the
+/// gap must not inherit its predecessor's uuid. The caller must not hold the
+/// store lock.
+pub fn backfill_account_uuid(
+    paths: &Paths,
+    num: &str,
+    uuid: &str,
+    expected: Option<(&str, &str)>,
+) -> Result<()> {
+    if uuid.is_empty() {
+        return Ok(());
+    }
+    let _lock = crate::locks::StoreLock::acquire(
+        &paths.store_lock_file(),
+        crate::locks::STORE_LOCK_TIMEOUT,
+    )?;
+    let Some(mut data) = read_sequence(paths)? else {
+        return Ok(());
+    };
+    let Some(record) = data
+        .get_mut("accounts")
+        .and_then(Value::as_object_mut)
+        .and_then(|a| a.get_mut(num))
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+    let blank = record
+        .get("uuid")
+        .and_then(Value::as_str)
+        .is_none_or(|u| u.trim().is_empty());
+    let text = |key: &str| record.get(key).and_then(Value::as_str).unwrap_or_default();
+    let still_same = expected
+        .is_none_or(|(email, org)| text("email") == email && text("organizationUuid") == org);
+    if !blank || !still_same {
+        return Ok(());
+    }
+    record.insert("uuid".into(), uuid.into());
+    data.insert("lastUpdated".into(), timestamp_now().into());
+    write_sequence(paths, &data)
+}
+
 /// `max(slot) + 1`, or 1 for an empty roster; gaps are never refilled.
 pub fn next_account_number(data: Option<&JsonObject>) -> u64 {
     data.and_then(accounts)
