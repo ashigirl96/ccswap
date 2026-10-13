@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, Cmd, Impl, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
+use support::{ACTIVE_OAUTH_SERVICE, Cmd, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 
 const REAL_SECURITY: &str = "/usr/bin/security";
 const BACKUP_SERVICE: &str = "claude-swap";
@@ -169,10 +169,7 @@ fn ccswap_round_trips_items_through_the_real_security() {
     let kc = ThrowawayKeychain::create(&env);
 
     log_in(&env, &kc, 1, &creds(1, 0));
-    kc.cmd(&env, &["add"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
+    kc.cmd(&env, &["add"]).run().assert_code(0);
     assert_eq!(
         kc.get(BACKUP_SERVICE, &backup_account(1)),
         Some(creds(1, 0)),
@@ -181,20 +178,14 @@ fn ccswap_round_trips_items_through_the_real_security() {
 
     let big = creds(2, 3000);
     log_in(&env, &kc, 2, &big);
-    kc.cmd(&env, &["add"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
+    kc.cmd(&env, &["add"]).run().assert_code(0);
     assert_eq!(
         kc.get(BACKUP_SERVICE, &backup_account(2)),
         Some(big.clone()),
         "a value too long for `security -i` goes through argv"
     );
 
-    kc.cmd(&env, &["switch", "1"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
+    kc.cmd(&env, &["switch", "1"]).run().assert_code(0);
     assert_eq!(
         owner(kc.get(ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT)),
         Some(1),
@@ -203,7 +194,6 @@ fn ccswap_round_trips_items_through_the_real_security() {
     assert_eq!(owner(kc.get(BACKUP_SERVICE, &backup_account(2))), Some(2));
 
     kc.cmd(&env, &["remove", "2"])
-        .using(Impl::Ccswap)
         .stdin("y\n")
         .run()
         .assert_code(0);
@@ -211,53 +201,5 @@ fn ccswap_round_trips_items_through_the_real_security() {
         kc.get(BACKUP_SERVICE, &backup_account(2)),
         None,
         "ccswap deleted the item"
-    );
-}
-
-#[test]
-fn cswap_and_ccswap_read_each_others_real_keychain_items() {
-    if !enabled() {
-        return;
-    }
-    if !support::is_upstream() {
-        eprintln!("skipped: set CCSWAP_TEST_UPSTREAM to run the cswap half");
-        return;
-    }
-    let env = TestEnv::new();
-    let kc = ThrowawayKeychain::create(&env);
-
-    log_in(&env, &kc, 1, &creds(1, 0));
-    kc.cmd(&env, &["add"])
-        .using(Impl::Upstream)
-        .run()
-        .assert_code(0);
-    log_in(&env, &kc, 2, &creds(2, 0));
-    kc.cmd(&env, &["add"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-
-    kc.cmd(&env, &["switch", "1"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    assert_eq!(
-        owner(kc.get(ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT)),
-        Some(1),
-        "ccswap activated the backup cswap wrote"
-    );
-    kc.cmd(&env, &["switch", "2"])
-        .using(Impl::Upstream)
-        .run()
-        .assert_code(0);
-    assert_eq!(
-        owner(kc.get(ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT)),
-        Some(2),
-        "cswap activated the backup ccswap wrote"
-    );
-    assert_eq!(
-        owner(kc.get(BACKUP_SERVICE, &backup_account(1))),
-        Some(1),
-        "cswap backed up the item ccswap activated"
     );
 }

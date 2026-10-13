@@ -9,10 +9,8 @@
 
 mod support;
 
-use support::hint;
-
 use serde_json::{Value, json};
-use support::{KEYCHAIN_ACCOUNT, Output, TestEnv, is_upstream, prog};
+use support::{KEYCHAIN_ACCOUNT, Output, PROG, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -276,7 +274,7 @@ fn remove_without_an_identifier_is_a_usage_error() {
         out.stderr,
         format!(
             "usage: {p} <command> [args] [options]\n{p}: error: argument --remove-account: expected one argument\n",
-            p = prog()
+            p = PROG
         )
     );
 }
@@ -397,7 +395,7 @@ fn disabling_the_last_switchable_slot_warns() {
     out.assert_code(0);
     assert!(
         out.stdout.ends_with(
-            &hint("  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.\n")
+            &"  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with ccswap enable <num|email>.\n"
         ),
         "{}",
         out.stdout
@@ -429,9 +427,7 @@ fn disable_reports_unresolvable_identifiers() {
         ),
         (
             "u@example.com",
-            &hint(
-                "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
-            ),
+            "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., ccswap --switch-to 1).",
         ),
     ];
     for (identifier, expected) in cases {
@@ -577,7 +573,7 @@ fn alias_lists_by_slot_number() {
 fn alias_argument_errors_exit_2() {
     let env = TestEnv::new();
     seed_three(&env);
-    let p = prog();
+    let p = PROG;
     let cases: [(&[&str], &str); 5] = [
         (
             &["2"],
@@ -612,7 +608,7 @@ fn alias_help_describes_the_command() {
     let env = TestEnv::new();
     let out = env.run(["alias", "-h"]);
     out.assert_code(0);
-    let p = prog();
+    let p = PROG;
     assert!(
         out.stdout.starts_with(&format!(
             "usage: {p} alias [-h] [--unset] [--debug] [NUM|EMAIL] [NAME]\n\nSet, remove, or list a short display alias"
@@ -722,11 +718,6 @@ fn purge_deletes_session_profile_keychain_entries() {
 
 #[test]
 fn purge_sweeps_legacy_keyring_items() {
-    if is_upstream() {
-        // Upstream reaches these through the `keyring` library, which the
-        // differential shim disables.
-        return;
-    }
     let env = TestEnv::new();
     seed_three(&env);
     env.security()

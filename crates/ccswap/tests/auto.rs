@@ -5,7 +5,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, Output, StubResponse, TestEnv, prog};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, Output, PROG, StubResponse, TestEnv};
 
 const EMAILS: [&str; 4] = ["", "a@example.com", "b@example.com", "c@example.com"];
 
@@ -504,7 +504,7 @@ fn unknown_flag_errors() {
     assert!(
         out.stderr.contains(&format!(
             "{} auto: error: unrecognized arguments: --bogus",
-            prog()
+            PROG
         )),
         "{}",
         out.stderr

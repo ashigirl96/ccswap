@@ -1,31 +1,21 @@
 //! Ported from upstream tests/test_update_check.py::TestCheckForUpdate
-//! (re-targeted from PyPI to this repository's GitHub Releases). The stub
-//! answers in both shapes (`tag_name` for ccswap, `info.version` for
-//! upstream) so the same cases run against both implementations.
+//! (re-targeted from PyPI to this repository's GitHub Releases).
 
 mod support;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
-use support::{StubResponse, TestEnv, is_upstream, prog};
+use support::{StubResponse, TestEnv};
 
 const PATH: &str = "/update-check";
 
 fn release(version: &str) -> StubResponse {
-    StubResponse::json(
-        200,
-        &json!({"tag_name": format!("v{version}"), "info": {"version": version}}).to_string(),
-    )
+    StubResponse::json(200, &json!({"tag_name": format!("v{version}")}).to_string())
 }
 
 fn cache_path(env: &TestEnv) -> std::path::PathBuf {
-    let name = if is_upstream() {
-        "update_check.json"
-    } else {
-        "ccswap_update_check.json"
-    };
-    env.store_dir().join("cache").join(name)
+    env.store_dir().join("cache/ccswap_update_check.json")
 }
 
 fn now() -> f64 {
@@ -56,13 +46,8 @@ fn current_version(env: &TestEnv) -> String {
 }
 
 fn notice(env: &TestEnv, latest: &str) -> String {
-    let (name, cli) = if is_upstream() {
-        ("claude-swap", "cswap")
-    } else {
-        ("ccswap", "ccswap")
-    };
     format!(
-        "\nA newer version of {name} is available ({latest}). You are using {}. Run `{cli} upgrade` for upgrade instructions.\n",
+        "\nA newer version of ccswap is available ({latest}). You are using {}. Run `ccswap upgrade` for upgrade instructions.\n",
         current_version(env)
     )
 }
@@ -91,9 +76,6 @@ fn a_newer_release_is_announced_on_stderr() {
 
 #[test]
 fn the_check_asks_github_for_the_latest_release() {
-    if is_upstream() {
-        return;
-    }
     let env = TestEnv::new();
     env.http().respond("GET", PATH, release("99.0.0"));
 
@@ -117,9 +99,6 @@ fn the_check_asks_github_for_the_latest_release() {
 
 #[test]
 fn the_cache_file_does_not_collide_with_python_cswap() {
-    if is_upstream() {
-        return;
-    }
     let env = TestEnv::new();
     env.http().respond("GET", PATH, release("99.0.0"));
     let python_cache = env.store_dir().join("cache/update_check.json");
@@ -282,9 +261,6 @@ fn purge_does_not_recreate_the_store_for_the_cache() {
 
 #[test]
 fn upgrade_prints_how_to_update_and_succeeds() {
-    if is_upstream() {
-        return;
-    }
     let env = TestEnv::new();
     env.http().respond("GET", PATH, release("99.0.0"));
     env.write_file(env.store_dir().join("sequence.json"), "{torn");
@@ -300,12 +276,11 @@ fn upgrade_prints_how_to_update_and_succeeds() {
     }
     assert_eq!(checks(&env), 0);
     assert!(!cache_path(&env).exists());
-    assert_eq!(prog(), "ccswap");
 }
 
 #[test]
 fn upgrade_works_as_root() {
-    if is_upstream() || !support::sudo_available() {
+    if !support::sudo_available() {
         return;
     }
     let env = TestEnv::new();

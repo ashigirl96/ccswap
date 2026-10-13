@@ -6,13 +6,13 @@
 
 mod support;
 
-use support::{TestEnv, prog};
+use support::{PROG, TestEnv};
 
 fn usage_error(env: &TestEnv, args: &[&str], message: &str) {
     let out = env.run(args);
     out.assert_code(2);
     assert_eq!(out.stdout, "", "{args:?}");
-    let p = prog();
+    let p = PROG;
     assert_eq!(
         out.stderr,
         format!("usage: {p} <command> [args] [options]\n{p}: error: {message}\n"),
@@ -23,7 +23,7 @@ fn usage_error(env: &TestEnv, args: &[&str], message: &str) {
 #[test]
 fn argparse_errors_match_upstream() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let no_command = format!("no command given — try '{p} help'");
     let cases: Vec<(Vec<&str>, String)> = vec![
         (vec![], no_command.clone()),
@@ -72,7 +72,7 @@ fn version_wins_over_later_unrecognized_arguments() {
     let env = TestEnv::new();
     let out = env.run(["--version", "--bogus"]);
     out.assert_code(0);
-    assert!(out.stdout.starts_with(&format!("{} ", prog())));
+    assert!(out.stdout.starts_with(&format!("{} ", PROG)));
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn help_lists_commands_and_hides_legacy_flags() {
     let env = TestEnv::new();
     let out = env.run(["help"]);
     out.assert_code(0);
-    let p = prog();
+    let p = PROG;
     assert!(out.stdout.starts_with(&format!(
         "usage: {p} <command> [args] [options]\n\nMulti-Account Switcher for Claude Code\n"
     )));

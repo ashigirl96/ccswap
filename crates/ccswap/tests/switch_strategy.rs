@@ -6,10 +6,8 @@
 
 mod support;
 
-use support::hint;
-
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, prog};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, PROG, StubResponse, TestEnv};
 
 const EMAILS: [&str; 4] = ["", "a@example.com", "b@example.com", "c@example.com"];
 
@@ -160,14 +158,14 @@ fn best_noop_reasons_and_messages() {
             vec![(1, None), (2, Some((10.0, None))), (3, Some((10.0, None)))],
             "usage-unavailable",
             "Current account usage is unavailable — staying on Account-1.",
-            "Current account usage is unavailable — staying on Account-1. Run cswap --switch to rotate.\n",
+            "Current account usage is unavailable — staying on Account-1. Run ccswap --switch to rotate.\n",
         ),
         (
             "no candidate usage",
             vec![(1, Some((50.0, None))), (2, None), (3, None)],
             "usage-unavailable",
             "No other account has usage data to compare — staying on Account-1.",
-            "No other account has usage data to compare — staying on Account-1. Run cswap --switch to rotate.\n",
+            "No other account has usage data to compare — staying on Account-1. Run ccswap --switch to rotate.\n",
         ),
         (
             "incomplete comparison",
@@ -208,7 +206,7 @@ fn best_noop_reasons_and_messages() {
 
         let out = env.run(["switch", "--strategy", "best"]);
         out.assert_code(0);
-        assert_eq!(out.stdout, hint(human), "{name}");
+        assert_eq!(out.stdout, human, "{name}");
         assert_eq!(active(&env), 1, "{name}");
         assert_eq!(live_token(&env), "at-1", "{name}");
     }
@@ -505,7 +503,7 @@ fn plain_switch_ignores_the_configured_model() {
 #[test]
 fn strategy_and_model_flag_combinations_are_rejected() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     for (args, message) in [
         (
             vec!["--strategy", "best", "--list"],

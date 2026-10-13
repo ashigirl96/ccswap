@@ -19,7 +19,7 @@ mod support;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, Impl, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 
 const A: &str = "a@example.com";
 const B: &str = "b@example.com";
@@ -590,38 +590,4 @@ fn status_shows_and_reports_the_active_accounts_usage() {
         ]
     );
     assert_eq!(usage_requests(&env), 1);
-}
-
-#[test]
-fn caches_round_trip_between_ccswap_and_cswap() {
-    if !support::is_upstream() {
-        return;
-    }
-    for (writer, reader) in [
-        (Impl::Ccswap, Impl::Upstream),
-        (Impl::Upstream, Impl::Ccswap),
-    ] {
-        let env = TestEnv::new();
-        two_accounts(&env);
-        stub_usage(
-            &env,
-            vec![
-                (
-                    "tok-a",
-                    StubResponse::json(200, r#"{"five_hour": {"utilization": 25}}"#),
-                ),
-                (
-                    "tok-b",
-                    StubResponse::json(200, r#"{"five_hour": {"utilization": 80}}"#),
-                ),
-            ],
-        );
-        let first = env.cmd(["list"]).using(writer).run();
-        first.assert_code(0);
-        assert_eq!(usage_requests(&env), 2);
-        let second = env.cmd(["list"]).using(reader).run();
-        second.assert_code(0);
-        assert_eq!(usage_requests(&env), 2, "{writer:?} -> {reader:?}");
-        assert_eq!(first.stdout, second.stdout);
-    }
 }

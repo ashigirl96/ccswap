@@ -5,7 +5,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{TestEnv, is_upstream};
+use support::TestEnv;
 
 const BACKUP_SERVICE: &str = "claude-swap";
 const API_KEY: &str = "sk-ant-api03-a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5";
@@ -601,31 +601,4 @@ fn add_token_inside_a_session_profile_is_refused() {
         out.stderr
     );
     assert!(!env.store_dir().join("sequence.json").exists());
-}
-
-#[test]
-fn ccswap_refreshes_a_token_account_cswap_registered() {
-    if !is_upstream() {
-        eprintln!("skipped: set CCSWAP_TEST_UPSTREAM to run the compatibility round trip");
-        return;
-    }
-    let env = TestEnv::new();
-    env.cmd(["add-token", API_KEY])
-        .using(support::Impl::Upstream)
-        .run()
-        .assert_code(0);
-
-    let out = env
-        .cmd(["add-token", OTHER_KEY, "--email", "api-key-1@token.local"])
-        .using(support::Impl::Ccswap)
-        .run();
-    out.assert_code(0);
-    assert_eq!(
-        out.stdout,
-        "Updated API key for Account 1 (api-key-1@token.local [personal]).\n"
-    );
-    assert_eq!(
-        backup(&env, 1, "api-key-1@token.local").as_deref(),
-        Some(OTHER_KEY)
-    );
 }

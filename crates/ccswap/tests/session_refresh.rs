@@ -11,7 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, is_upstream};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 const TOKEN_PATH: &str = "/v1/oauth/token";
@@ -167,16 +167,13 @@ fn bootstrap_test_refresh_failure_uses_stored_creds() {
         refreshable(2)
     );
     assert_eq!(backup(&env), refreshable(2));
-    // Upstream's pre-exec stdout is lost under a pipe (execvpe, no flush).
-    if !is_upstream() {
-        assert!(
-            out.stdout.contains(
-                "Could not refresh the token for Account-2; continuing with the stored credentials."
-            ),
-            "{}",
-            out.stdout
-        );
-    }
+    assert!(
+        out.stdout.contains(
+            "Could not refresh the token for Account-2; continuing with the stored credentials."
+        ),
+        "{}",
+        out.stdout
+    );
 }
 
 #[test]

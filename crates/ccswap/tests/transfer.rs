@@ -9,14 +9,12 @@
 
 mod support;
 
-use support::hint;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use ccswap_core::pyjson;
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, Impl, KEYCHAIN_ACCOUNT, TestEnv, is_upstream};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 const RT_BOB_FP: &str = "sha256:b9de5f24e89f54d584cf14a42783ad8a00b06e0071fa78ee8db84d8d416085ac";
@@ -296,9 +294,7 @@ fn export_import_round_trip() {
     assert_eq!(envelope["exportedFrom"], "macos");
     assert_eq!(envelope["encrypted"], false);
     assert_eq!(envelope["activeAccountNumber"], 1);
-    if !is_upstream() {
-        assert_eq!(envelope["swapVersion"], ccswap_core::VERSION);
-    }
+    assert_eq!(envelope["swapVersion"], ccswap_core::VERSION);
     assert_eq!(
         envelope["accounts"][0],
         json!({
@@ -512,7 +508,7 @@ fn export_unknown_account_or_empty_roster_fails() {
     out.assert_code(1);
     assert_eq!(
         out.stderr,
-        hint("Error: no accounts to export — run cswap --add-account first\n")
+        "Error: no accounts to export — run ccswap --add-account first\n"
     );
 
     seed(&env, Seed::new(1, "a@example.com"));
@@ -597,7 +593,7 @@ fn import_over_live_login_hints_force_activation() {
     out.assert_code(0);
     assert!(
         out.stderr.ends_with(
-            &hint("Note: alice@example.com is your current live login — activate the imported credentials with: cswap --switch-to 1 --force\n")
+            &"Note: alice@example.com is your current live login — activate the imported credentials with: ccswap --switch-to 1 --force\n"
         ),
         "{}",
         out.stderr
@@ -708,9 +704,7 @@ fn envelope_checks_rejected() {
     env["encrypted"] = true.into();
     assert_import_rejected(
         &env,
-        &hint(
-            "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
-        ),
+        "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | ccswap --import -)",
     );
 
     let mut env = sample_envelope("user@example.com".into(), 1.into());
@@ -1124,10 +1118,10 @@ fn all_accounts_skips_missing_credentials_with_stderr_warning() {
     out.assert_code(0);
     assert_eq!(
         out.stderr,
-        hint(&format!(
-            "Skipping Account-1 (alice@example.com): no stored credentials/config — re-add with: cswap --add-account --slot 1\nExported 1 account(s) to {}\n",
+        format!(
+            "Skipping Account-1 (alice@example.com): no stored credentials/config — re-add with: ccswap --add-account --slot 1\nExported 1 account(s) to {}\n",
             file.display()
-        ))
+        )
     );
     let envelope: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(emails(&envelope), ["bob@example.com"]);
@@ -1190,7 +1184,7 @@ fn all_slots_broken_raises() {
     let out = env.run(["export", "-"]);
     out.assert_code(1);
     assert!(out.stderr.ends_with(
-        &hint("Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>\n")
+        &"Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: ccswap --add-account --slot <number>\n"
     ), "{}", out.stderr);
 }
 
@@ -1497,87 +1491,4 @@ fn fresh_slot_import_creates_no_quarantine() {
     let row = usage_row(&dst, "2");
     assert_eq!(row["email"], "bob@example.com");
     assert_cleared(&row);
-}
-
-fn normalize_volatile(text: &str) -> Value {
-    let mut envelope: Value = serde_json::from_str(text).unwrap();
-    envelope["exportedAt"] = Value::Null;
-    envelope["swapVersion"] = Value::Null;
-    envelope
-}
-
-#[test]
-fn ccswap_and_cswap_write_the_same_envelope() {
-    if !is_upstream() {
-        return;
-    }
-    let env = TestEnv::new();
-    seed(
-        &env,
-        Seed::new(1, "alice@example.com")
-            .org("org-a", "Org A")
-            .config(bloated_config())
-            .creds(siblinged_creds())
-            .alias("dev"),
-    );
-    seed(&env, Seed::new(3, "bob@example.com"));
-    for extra in [&[][..], &["--full"][..]] {
-        let mut ours = vec!["export", "-"];
-        ours.extend_from_slice(extra);
-        let a = env.cmd(&ours).using(Impl::Ccswap).run();
-        let b = env.cmd(&ours).using(Impl::Upstream).run();
-        a.assert_code(0);
-        b.assert_code(0);
-        assert_eq!(normalize_volatile(&a.stdout), normalize_volatile(&b.stdout));
-        let strip = |s: &str| {
-            s.lines()
-                .filter(|l| !l.contains("\"exportedAt\"") && !l.contains("\"swapVersion\""))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        assert_eq!(
-            strip(&a.stdout),
-            strip(&b.stdout),
-            "byte-identical apart from volatile fields"
-        );
-    }
-}
-
-#[test]
-fn files_cross_between_ccswap_and_cswap() {
-    if !is_upstream() {
-        return;
-    }
-    for (writer, reader) in [
-        (Impl::Ccswap, Impl::Upstream),
-        (Impl::Upstream, Impl::Ccswap),
-    ] {
-        let src = TestEnv::new();
-        seed(
-            &src,
-            Seed::new(1, "alice@example.com")
-                .org("org-a", "Org A")
-                .alias("dev"),
-        );
-        seed(&src, Seed::new(2, "bob@example.com"));
-        let file = backup_file(&src, "x.cswap");
-        src.cmd(["export", file.to_str().unwrap()])
-            .using(writer)
-            .run()
-            .assert_code(0);
-
-        let dst = TestEnv::new();
-        let out = dst
-            .cmd(["import", file.to_str().unwrap()])
-            .using(reader)
-            .run();
-        out.assert_code(0);
-        assert!(out.stderr.contains("Done: 2 imported"), "{}", out.stderr);
-        let seq = dst.sequence();
-        assert_eq!(seq["accounts"]["1"]["alias"], "dev");
-        assert_eq!(
-            stored_creds(&dst, "1", "alice@example.com"),
-            creds_for("alice@example.com")
-        );
-    }
 }

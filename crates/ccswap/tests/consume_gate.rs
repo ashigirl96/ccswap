@@ -7,8 +7,6 @@
 
 mod support;
 
-use support::hint;
-
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
@@ -625,11 +623,7 @@ fn permanently_unreadable_stash_row_test_the_kind_carries_its_remedy_and_skips_t
     chmod(&entry_path(&env, &id), 0o600);
     out.assert_code(0);
 
-    assert!(
-        out.stdout.contains(&hint("cswap unclaimed")),
-        "{}",
-        out.stdout
-    );
+    assert!(out.stdout.contains("ccswap unclaimed"), "{}", out.stdout);
     assert!(
         !env.http()
             .requests()

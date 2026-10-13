@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use support::{TestEnv, prog};
+use support::{PROG, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 const SAME_EMAIL: &str = "user@example.com";
@@ -469,7 +469,7 @@ fn swap_and_move_refuse_inside_a_session_profile() {
 #[test]
 fn swap_argument_errors_match_argparse() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let usage = format!("usage: {p} swap [-h] [--debug] NUM|EMAIL|ALIAS NUM|EMAIL|ALIAS\n");
     let out = env.run(["swap"]);
     out.assert_code(2);
@@ -824,7 +824,7 @@ fn test_absent_source_still_moves() {
 #[test]
 fn move_argument_errors_match_argparse() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let usage = format!("usage: {p} move [-h] [--debug] NUM|EMAIL|ALIAS SLOT\n");
     let out = env.run(["move", "1"]);
     out.assert_code(2);
@@ -842,29 +842,6 @@ fn move_argument_errors_match_argparse() {
     assert!(
         out.stdout
             .contains("  SLOT             Destination slot number\n")
-    );
-}
-
-#[test]
-fn move_store_written_by_one_implementation_reads_back_in_the_other() {
-    if !support::is_upstream() {
-        return;
-    }
-    use support::Impl;
-    let env = seeded(sample_sequence_data_with_org());
-    write_creds(&env, "1", SAME_EMAIL, "creds-org");
-    env.cmd(["move", "1", "4"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    env.cmd(["swap", "4", "2"])
-        .using(Impl::Upstream)
-        .run()
-        .assert_code(0);
-    assert_eq!(read_creds(&env, "2", SAME_EMAIL), "creds-org");
-    assert_eq!(
-        env.sequence()["accounts"]["2"]["organizationUuid"],
-        "org-uuid-5678"
     );
 }
 

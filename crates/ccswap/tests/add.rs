@@ -8,13 +8,11 @@
 
 mod support;
 
-use support::hint;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, Impl, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, is_upstream};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -532,9 +530,7 @@ fn a_live_api_key_login_is_refused() {
     out.assert_code(1);
     assert_eq!(
         out.stderr,
-        hint(
-            "Error: Active login is an API-key account. Add it with 'cswap --add-token sk-ant-api...' instead of --add-account.\n"
-        )
+        "Error: Active login is an API-key account. Add it with 'ccswap --add-token sk-ant-api...' instead of --add-account.\n"
     );
 }
 
@@ -830,50 +826,6 @@ fn json_is_not_accepted_with_add() {
     assert!(
         out.stderr
             .ends_with("error: --json can only be used with 'list', 'status', or 'switch'\n")
-    );
-}
-
-#[test]
-fn ccswap_and_cswap_read_each_others_registrations() {
-    if !is_upstream() {
-        eprintln!("skipped: set CCSWAP_TEST_UPSTREAM to run the compatibility round trip");
-        return;
-    }
-    let env = TestEnv::new();
-    logged_in(&env, "a@example.com", "org-1", "Acme", "A");
-
-    env.cmd(["add", "--alias", "dev"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    let listed = env.cmd(["list", "--json"]).using(Impl::Upstream).run();
-    listed.assert_code(0);
-    let payload = listed.json();
-    let account = &payload["accounts"][0];
-    assert_eq!(account["number"], 1);
-    assert_eq!(account["email"], "a@example.com");
-    assert_eq!(account["alias"], "dev");
-    assert_ne!(account["usageStatus"], "no-credentials", "{payload}");
-
-    logged_in(&env, "b@example.com", "", "", "B");
-    env.cmd(["add"]).using(Impl::Upstream).run().assert_code(0);
-    env.security()
-        .set_item(ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, &creds("B2"));
-    let out = env.cmd(["add"]).using(Impl::Ccswap).run();
-    out.assert_code(0);
-    assert_eq!(
-        out.stdout,
-        "Updated credentials for Account 2 (b@example.com [personal]).\n"
-    );
-    assert_eq!(
-        env.security()
-            .item(
-                BACKUP_SERVICE,
-                &format!("{}.prev", backup_account(2, "b@example.com"))
-            )
-            .as_deref(),
-        Some(creds("B").as_str()),
-        "ccswap read cswap's backup"
     );
 }
 

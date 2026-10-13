@@ -18,16 +18,12 @@
 //! ```
 //!
 //! - Use timestamps relative to now; the clock is never faked.
-//! - [`TestEnv::cmd`] adds env vars, stdin, `.sudo()` or `.using(Impl::..)`.
+//! - [`TestEnv::cmd`] adds env vars, stdin or `.sudo()`.
 //! - `CLAUDE_CONFIG_DIR` is unset unless [`TestEnv::use_custom_config_dir`] is called.
-//! - Differential runs: set `CCSWAP_TEST_UPSTREAM=<upstream checkout>` to run the
-//!   same tests against Python `cswap` (needs `uv`); branch on [`is_upstream`],
-//!   [`prog`] or [`hint`] only for intended differences such as the binary name.
 
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
@@ -49,40 +45,7 @@ pub const HTTP_ENVS: [(&str, &str); 3] = [
     ("CCSWAP_OAUTH_TOKEN_URL", "/v1/oauth/token"),
     ("CCSWAP_UPDATE_CHECK_URL", "/update-check"),
 ];
-const UPSTREAM_ENV: &str = "CCSWAP_TEST_UPSTREAM";
-const UPSTREAM_SRC_ENV: &str = "CCSWAP_UPSTREAM_SRC";
-
-const UPSTREAM_SHIM: &str = include_str!("upstream_shim.py");
-
-pub fn is_upstream() -> bool {
-    std::env::var_os(UPSTREAM_ENV).is_some_and(|v| !v.is_empty())
-}
-
-pub fn prog() -> &'static str {
-    if is_upstream() { "cswap" } else { "ccswap" }
-}
-
-pub fn hint(text: &str) -> String {
-    if is_upstream() {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find("cswap ") {
-        let boundary = rest[..at]
-            .chars()
-            .next_back()
-            .is_none_or(|c| !(c.is_alphanumeric() || "_.-/".contains(c)));
-        out.push_str(&rest[..at]);
-        if boundary && !rest[at..].starts_with("cswap run session") {
-            out.push('c');
-        }
-        out.push_str("cswap ");
-        rest = &rest[at + "cswap ".len()..];
-    }
-    out.push_str(rest);
-    out
-}
+pub const PROG: &str = "ccswap";
 
 pub fn sudo_available() -> bool {
     Command::new("sudo")
@@ -250,7 +213,6 @@ impl TestEnv {
             vars: self.base_env(),
             stdin: String::new(),
             as_root: false,
-            which: Impl::UnderTest,
             cwd: None,
             arg0: None,
         }
@@ -356,7 +318,6 @@ pub struct Cmd<'a> {
     vars: BTreeMap<String, String>,
     stdin: String,
     as_root: bool,
-    which: Impl,
     cwd: Option<PathBuf>,
     arg0: Option<String>,
 }
@@ -367,12 +328,6 @@ impl Cmd<'_> {
         self
     }
 
-    pub fn using(mut self, which: Impl) -> Self {
-        self.which = which;
-        self
-    }
-
-    /// The upstream shim sets its own `argv[0]`, so this only affects ccswap.
     pub fn arg0(mut self, name: &str) -> Self {
         self.arg0 = Some(name.into());
         self
@@ -406,9 +361,11 @@ impl Cmd<'_> {
     pub fn try_run(self) -> Result<Output, String> {
         check_isolation(&self.vars, &self.env.root())
             .map_err(|e| format!("harness refused to launch the binary: {e}"))?;
-        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
-        args.extend(self.args);
-        vars.extend(self.vars);
+        let (program, args, vars) = (
+            PathBuf::from(env!("CARGO_BIN_EXE_ccswap")),
+            self.args,
+            self.vars,
+        );
         let mut command = if self.as_root {
             let mut c = Command::new("sudo");
             c.args(["-n", "/usr/bin/env", "-i"]);
@@ -450,9 +407,11 @@ impl Cmd<'_> {
     pub fn spawn(self) -> Running {
         check_isolation(&self.vars, &self.env.root())
             .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
-        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
-        args.extend(self.args);
-        vars.extend(self.vars);
+        let (program, args, vars) = (
+            PathBuf::from(env!("CARGO_BIN_EXE_ccswap")),
+            self.args,
+            self.vars,
+        );
         let mut child = Command::new(&program)
             .env_clear()
             .envs(&vars)
@@ -503,9 +462,11 @@ impl Cmd<'_> {
         use std::os::fd::FromRawFd;
         check_isolation(&self.vars, &self.env.root())
             .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
-        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
-        args.extend(self.args);
-        vars.extend(self.vars);
+        let (program, args, vars) = (
+            PathBuf::from(env!("CARGO_BIN_EXE_ccswap")),
+            self.args,
+            self.vars,
+        );
         let (mut master, slave) = unsafe {
             let (mut m, mut s) = (0, 0);
             let mut size = libc::winsize {
@@ -588,72 +549,6 @@ impl Cmd<'_> {
             stderr: String::new(),
         }
     }
-}
-
-/// [`Impl::UnderTest`] follows `CCSWAP_TEST_UPSTREAM`; the other two pin one side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Impl {
-    UnderTest,
-    Ccswap,
-    Upstream,
-}
-
-fn upstream_root() -> Option<PathBuf> {
-    std::env::var_os(UPSTREAM_ENV)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
-fn target(root: &Path, which: Impl) -> (PathBuf, Vec<String>, BTreeMap<String, String>) {
-    let upstream = match which {
-        Impl::Ccswap => None,
-        Impl::UnderTest => upstream_root(),
-        Impl::Upstream => Some(upstream_root().expect("CCSWAP_TEST_UPSTREAM is not set")),
-    };
-    let Some(upstream) = upstream else {
-        return (
-            PathBuf::from(env!("CARGO_BIN_EXE_ccswap")),
-            Vec::new(),
-            BTreeMap::new(),
-        );
-    };
-    let python = upstream_python(&upstream);
-    let shim = root.join("upstream_shim.py");
-    if !shim.exists() {
-        std::fs::write(&shim, UPSTREAM_SHIM).expect("write upstream shim");
-    }
-    let mut vars = BTreeMap::new();
-    vars.insert(
-        UPSTREAM_SRC_ENV.into(),
-        upstream.join("src").display().to_string(),
-    );
-    let args = vec!["-I".into(), "-B".into(), shim.display().to_string()];
-    (python, args, vars)
-}
-
-fn upstream_python(upstream: &Path) -> PathBuf {
-    static PYTHON: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-    PYTHON
-        .get_or_init(|| {
-            // Outside target/, because CI's rust-cache strips non-Cargo files there and restores a gutted venv.
-            let mut hasher = DefaultHasher::new();
-            env!("CARGO_TARGET_TMPDIR").hash(&mut hasher);
-            let venv =
-                std::env::temp_dir().join(format!("ccswap-upstream-venv-{:016x}", hasher.finish()));
-            let status = Command::new("uv")
-                .args(["sync", "--quiet", "--frozen", "--no-dev", "--no-editable"])
-                .arg("--project")
-                .arg(upstream)
-                .env("UV_PROJECT_ENVIRONMENT", &venv)
-                .status()
-                .map_err(|e| format!("run uv: {e}"))?;
-            if !status.success() {
-                return Err(format!("uv sync failed for {}", upstream.display()));
-            }
-            Ok(venv.join("bin/python"))
-        })
-        .clone()
-        .unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[derive(Debug, Clone)]

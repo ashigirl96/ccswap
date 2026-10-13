@@ -1,7 +1,6 @@
 //! Ported from upstream tests/test_migrations.py::TestMacosKeyringToSecurity,
 //! ::TestSkips, ::TestAccountNoneFallback, ::TestFailures, ::TestRunner and
-//! tests/test_switcher.py::TestUpgradeMigration. Upstream runs with `keyring`
-//! unimportable (see upstream_shim.py), so both sides copy legacy items via `security`.
+//! tests/test_switcher.py::TestUpgradeMigration, with legacy items copied via `security`.
 
 mod support;
 

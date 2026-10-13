@@ -8,12 +8,10 @@
 
 mod support;
 
-use support::hint;
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, prog};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 
 const A: &str = "a@example.com";
 const B: &str = "b@example.com";
@@ -153,10 +151,8 @@ fn slots_holding_the_same_credential_or_identity_are_flagged() {
         .set_item("claude-swap", "account-3-c@example.com", &oauth("tok-c"));
     stub_usage(&env, vec![]);
 
-    let dup_fp = &hint(
-        "Account-1 and Account-2 hold the same credential (b@example.com) — one slot's \
-                  backup was overwritten. Log in with the missing account and re-add it: cswap add --slot N",
-    );
+    let dup_fp = &"Account-1 and Account-2 hold the same credential (b@example.com) — one slot's \
+                  backup was overwritten. Log in with the missing account and re-add it: ccswap add --slot N";
     let dup_id = "Account-2 and Account-3 both authenticate as c@example.com — remove or re-login one of them.";
     let out = env.run(["list"]);
     out.assert_code(0);
@@ -199,11 +195,9 @@ fn slots_reporting_identical_usage_and_resets_are_flagged_as_lockstep() {
     });
     stub_usage(&env, vec![("tok-a", same.clone()), ("tok-b", same)]);
 
-    let msg = &hint(
-        "Account-1 and Account-2 report identical usage and reset times — they may be the \
+    let msg = &"Account-1 and Account-2 report identical usage and reset times — they may be the \
                same account (issue #117). If it persists, log in with the missing account and \
-               re-add it: cswap add --slot N",
-    );
+               re-add it: ccswap add --slot N";
     let out = env.run(["list"]);
     out.assert_code(0);
     assert!(
@@ -498,12 +492,7 @@ fn first_run_can_be_declined() {
         out.stdout,
         format!(
             "No accounts are managed yet.\nNo managed accounts found. Add current account \
-             ({A}) to managed list? [Y/n] Setup cancelled. You can run '{}' later.\n",
-            if prog() == "cswap" {
-                "cswap --add-account"
-            } else {
-                "ccswap --add-account"
-            }
+             ({A}) to managed list? [Y/n] Setup cancelled. You can run 'ccswap --add-account' later.\n"
         )
     );
     assert!(!env.store_dir().join("sequence.json").exists());

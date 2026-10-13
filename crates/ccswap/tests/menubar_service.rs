@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use serde_json::{Value, json};
-use support::{Impl, TestEnv, is_upstream, prog};
+use support::{PROG, TestEnv};
 
 const LABEL: &str = "com.cswap.menubar";
 
@@ -77,12 +77,10 @@ fn install_points_launchd_at_this_binary_and_prints_where_it_went() {
 
     let plist = read_plist(&env);
     let logs = env.home().join("Library/Logs");
-    if !is_upstream() {
-        assert_eq!(
-            plist["ProgramArguments"],
-            json!([env!("CARGO_BIN_EXE_ccswap"), "menubar"])
-        );
-    }
+    assert_eq!(
+        plist["ProgramArguments"],
+        json!([env!("CARGO_BIN_EXE_ccswap"), "menubar"])
+    );
     assert_eq!(plist["Label"], LABEL);
     assert_eq!(plist["RunAtLoad"], true);
     assert_eq!(plist["KeepAlive"], json!({"SuccessfulExit": false}));
@@ -99,7 +97,7 @@ fn install_points_launchd_at_this_binary_and_prints_where_it_went() {
              It starts at login from now on. Re-run this after a {} upgrade to point launchd at the new build.\n",
             plist_path(&env).display(),
             logs.join(format!("{LABEL}.err")).display(),
-            prog()
+            PROG
         )
     );
 }
@@ -292,7 +290,7 @@ fn status_reports_not_installed_with_the_install_hint() {
         out.stdout,
         format!(
             "Menu bar service is not installed.\nInstall it with: {} menubar --install-service\n",
-            prog()
+            PROG
         )
     );
 }
@@ -374,50 +372,6 @@ fn the_plist_is_byte_identical_to_what_plistlib_writes() {
 "#
     );
     assert_eq!(std::fs::read_to_string(plist_path(&env)).unwrap(), expected);
-}
-
-#[test]
-fn ccswap_install_replaces_a_python_cswap_service_and_uninstall_removes_it() {
-    if !is_upstream() {
-        return;
-    }
-    let env = TestEnv::new();
-    env.cmd(["menubar", "--install-service"])
-        .using(Impl::Upstream)
-        .run()
-        .assert_code(0);
-    assert_ne!(
-        read_plist(&env)["ProgramArguments"][0],
-        env!("CARGO_BIN_EXE_ccswap")
-    );
-
-    env.cmd(["menubar", "--install-service"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    assert_eq!(
-        read_plist(&env)["ProgramArguments"],
-        json!([env!("CARGO_BIN_EXE_ccswap"), "menubar"])
-    );
-    assert!(
-        env.launchctl()
-            .subcommands()
-            .contains(&"bootout".to_string())
-    );
-    assert!(env.launchctl().is_loaded());
-
-    env.cmd(["menubar", "--uninstall-service"])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    let status = env
-        .cmd(["menubar", "--service-status"])
-        .using(Impl::Upstream)
-        .run();
-    assert_eq!(
-        status.stdout.lines().next(),
-        Some("Menu bar service is not installed.")
-    );
 }
 
 #[test]

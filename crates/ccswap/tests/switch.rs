@@ -8,8 +8,6 @@
 
 mod support;
 
-use support::hint;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -260,9 +258,7 @@ fn rotation_with_no_valid_target_stays_put() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        hint(
-            "Skipping Account-2 (disabled)\nNo other accounts have valid stored credentials/config.\nRe-add a skipped slot with: cswap --add-account --slot <number>\n"
-        )
+        "Skipping Account-2 (disabled)\nNo other accounts have valid stored credentials/config.\nRe-add a skipped slot with: ccswap --add-account --slot <number>\n"
     );
 }
 
@@ -343,9 +339,7 @@ fn switching_to_the_live_slot_is_a_noop() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        hint(
-            "Already on Account-1 (a@example.com)\nTo rewrite the live login from the stored backup (e.g. after --import), run: cswap --switch-to 1 --force\n"
-        )
+        "Already on Account-1 (a@example.com)\nTo rewrite the live login from the stored backup (e.g. after --import), run: ccswap --switch-to 1 --force\n"
     );
     let writes = env
         .security()
@@ -407,7 +401,7 @@ fn json_switch_from_an_unmanaged_login_changes_nothing() {
         json!({
             "schemaVersion": 1, "switched": false, "from": unmanaged, "to": unmanaged,
             "strategy": "rotation", "reason": "unmanaged-account",
-            "message": hint("Active account is not managed; run cswap --add-account"),
+            "message": "Active account is not managed; run ccswap --add-account",
             "warnings": [],
         })
     );
@@ -446,7 +440,7 @@ fn an_email_on_two_slots_asks_which_one_or_fails_in_json() {
         out.json(),
         json!({"schemaVersion": 1, "error": {
             "type": "ConfigError",
-            "message": hint("Email 'shared@example.com' is ambiguous — matches accounts: 2 [Acme], 3 [personal]. Use account number instead (e.g., cswap --switch-to 1)."),
+            "message": "Email 'shared@example.com' is ambiguous — matches accounts: 2 [Acme], 3 [personal]. Use account number instead (e.g., ccswap --switch-to 1).",
         }})
     );
 
@@ -563,7 +557,7 @@ fn a_target_without_stored_credentials_fails_before_activation() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"],
-        json!({"type": "SwitchError", "message": hint("Account-2 has no stored credentials. Re-add with: cswap --add-account --slot 2")})
+        json!({"type": "SwitchError", "message": "Account-2 has no stored credentials. Re-add with: ccswap --add-account --slot 2"})
     );
     assert_eq!(live(&env), Some(creds("1")));
 }

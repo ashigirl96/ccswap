@@ -8,8 +8,6 @@
 
 mod support;
 
-use support::hint;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -238,9 +236,9 @@ fn another_slots_credential_is_stashed_and_never_written_into_a_slot() {
     assert_eq!(backup(&env, 2), Some(creds("2")));
     assert_eq!(
         warnings(&report),
-        vec![hint(
-            "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-1. If Account-2 later cannot authenticate, log in as it and run: cswap add --slot 2"
-        )]
+        vec![
+            "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-1. If Account-2 later cannot authenticate, log in as it and run: ccswap add --slot 2"
+        ]
     );
     let (id, row) = only_stash_entry(&env, &foreign);
     let keys: Vec<&str> = row
@@ -339,7 +337,7 @@ fn an_unmanaged_accounts_credential_is_stashed_with_a_human_warning() {
 
     assert!(
         out.stdout.starts_with(
-            &hint("The live login does not match a managed account. It was preserved and not written into Account-1. If you need that account, log in as it and run: cswap add\nSwitched to Account-2 (b@example.com)\n")
+            "The live login does not match a managed account. It was preserved and not written into Account-1. If you need that account, log in as it and run: ccswap add\nSwitched to Account-2 (b@example.com)\n"
         ),
         "{}",
         out.stdout
@@ -878,7 +876,7 @@ fn a_fresh_machine_skips_a_broken_recorded_slot() {
     out.assert_code(0);
     assert!(
         out.stdout.starts_with(
-            &hint("Skipping Account-2 (no stored credentials/config, re-add with cswap --add-account --slot 2)\nActivated Account-3 (c@example.com)\n")
+            "Skipping Account-2 (no stored credentials/config, re-add with ccswap --add-account --slot 2)\nActivated Account-3 (c@example.com)\n"
         ),
         "{}",
         out.stdout
@@ -908,7 +906,7 @@ fn a_fresh_machine_with_no_usable_slot_fails() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"],
-        json!({"type": "ConfigError", "message": hint("No accounts remain in rotation. Re-enable one with: cswap enable <num|email>")})
+        json!({"type": "ConfigError", "message": "No accounts remain in rotation. Re-enable one with: ccswap enable <num|email>"})
     );
 
     env.security()
@@ -917,9 +915,7 @@ fn a_fresh_machine_with_no_usable_slot_fails() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"]["message"],
-        hint(
-            "No managed accounts have valid stored credentials/config. Re-add a slot with: cswap --add-account --slot <number>"
-        )
+        "No managed accounts have valid stored credentials/config. Re-add a slot with: ccswap --add-account --slot <number>"
     );
 }
 
@@ -1037,7 +1033,7 @@ fn unclaimed_lists_and_purges_stashed_entries() {
 fn unclaimed_parses_its_own_arguments() {
     let env = TestEnv::new();
     seed(&env, &[1], 1);
-    let prog = support::prog();
+    let prog = support::PROG;
 
     let out = env.run(["unclaimed", "--help"]);
     out.assert_code(0);

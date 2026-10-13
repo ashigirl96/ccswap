@@ -6,7 +6,7 @@ mod support;
 use std::time::Duration;
 
 use serde_json::json;
-use support::{TestEnv, is_upstream, prog};
+use support::{PROG, TestEnv};
 
 fn seeded() -> TestEnv {
     let env = TestEnv::new();
@@ -34,17 +34,11 @@ fn assert_dashboard_ran_and_quit(env: &TestEnv, args: &[&str]) {
 
 #[test]
 fn bare_tty_launches_tui() {
-    if is_upstream() {
-        return;
-    }
     assert_dashboard_ran_and_quit(&seeded(), &[]);
 }
 
 #[test]
 fn tui_command_launches_tui() {
-    if is_upstream() {
-        return;
-    }
     assert_dashboard_ran_and_quit(&seeded(), &["tui"]);
 }
 
@@ -53,10 +47,8 @@ fn bare_non_tty_keeps_usage_error() {
     let out = seeded().run::<[&str; 0], &str>([]);
     out.assert_code(2);
     assert!(
-        out.stderr.ends_with(&format!(
-            "error: no command given — try '{} help'\n",
-            prog()
-        )),
+        out.stderr
+            .ends_with(&format!("error: no command given — try '{} help'\n", PROG)),
         "{}",
         out.stderr
     );
@@ -66,9 +58,6 @@ fn bare_non_tty_keeps_usage_error() {
 /// the watch page sits over the dashboard, so `q` returns there first.
 #[test]
 fn watch_command_opens_the_watch_page_over_the_dashboard() {
-    if is_upstream() {
-        return;
-    }
     let env = seeded();
     let out = env
         .cmd(["watch"])
@@ -87,9 +76,6 @@ fn watch_command_opens_the_watch_page_over_the_dashboard() {
 
 #[test]
 fn auto_view_runs_the_engine_in_dry_run() {
-    if is_upstream() {
-        return;
-    }
     let env = seeded();
     let out = env
         .cmd(["tui"])
@@ -103,9 +89,6 @@ const LIGHT_BACKGROUND: &str = "48;2;250;247;242m";
 
 #[test]
 fn auto_theme_follows_a_light_terminal_background() {
-    if is_upstream() {
-        return;
-    }
     let env = seeded();
     let out = env.cmd(["tui"]).run_in_terminal_on(
         Some("rgb:ffff/ffff/ffff"),
@@ -132,9 +115,6 @@ fn auto_theme_follows_a_light_terminal_background() {
 /// `--json` output is never preceded by the query.
 #[test]
 fn cli_colours_follow_the_terminal_background_except_for_json() {
-    if is_upstream() {
-        return;
-    }
     let env = seeded();
     let light_accent = "\x1b[38;2;149;76;42m";
     let out = env.cmd(["status"]).run_in_terminal_on(
@@ -156,9 +136,6 @@ fn cli_colours_follow_the_terminal_background_except_for_json() {
 
 #[test]
 fn explicit_theme_wins_over_the_terminal_background() {
-    if is_upstream() {
-        return;
-    }
     let env = seeded();
     env.write_json(
         ".claude-swap-backup/settings.json",

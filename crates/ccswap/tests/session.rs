@@ -15,9 +15,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use support::{
-    ACTIVE_OAUTH_SERVICE, ClaudeCall, KEYCHAIN_ACCOUNT, Output, StubResponse, TestEnv, is_upstream,
-};
+use support::{ACTIVE_OAUTH_SERVICE, ClaudeCall, KEYCHAIN_ACCOUNT, Output, StubResponse, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -161,14 +159,12 @@ fn run_execs_claude_in_the_profile_with_forwarded_args() {
     assert_eq!(call.argv, ["--resume", "--model", "x"]);
     let dir = session_dir(&env, 2);
     assert_eq!(call.env["CLAUDE_CONFIG_DIR"], dir.display().to_string());
-    if !is_upstream() {
-        assert!(
-            out.stdout
-                .contains("Launching Account-2 (b@example.com) [session mode]"),
-            "{}",
-            out.stdout
-        );
-    }
+    assert!(
+        out.stdout
+            .contains("Launching Account-2 (b@example.com) [session mode]"),
+        "{}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -246,14 +242,12 @@ fn auth_override_vars_are_scrubbed_from_the_session() {
     for c in env.claude().calls() {
         assert!(!c.env.contains_key("ANTHROPIC_API_KEY"));
     }
-    if !is_upstream() {
-        assert!(
-            out.stdout
-                .contains("Ignoring ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN for this session"),
-            "{}",
-            out.stdout
-        );
-    }
+    assert!(
+        out.stdout
+            .contains("Ignoring ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN for this session"),
+        "{}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -272,9 +266,7 @@ fn active_default_login_launches_plain_claude_with_the_env_untouched() {
     assert!(!call.env.contains_key("CLAUDE_CONFIG_DIR"));
     assert_eq!(call.env["ANTHROPIC_API_KEY"], "sk-ant-key");
     assert!(!session_dir(&env, 2).exists());
-    if !is_upstream() {
-        assert!(out.stdout.contains("already the active default login"));
-    }
+    assert!(out.stdout.contains("already the active default login"));
 }
 
 #[test]
@@ -321,9 +313,7 @@ fn preset_config_dir_disables_the_fast_path() {
         call.env["CLAUDE_CONFIG_DIR"],
         session_dir(&env, 2).display().to_string()
     );
-    if !is_upstream() {
-        assert!(out.stdout.contains("overriding it for this launch"));
-    }
+    assert!(out.stdout.contains("overriding it for this launch"));
 }
 
 #[test]
@@ -531,13 +521,10 @@ fn existing_profile_copy_is_never_replaced() {
         std::fs::read_to_string(dir.join("settings.json")).unwrap(),
         "mine"
     );
-    if !is_upstream() {
-        assert!(
-            out.stdout.contains(
-                "Not sharing settings.json: the session profile already has its own copy."
-            )
-        );
-    }
+    assert!(
+        out.stdout
+            .contains("Not sharing settings.json: the session profile already has its own copy.")
+    );
 }
 
 #[test]
@@ -1013,7 +1000,7 @@ fn list_does_not_request_an_expired_live_session_token() {
 #[test]
 fn run_parser_errors_match_argparse() {
     let env = TestEnv::new();
-    let prog = support::prog();
+    let prog = support::PROG;
     let usage = format!(
         "usage: {prog} run [-h] [--no-share] [--share-history | --no-share-history]\n{pad}[--require-session] [--debug]\n{pad}[NUM|EMAIL]\n",
         pad = " ".repeat(format!("usage: {prog} run ").len())

@@ -6,14 +6,10 @@
 
 mod support;
 
-use support::hint;
-
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use support::{
-    ACTIVE_OAUTH_SERVICE, ClaudeCall, Impl, KEYCHAIN_ACCOUNT, TestEnv, is_upstream, prog,
-};
+use support::{ACTIVE_OAUTH_SERVICE, ClaudeCall, KEYCHAIN_ACCOUNT, PROG, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -240,7 +236,7 @@ fn map_without_arguments_and_no_mappings_shows_how_to_add_one() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        hint("No directory mappings yet.\nMap one with: cswap map <NUM|EMAIL> [PATH]\n")
+        "No directory mappings yet.\nMap one with: ccswap map <NUM|EMAIL> [PATH]\n"
     );
 }
 
@@ -269,7 +265,7 @@ fn unmap_removes_the_mapping_then_reports_none_left() {
 #[test]
 fn map_and_unmap_help_and_usage_errors_follow_argparse() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
 
     let help = env.run(["map", "-h"]);
     help.assert_code(0);
@@ -301,44 +297,6 @@ fn map_and_unmap_help_and_usage_errors_follow_argparse() {
             "usage: {p} unmap [-h] [--debug] [PATH]\n{p} unmap: error: argument --debug: ignored explicit argument '1'\n"
         )
     );
-}
-
-#[test]
-fn mappings_written_by_one_implementation_are_read_by_the_other() {
-    if !is_upstream() {
-        return;
-    }
-    let env = TestEnv::new();
-    seed(&env);
-    let (a, b) = (dir(&env, "a"), dir(&env, "b"));
-    env.cmd(["map", "1", a.to_str().unwrap()])
-        .using(Impl::Ccswap)
-        .run()
-        .assert_code(0);
-    env.cmd(["map", "2", b.to_str().unwrap()])
-        .using(Impl::Upstream)
-        .run()
-        .assert_code(0);
-
-    let listings: Vec<String> = [Impl::Ccswap, Impl::Upstream]
-        .into_iter()
-        .map(|which| env.cmd(["map"]).using(which).run().stdout)
-        .collect();
-
-    assert_eq!(
-        listings[0],
-        format!(
-            "Directory mappings:\n  {} → 1: a@example.com [Acme]\n  {} → 2: b@example.com [Acme]\n",
-            key(&a),
-            key(&b)
-        )
-    );
-    assert_eq!(listings[0], listings[1]);
-    let out = env
-        .cmd(["unmap", a.to_str().unwrap()])
-        .using(Impl::Ccswap)
-        .run();
-    assert_eq!(out.stdout, format!("Unmapped {}\n", key(&a)));
 }
 
 #[test]
@@ -388,15 +346,13 @@ fn bare_run_without_a_mapping_launches_the_default_account() {
     assert!(!call.env.contains_key("CLAUDE_CONFIG_DIR"));
     assert_eq!(call.env["ANTHROPIC_API_KEY"], "kept");
     assert!(!env.store_dir().join("sessions").exists());
-    if !is_upstream() {
-        assert_eq!(
-            out.stdout,
-            format!(
-                "No account mapped for {} — launching the default account.\n",
-                key(&repo)
-            )
-        );
-    }
+    assert_eq!(
+        out.stdout,
+        format!(
+            "No account mapped for {} — launching the default account.\n",
+            key(&repo)
+        )
+    );
 }
 
 #[test]
@@ -415,12 +371,10 @@ fn bare_run_whose_mapped_account_was_removed_launches_the_default_account() {
     let call = launched(&env).expect("claude was exec'd");
     assert!(call.argv.is_empty());
     assert!(!call.env.contains_key("CLAUDE_CONFIG_DIR"));
-    if !is_upstream() {
-        assert_eq!(
-            out.stdout,
-            "Mapped account b@example.com no longer exists — launching the default account.\n"
-        );
-    }
+    assert_eq!(
+        out.stdout,
+        "Mapped account b@example.com no longer exists — launching the default account.\n"
+    );
 }
 
 #[test]

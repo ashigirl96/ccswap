@@ -6,7 +6,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{TestEnv, prog};
+use support::{PROG, TestEnv};
 
 fn settings_path(env: &TestEnv) -> std::path::PathBuf {
     env.store_dir().join("settings.json")
@@ -250,7 +250,7 @@ fn set_preserves_unknown_keys_and_key_order() {
 #[test]
 fn invalid_values_exit_1_without_writing() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let threshold_range = "autoswitch.threshold must be between 50 and 99.9".to_string();
     let cases = [
         ("autoswitch.threshold", "30", threshold_range.clone()),
@@ -584,7 +584,7 @@ fn set_through_a_dangling_symlink_writes_where_it_points() {
 #[test]
 fn argparse_errors_exit_2() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let top = format!(
         "usage: {p} config [-h] [--json] [--debug] {{list,get,set,unset,path}} ...\n{p} config: error: "
     );
@@ -665,7 +665,7 @@ fn option_prefixes_and_debug_are_accepted() {
 #[test]
 fn help_lists_keys_and_verbs() {
     let env = TestEnv::new();
-    let p = prog();
+    let p = PROG;
     let out = env.run(["config", "--help"]);
     out.assert_code(0);
     assert!(out.stdout.starts_with(&format!(
