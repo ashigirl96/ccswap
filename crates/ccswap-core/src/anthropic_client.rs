@@ -7,10 +7,97 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::endpoints::Endpoints;
+use crate::usage::{build_usage_result, truthy};
 
 pub const USER_AGENT: &str = "claude-swap/1.0";
+pub const OAUTH_BETA_HEADER: &str = "oauth-2025-04-20";
 pub const OAUTH_EXPIRY_BUFFER_MS: i64 = 5 * 60 * 1000;
 const PROFILE_TIMEOUT: Duration = Duration::from_secs(5);
+const USAGE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Refresh failures that retrying this pass cannot fix, so the expired
+/// token must not be sent to the usage endpoint.
+pub const DETERMINISTIC_REFRESH_ERRORS: [&str; 4] = [
+    "store-unmirrored",
+    "invalid_client",
+    "consume-busy",
+    "stash-unreadable",
+];
+
+/// A failed usage request, classified the way upstream persists it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageFailure {
+    /// `http-<code>`, `timeout`, `network`, `bad-response`, or the Python
+    /// exception name upstream would record.
+    pub kind: String,
+    /// `Retry-After` in its seconds form.
+    pub retry_after_s: Option<f64>,
+    pub status: Option<u16>,
+}
+
+impl UsageFailure {
+    fn kind(kind: &str) -> Self {
+        UsageFailure {
+            kind: kind.into(),
+            retry_after_s: None,
+            status: None,
+        }
+    }
+}
+
+/// One usage fetch attempt: `usage` may be `None` on success when the
+/// response carried no window.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UsageOutcome {
+    pub usage: Option<Value>,
+    pub error: Option<String>,
+    pub retry_after_s: Option<f64>,
+    pub struck_fp: Option<String>,
+}
+
+impl UsageOutcome {
+    fn ok(usage: Option<Value>) -> Self {
+        UsageOutcome {
+            usage,
+            ..Default::default()
+        }
+    }
+
+    fn failed(kind: impl Into<String>, retry_after_s: Option<f64>) -> Self {
+        UsageOutcome {
+            error: Some(kind.into()),
+            retry_after_s,
+            ..Default::default()
+        }
+    }
+}
+
+/// A refresh-token grant attempt as a refresh gate reports it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RefreshOutcome {
+    pub credentials: Option<String>,
+    pub error: Option<String>,
+    pub consumed_fp: Option<String>,
+}
+
+/// Refreshes an inactive slot's credential: `(slot, email, snapshot)`.
+pub type RefreshVia<'a> = &'a (dyn Fn(&str, &str, &str) -> RefreshOutcome + Sync);
+
+fn is_dead(error: Option<&str>) -> bool {
+    matches!(error, Some("invalid_grant" | "no_refresh_token"))
+}
+
+fn is_deterministic(error: Option<&str>) -> bool {
+    error.is_some_and(|e| DETERMINISTIC_REFRESH_ERRORS.contains(&e))
+}
+
+fn access_token_of(credentials: &str) -> Option<String> {
+    extract_oauth_data(credentials)?
+        .get("accessToken")?
+        .as_str()
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+}
 
 /// Whose token this is, as the profile endpoint answers it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,15 +118,138 @@ impl AnthropicClient {
         AnthropicClient { endpoints }
     }
 
+    /// Verifies TLS against the macOS trust store, as upstream's
+    /// `truststore` does, so locally trusted roots apply.
+    fn agent(timeout: Duration) -> ureq::Agent {
+        let tls = ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+            .build();
+        ureq::Agent::config_builder()
+            .timeout_global(Some(timeout))
+            .http_status_as_error(false)
+            .tls_config(tls)
+            .build()
+            .into()
+    }
+
+    /// `GET /api/oauth/usage`, normalised.
+    pub fn fetch_usage(&self, access_token: &str) -> Result<Option<Value>, UsageFailure> {
+        let response = Self::agent(USAGE_TIMEOUT)
+            .get(&self.endpoints.usage_url())
+            .header("Authorization", &format!("Bearer {access_token}"))
+            .header("anthropic-beta", OAUTH_BETA_HEADER)
+            .header("User-Agent", USER_AGENT)
+            .call();
+        let mut response = response.map_err(|e| classify_transport(&e))?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            let retry_after_s = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(parse_retry_after);
+            return Err(UsageFailure {
+                kind: format!("http-{status}"),
+                retry_after_s,
+                status: Some(status),
+            });
+        }
+        let bytes = response
+            .body_mut()
+            .read_to_vec()
+            .map_err(|e| classify_transport(&e))?;
+        let text =
+            String::from_utf8(bytes).map_err(|_| UsageFailure::kind("UnicodeDecodeError"))?;
+        let data: Value =
+            serde_json::from_str(&text).map_err(|_| UsageFailure::kind("bad-response"))?;
+        build_usage_result(&data).map_err(UsageFailure::kind)
+    }
+
+    /// Usage for one slot. Only inactive slots are refreshed (through
+    /// `refresh_via`): Claude Code owns the active credential.
+    pub fn try_fetch_usage_for_account(
+        &self,
+        num: &str,
+        email: &str,
+        credentials: &str,
+        is_active: bool,
+        refresh_via: Option<RefreshVia>,
+    ) -> UsageOutcome {
+        let oauth = extract_oauth_data(credentials);
+        let (Some(oauth), Some(mut access_token)) = (oauth, access_token_of(credentials)) else {
+            return UsageOutcome::failed("no-access-token", None);
+        };
+        let has_refresh = oauth.get("refreshToken").is_some_and(truthy);
+        let refresh = |snapshot: &str| match refresh_via {
+            Some(gate) => gate(num, email, snapshot),
+            None => RefreshOutcome {
+                error: Some("transient".into()),
+                ..Default::default()
+            },
+        };
+        let dead_outcome = |outcome: RefreshOutcome| UsageOutcome {
+            struck_fp: outcome
+                .consumed_fp
+                .or_else(|| credential_fingerprint(credentials)),
+            ..UsageOutcome::failed(outcome.error.unwrap_or_default(), None)
+        };
+
+        if !is_active && has_refresh && is_oauth_token_expired(oauth.get("expiresAt")) {
+            let outcome = refresh(credentials);
+            match outcome.credentials.as_deref().filter(|c| !c.is_empty()) {
+                Some(fresh) => {
+                    if let Some(token) = access_token_of(fresh) {
+                        access_token = token;
+                    }
+                }
+                None if is_dead(outcome.error.as_deref()) => return dead_outcome(outcome),
+                None if is_deterministic(outcome.error.as_deref()) => {
+                    return UsageOutcome::failed(outcome.error.unwrap_or_default(), None);
+                }
+                None => {}
+            }
+        }
+
+        let context = format!("for account {num}");
+        let failure = match self.fetch_usage(&access_token) {
+            Ok(usage) => return UsageOutcome::ok(usage),
+            Err(f) => f,
+        };
+        if failure.status != Some(401) || is_active || !has_refresh {
+            log_usage_failure(&context, &failure.kind, failure.retry_after_s);
+            return UsageOutcome::failed(failure.kind, failure.retry_after_s);
+        }
+        let outcome = refresh(credentials);
+        let Some(fresh) = outcome.credentials.clone().filter(|c| !c.is_empty()) else {
+            log_usage_failure(&context, &failure.kind, None);
+            if is_dead(outcome.error.as_deref()) {
+                return dead_outcome(outcome);
+            }
+            if is_deterministic(outcome.error.as_deref()) {
+                return UsageOutcome::failed(outcome.error.unwrap_or_default(), None);
+            }
+            return UsageOutcome::failed("refresh-failed", None);
+        };
+        let Some(token) = access_token_of(&fresh) else {
+            return UsageOutcome::failed("refresh-failed", None);
+        };
+        match self.fetch_usage(&token) {
+            Ok(usage) => UsageOutcome::ok(usage),
+            Err(f) => {
+                log_usage_failure(
+                    &format!("{context} after refresh"),
+                    &f.kind,
+                    f.retry_after_s,
+                );
+                UsageOutcome::failed(f.kind, f.retry_after_s)
+            }
+        }
+    }
+
     /// `GET /api/oauth/profile`. `None` means unresolvable (offline, 401,
     /// schema drift), never "wrong". Must not be called under a lock.
     pub fn fetch_profile(&self, access_token: &str) -> Option<Profile> {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(PROFILE_TIMEOUT))
-            .http_status_as_error(false)
-            .build()
-            .into();
-        let mut response = agent
+        let mut response = Self::agent(PROFILE_TIMEOUT)
             .get(&self.endpoints.profile_url())
             .header("Authorization", &format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
@@ -52,6 +262,43 @@ impl AnthropicClient {
         let body = response.body_mut().read_to_string().ok()?;
         parse_profile(&serde_json::from_str(&body).ok()?)
     }
+}
+
+/// One WARNING with the cause; `context` never carries the email because
+/// users paste these lines into public issues.
+fn log_usage_failure(context: &str, kind: &str, retry_after_s: Option<f64>) {
+    let mut cause = match retry_after_s {
+        Some(secs) => format!("{kind}, retry-after {secs:.0}s"),
+        None => kind.to_string(),
+    };
+    if kind == "http-429" {
+        cause.push_str(" (usage-endpoint budget reached; backing off)");
+    }
+    crate::log::warning(format!("Usage fetch failed {context}: {cause}"));
+}
+
+fn classify_transport(e: &ureq::Error) -> UsageFailure {
+    let timed_out = match e {
+        ureq::Error::Timeout(_) => true,
+        ureq::Error::Io(io) => io.kind() == std::io::ErrorKind::TimedOut,
+        _ => false,
+    };
+    UsageFailure::kind(if timed_out { "timeout" } else { "network" })
+}
+
+/// Python `max(0.0, float(raw.strip()))`; the HTTP-date form is ignored.
+fn parse_retry_after(raw: &str) -> Option<f64> {
+    let t = raw.trim().to_ascii_lowercase();
+    let value: f64 = match t.as_str() {
+        "inf" | "+inf" | "infinity" | "+infinity" => f64::INFINITY,
+        "-inf" | "-infinity" => f64::NEG_INFINITY,
+        _ => t.parse().ok()?,
+    };
+    Some(if value.is_nan() {
+        value
+    } else {
+        value.max(0.0)
+    })
 }
 
 fn parse_profile(data: &Value) -> Option<Profile> {
@@ -129,6 +376,14 @@ mod tests {
     //! TestCredentialFingerprint).
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn retry_after_takes_only_the_seconds_form() {
+        assert_eq!(parse_retry_after(" 120 "), Some(120.0));
+        assert_eq!(parse_retry_after("1e3"), Some(1000.0));
+        assert_eq!(parse_retry_after("-5"), Some(0.0));
+        assert_eq!(parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT"), None);
+    }
 
     #[test]
     fn profile_needs_a_non_blank_account_uuid() {

@@ -30,7 +30,7 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
 ];
 
 /// Prints the account list after a human-mode switch.
-pub type Listing = dyn Fn(&mut dyn Console) -> Result<()>;
+pub type Listing<'a> = dyn Fn(&mut dyn Console) -> Result<()> + 'a;
 
 pub struct Switcher<'a> {
     pub paths: &'a Paths,
@@ -40,7 +40,7 @@ pub struct Switcher<'a> {
     pub style: &'a Style,
     /// Prints the account list after a human-mode switch; an error becomes
     /// a one-line notice instead of failing the switch.
-    pub listing: Option<&'a Listing>,
+    pub listing: Option<&'a Listing<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,7 +546,7 @@ impl Switcher<'_> {
         self.accounts().refuse_session_shell()?;
         let mut warnings = Vec::new();
 
-        let (performed_to, from, target_email, backend) = {
+        let (performed_to, from, target_email, target_org, backend) = {
             let _locks = self.lock()?;
             let mut data = self.roster()?;
             let target_email = store::accounts(&data)
@@ -626,7 +626,13 @@ impl Switcher<'_> {
                     return Err(Error::new(ErrorKind::SwitchError, message));
                 }
             };
-            (to, from, target_email, backend)
+            let target_org = store::accounts(&data)
+                .and_then(|a| a.get(target))
+                .and_then(|r| r.get("organizationUuid"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            (to, from, target_email, target_org, backend)
         };
 
         if emit {
@@ -635,8 +641,9 @@ impl Switcher<'_> {
                 self.style.accent("Switched to")
             ));
             if let Some(listing) = self.listing
-                && listing(console).is_err()
+                && let Err(e) = listing(console)
             {
+                log::warning(format!("Post-switch usage display failed: {e}"));
                 console.line(
                     &self
                         .style
@@ -647,6 +654,8 @@ impl Switcher<'_> {
             console.line(&self.style.dimmed(followup(backend)));
             console.line("");
         }
+        crate::usage_store::UsageStore::new(&self.paths.usage_cache_dir())
+            .replan_new_active(target, &(target_email.clone(), target_org));
         Ok(Performed {
             from: Some(from),
             to: performed_to,

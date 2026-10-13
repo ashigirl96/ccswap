@@ -343,6 +343,51 @@ fn config_logs_an_unsupported_choice() {
 }
 
 #[test]
+fn swap_and_move_are_recorded() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+
+    env.run(["swap", "1", "2"]).assert_code(0);
+    env.run(["move", "a@example.com", "5"]).assert_code(0);
+
+    let renumbering: Vec<_> = records(&env)
+        .into_iter()
+        .filter(|(_, m)| m.starts_with("Swapped") || m.starts_with("Moved"))
+        .collect();
+    assert_eq!(
+        renumbering,
+        vec![
+            info("Swapped slots: 1 (a@example.com) <-> 2 (b@example.com)"),
+            info("Moved slot: 2 (a@example.com) -> 5"),
+        ]
+    );
+}
+
+#[test]
+fn usage_fetch_failures_are_logged_without_the_email() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    env.http().respond(
+        "GET",
+        "/api/oauth/usage",
+        StubResponse::json(429, "{}").header("Retry-After", "120"),
+    );
+
+    env.run(["list"]).assert_code(0);
+
+    let records = records(&env);
+    for num in [1, 2] {
+        let expected = (
+            "WARNING".to_string(),
+            format!(
+                "Usage fetch failed for account {num}: http-429, retry-after 120s (usage-endpoint budget reached; backing off)"
+            ),
+        );
+        assert!(records.contains(&expected), "{records:?}");
+    }
+}
+
+#[test]
 fn a_migration_that_cannot_finish_logs_why() {
     let env = TestEnv::new();
     env.seed_sequence(json!({

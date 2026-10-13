@@ -527,7 +527,10 @@ fn shared_script(name: &str, template: &str) -> PathBuf {
     let path = dir.join(format!("{name}-{digest:016x}"));
     if !path.exists() {
         std::fs::create_dir_all(&dir).expect("create shared fakes dir");
-        let temp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        // Parallel test threads share the pid, so each call needs its own temp name.
+        static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = NEXT_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp = dir.join(format!("{name}.{}.{seq}.tmp", std::process::id()));
         std::fs::write(&temp, template).expect("write fake");
         std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::rename(&temp, &path).expect("publish fake");
