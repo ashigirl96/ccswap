@@ -380,6 +380,10 @@ impl Fetcher<'_> {
         if session_creds.is_some()
             && session_profile::identity_drifted(&dir, &info.email, &info.org_uuid)
         {
+            crate::log::debug(format!(
+                "Session profile for account {} is logged in as a different account; fetching usage from the backup credential",
+                info.num
+            ));
             session_creds = None;
             live = false;
         }

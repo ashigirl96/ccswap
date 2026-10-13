@@ -37,6 +37,8 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
     "pluginSecrets",
 ];
 
+const ACCOUNT_CREDENTIAL_KEYS: [&str; 2] = ["claudeAiOauth", "trustedDeviceToken"];
+
 /// Prints the account list after a human-mode switch.
 pub type Listing<'a> = dyn Fn(&mut dyn Console) -> Result<()> + 'a;
 
@@ -1164,15 +1166,25 @@ impl Switcher<'_> {
         if outcome.is_err() {
             if completed.contains(&Step::ConfigWritten)
                 && let Some(text) = &rollback_config
+                && let Err(e) = std::fs::write(&config_path, text)
+                    .and_then(|()| fsutil::chmod(&config_path, 0o600))
             {
-                let _ = std::fs::write(&config_path, text)
-                    .and_then(|()| fsutil::chmod(&config_path, 0o600));
+                log::error(format!("Failed to rollback config: {e}"));
             }
             if completed.contains(&Step::CredentialsWritten)
                 && let Some(credentials) = &rollback_credentials
+                && let Err(e) = self.secrets.write_active(credentials)
             {
-                let _ = self.secrets.write_active(credentials);
+                log::error(format!("Failed to rollback credentials: {e}"));
             }
+        } else if force && has_identity {
+            log::info(format!(
+                "Activated account {target} (forced, backup of current login skipped)"
+            ));
+        } else {
+            log::info(format!(
+                "Activated account {target} (no prior live account)"
+            ));
         }
         outcome
     }
@@ -1342,7 +1354,13 @@ impl Switcher<'_> {
             return None;
         }
         let provenance = self.prefetch_live_identity();
-        provenance.resolved.is_some().then_some(provenance)
+        if provenance.resolved.is_none() {
+            log::info(format!(
+                "Live credential diverges from Account-{slot}'s stored backup and ownership could not be verified; self-switch left everything untouched (pre-fix no-op)."
+            ));
+            return None;
+        }
+        Some(provenance)
     }
 
     /// Unreadable or empty live credentials count as matching: forcing a
@@ -1382,7 +1400,12 @@ impl Switcher<'_> {
         let Value::Object(context) = context else {
             unreachable!("json! object literal");
         };
-        UnclaimedStash::new(self.paths).write(live, context)
+        let id = UnclaimedStash::new(self.paths).write(live, context)?;
+        log::warning(format!(
+            "Live credential does not belong to Account-{config_slot} ({reason}): stashed as {id} (credentials mtime {}). Something outside cswap rewrote the live login after the last switch.",
+            credentials_mtime.as_deref().unwrap_or("unknown")
+        ));
+        Ok(id)
     }
 
     fn read_target_credentials(&self, num: &str, email: &str) -> Result<String> {
@@ -1543,6 +1566,21 @@ pub fn prepare_credentials_for_activation(target: &str, live: Option<&str>) -> S
     let Some(live) = live.and_then(credential_object) else {
         return target.to_string();
     };
+    if live.contains_key("claudeAiOauth") {
+        let mut unrecognized: Vec<&str> = live
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !SHARED_CREDENTIAL_KEYS.contains(k) && !ACCOUNT_CREDENTIAL_KEYS.contains(k))
+            .collect();
+        if !unrecognized.is_empty() {
+            unrecognized.sort_unstable();
+            let listed: Vec<String> = unrecognized.iter().map(|k| format!("'{k}'")).collect();
+            log::debug(format!(
+                "Live credential has sibling keys cswap does not recognize (a newer Claude Code?), treating them as slot-owned: [{}]",
+                listed.join(", ")
+            ));
+        }
+    }
     let Some(target_object) = credential_object(target).filter(|t| t.contains_key("claudeAiOauth"))
     else {
         return target.to_string();

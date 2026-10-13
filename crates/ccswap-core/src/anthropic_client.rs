@@ -33,14 +33,16 @@ pub struct UsageFailure {
     /// `Retry-After` in its seconds form.
     pub retry_after_s: Option<f64>,
     pub status: Option<u16>,
+    pub detail: String,
 }
 
 impl UsageFailure {
-    fn kind(kind: &str) -> Self {
+    fn kind(kind: &str, detail: impl std::fmt::Display) -> Self {
         UsageFailure {
             kind: kind.into(),
             retry_after_s: None,
             status: None,
+            detail: detail.to_string(),
         }
     }
 }
@@ -181,6 +183,7 @@ impl AnthropicClient {
                 kind: format!("http-{status}"),
                 retry_after_s,
                 status: Some(status),
+                detail: format!("HTTP Error {status}"),
             });
         }
         let bytes = response
@@ -188,10 +191,10 @@ impl AnthropicClient {
             .read_to_vec()
             .map_err(|e| classify_transport(&e))?;
         let text =
-            String::from_utf8(bytes).map_err(|_| UsageFailure::kind("UnicodeDecodeError"))?;
+            String::from_utf8(bytes).map_err(|e| UsageFailure::kind("UnicodeDecodeError", e))?;
         let data: Value =
-            serde_json::from_str(&text).map_err(|_| UsageFailure::kind("bad-response"))?;
-        build_usage_result(&data).map_err(UsageFailure::kind)
+            serde_json::from_str(&text).map_err(|e| UsageFailure::kind("bad-response", e))?;
+        build_usage_result(&data).map_err(|e| UsageFailure::kind(e, e))
     }
 
     /// Usage for one slot. Only inactive slots are refreshed (through
@@ -242,12 +245,12 @@ impl AnthropicClient {
             Err(f) => f,
         };
         if failure.status != Some(401) || is_active || !has_refresh {
-            log_usage_failure(&context, &failure.kind, failure.retry_after_s);
+            log_usage_failure(&context, &failure, failure.retry_after_s);
             return UsageOutcome::failed(failure.kind, failure.retry_after_s);
         }
         let outcome = refresh(credentials);
         let Some(fresh) = outcome.credentials.clone().filter(|c| !c.is_empty()) else {
-            log_usage_failure(&context, &failure.kind, None);
+            log_usage_failure(&context, &failure, None);
             if is_dead(outcome.error.as_deref()) {
                 return dead_outcome(outcome);
             }
@@ -262,11 +265,7 @@ impl AnthropicClient {
         match self.fetch_usage(&token) {
             Ok(usage) => UsageOutcome::ok(usage),
             Err(f) => {
-                log_usage_failure(
-                    &format!("{context} after refresh"),
-                    &f.kind,
-                    f.retry_after_s,
-                );
+                log_usage_failure(&format!("{context} after refresh"), &f, f.retry_after_s);
                 UsageOutcome::failed(f.kind, f.retry_after_s)
             }
         }
@@ -334,24 +333,42 @@ impl AnthropicClient {
     /// `GET /api/oauth/profile`. `None` means unresolvable (offline, 401,
     /// schema drift), never "wrong". Must not be called under a lock.
     pub fn fetch_profile(&self, access_token: &str) -> Option<Profile> {
-        let mut response = Self::agent(PROFILE_TIMEOUT)
+        let fetched = Self::agent(PROFILE_TIMEOUT)
             .get(&self.endpoints.profile_url())
             .header("Authorization", &format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
             .header("User-Agent", USER_AGENT)
             .call()
-            .ok()?;
-        if response.status().as_u16() != 200 {
-            return None;
+            .map_err(|e| e.to_string())
+            .and_then(|mut response| match response.status().as_u16() {
+                200 => response
+                    .body_mut()
+                    .read_to_string()
+                    .map_err(|e| e.to_string()),
+                401 => Err(String::new()),
+                status => Err(format!("HTTP Error {status}")),
+            })
+            .and_then(|body| serde_json::from_str::<Value>(&body).map_err(|e| e.to_string()));
+        match fetched {
+            Ok(data) => parse_profile(&data),
+            Err(e) if e.is_empty() => {
+                crate::log::warning(
+                    "OAuth profile returned 401 while resolving credential ownership; proceeding without identity (pre-fix behavior).",
+                );
+                None
+            }
+            Err(e) => {
+                crate::log::debug(format!("OAuth profile fetch failed: {e}"));
+                None
+            }
         }
-        let body = response.body_mut().read_to_string().ok()?;
-        parse_profile(&serde_json::from_str(&body).ok()?)
     }
 }
 
 /// One WARNING with the cause; `context` never carries the email because
 /// users paste these lines into public issues.
-fn log_usage_failure(context: &str, kind: &str, retry_after_s: Option<f64>) {
+fn log_usage_failure(context: &str, failure: &UsageFailure, retry_after_s: Option<f64>) {
+    let kind = failure.kind.as_str();
     let mut cause = match retry_after_s {
         Some(secs) => format!("{kind}, retry-after {secs:.0}s"),
         None => kind.to_string(),
@@ -360,6 +377,10 @@ fn log_usage_failure(context: &str, kind: &str, retry_after_s: Option<f64>) {
         cause.push_str(" (usage-endpoint budget reached; backing off)");
     }
     crate::log::warning(format!("Usage fetch failed {context}: {cause}"));
+    crate::log::debug(format!(
+        "Usage fetch failure detail {context}: {}",
+        failure.detail
+    ));
 }
 
 fn classify_transport(e: &ureq::Error) -> UsageFailure {
@@ -368,7 +389,7 @@ fn classify_transport(e: &ureq::Error) -> UsageFailure {
         ureq::Error::Io(io) => io.kind() == std::io::ErrorKind::TimedOut,
         _ => false,
     };
-    UsageFailure::kind(if timed_out { "timeout" } else { "network" })
+    UsageFailure::kind(if timed_out { "timeout" } else { "network" }, e)
 }
 
 /// Python `max(0.0, float(raw.strip()))`; the HTTP-date form is ignored.
@@ -387,11 +408,19 @@ fn parse_retry_after(raw: &str) -> Option<f64> {
 }
 
 fn parse_profile(data: &Value) -> Option<Profile> {
-    let account = data.get("account")?.as_object()?;
-    let uuid = account.get("uuid")?.as_str()?.trim();
-    if uuid.is_empty() {
+    let Some(account) = data.get("account").and_then(Value::as_object) else {
+        crate::log::debug("OAuth profile response missing account object");
         return None;
-    }
+    };
+    let Some(uuid) = account
+        .get("uuid")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    else {
+        crate::log::debug("OAuth profile response missing account.uuid");
+        return None;
+    };
     let organization_uuid = data
         .get("organization")
         .and_then(Value::as_object)

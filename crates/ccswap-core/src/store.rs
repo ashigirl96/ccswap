@@ -435,44 +435,40 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 pub fn read_json_strict(path: &Path) -> Result<Option<JsonObject>> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    let shown = path.display();
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
+            crate::log::warning(format!("Could not read {shown}: {e}"));
             return Err(Error::config(format!(
-                "{} exists but could not be read ({e}). Fix what is blocking the read, then retry.",
-                path.display()
+                "{shown} exists but could not be read ({e}). Fix what is blocking the read, then retry."
             )));
         }
     };
-    match serde_json::from_str::<Value>(&text) {
+    let parsed = std::str::from_utf8(&bytes)
+        .map_err(|e| e.to_string())
+        .and_then(|text| serde_json::from_str::<Value>(text).map_err(|e| e.to_string()));
+    match parsed {
         Ok(Value::Object(map)) => Ok(Some(map)),
-        Ok(other) => Err(Error::config(format!(
-            "{} holds {}, not a JSON object. Repair or move it, then retry.",
-            path.display(),
-            python_type_name(&other)
-        ))),
-        Err(e) => Err(Error::config(format!(
-            "{} exists but could not be parsed ({e}). Repair or move it, then retry — refusing to overwrite it unread.",
-            path.display()
-        ))),
+        Ok(other) => {
+            let kind = crate::pyjson::py_type_name(&other);
+            crate::log::warning(format!("{shown} holds {kind}, not a JSON object"));
+            Err(Error::config(format!(
+                "{shown} holds {kind}, not a JSON object. Repair or move it, then retry."
+            )))
+        }
+        Err(e) => {
+            crate::log::warning(format!("Invalid JSON in {shown}"));
+            Err(Error::config(format!(
+                "{shown} exists but could not be parsed ({e}). Repair or move it, then retry — refusing to overwrite it unread."
+            )))
+        }
     }
 }
 
 pub fn read_json_lenient(path: &Path) -> Option<JsonObject> {
     read_json_strict(path).ok().flatten()
-}
-
-fn python_type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
 }
 
 #[cfg(test)]

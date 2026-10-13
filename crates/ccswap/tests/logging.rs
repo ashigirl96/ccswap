@@ -364,6 +364,103 @@ fn swap_and_move_are_recorded() {
 }
 
 #[test]
+fn a_swap_that_fails_before_its_commit_logs_the_rollback() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    let store = env.store_dir();
+    env.write_file(store.join(".lock"), "");
+    env.write_file(log_path(&env), "");
+    std::fs::set_permissions(&store, std::os::unix::fs::PermissionsExt::from_mode(0o500)).unwrap();
+
+    let out = env.run(["swap", "1", "2"]);
+    std::fs::set_permissions(&store, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+
+    out.assert_code(1);
+    let errors: Vec<_> = records(&env)
+        .into_iter()
+        .filter(|(level, _)| level == "ERROR")
+        .collect();
+    assert_eq!(
+        errors,
+        vec![(
+            "ERROR".to_string(),
+            "Swap 1 <-> 2 failed mid-write; restoring both slots".to_string()
+        )]
+    );
+}
+
+#[test]
+fn a_forced_activation_logs_the_stash_and_the_activation() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+
+    env.run(["switch", "2", "--force", "--json"]).assert_code(0);
+
+    let records = records(&env);
+    let stash = records
+        .iter()
+        .find(|(_, m)| m.starts_with("Live credential does not belong"))
+        .unwrap_or_else(|| panic!("{records:?}"));
+    assert_eq!(stash.0, "WARNING");
+    let (head, tail) = stash.1.split_once(": stashed as ").expect(&stash.1);
+    assert_eq!(
+        head,
+        "Live credential does not belong to Account-1 (displaced-live-login)"
+    );
+    assert!(
+        tail.ends_with(
+            " (credentials mtime unknown). Something outside cswap rewrote the live login after the last switch."
+        ),
+        "{tail}"
+    );
+    assert!(
+        records.contains(&info(
+            "Activated account 2 (forced, backup of current login skipped)"
+        )),
+        "{records:?}"
+    );
+}
+
+#[test]
+fn debug_records_the_usage_response_and_unparseable_spend() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    let body = r#"{"five_hour": {"utilization": 5}, "extra_usage": {"is_enabled": true, "used_credits": "x", "monthly_limit": 1, "utilization": 1}}"#;
+    env.http()
+        .respond("GET", "/api/oauth/usage", StubResponse::json(200, body));
+
+    env.run(["list", "--debug"]).assert_code(0);
+
+    let text = log_text(&env);
+    assert!(
+        text.contains(
+            " - DEBUG - Usage API response: {\n  \"five_hour\": {\n    \"utilization\": 5\n  },"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            " - DEBUG - extra_usage parse failed: ValueError(\"could not convert string to float: 'x'\")\n"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn an_unparseable_roster_is_logged() {
+    let env = TestEnv::new();
+    let path = env.write_file(env.store_dir().join("sequence.json"), "{not json");
+
+    env.run(["list", "--json"]).assert_code(1);
+
+    let expected = (
+        "WARNING".to_string(),
+        format!("Invalid JSON in {}", path.display()),
+    );
+    assert!(records(&env).contains(&expected), "{:?}", records(&env));
+}
+
+#[test]
 fn usage_fetch_failures_are_logged_without_the_email() {
     let env = TestEnv::new();
     seed(&env, 1);

@@ -96,6 +96,19 @@ fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
+/// `type(v).__name__` of the value `json.loads` would build.
+pub fn py_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "NoneType",
+        Value::Bool(_) => "bool",
+        Value::Number(n) if n.is_f64() => "float",
+        Value::Number(_) => "int",
+        Value::String(_) => "str",
+        Value::Array(_) => "list",
+        Value::Object(_) => "dict",
+    }
+}
+
 /// Python's `str()` of a JSON scalar.
 pub fn py_str(value: &Value) -> String {
     match value {

@@ -623,7 +623,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
             Some(other) => {
                 return Err(transfer_error(format!(
                     "{field} for {email} must be a string, got {}",
-                    py_type_name(other)
+                    crate::pyjson::py_type_name(other)
                 )));
             }
         }
@@ -721,18 +721,6 @@ fn unset_active(value: Option<&Value>) -> bool {
         Some(Value::Number(n)) => n.as_f64() == Some(0.0),
         Some(Value::Bool(b)) => !b,
         _ => false,
-    }
-}
-
-fn py_type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
     }
 }
 
