@@ -3,6 +3,7 @@
 //! two lanes, the single-flight actions, and every screen's key handling.
 //! Blocking work runs on worker threads that report back over a channel.
 
+use ccswap_core::pyjson::py_str;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -1439,14 +1440,6 @@ fn token_form(modal: &AddTokenModal) -> Result<TokenForm, &'static str> {
         email,
         slot,
     })
-}
-
-fn py_str(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Null => "None".into(),
-        other => other.to_string(),
-    }
 }
 
 fn active_index(snap: &AccountsSnapshot) -> usize {

@@ -65,10 +65,6 @@ fn seeded(data: Value) -> TestEnv {
     env
 }
 
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
-
 fn enc_path(env: &TestEnv, num: &str, email: &str) -> PathBuf {
     env.store_dir()
         .join("credentials")
@@ -153,7 +149,7 @@ fn test_swap_by_number() {
         out.stdout,
         "Swapped Account 1 and Account 2:\n  1: account2@example.com\n  2: account1@example.com\n"
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "1"), "account2@example.com");
     assert_eq!(accounts_email(&data, "2"), "account1@example.com");
 }
@@ -162,7 +158,7 @@ fn test_swap_by_number() {
 fn test_swap_moves_active_number_with_account() {
     let env = seeded(sample_sequence_data());
     env.run(["swap", "1", "2"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["activeAccountNumber"], 2);
     assert_eq!(accounts_email(&data, "2"), "account1@example.com");
 }
@@ -171,7 +167,7 @@ fn test_swap_moves_active_number_with_account() {
 fn test_swap_keeps_sequence_sorted() {
     let env = seeded(sample_sequence_data());
     env.run(["swap", "1", "2"]).assert_code(0);
-    assert_eq!(sequence(&env)["sequence"], json!([1, 2]));
+    assert_eq!(env.sequence()["sequence"], json!([1, 2]));
 }
 
 #[test]
@@ -182,7 +178,7 @@ fn test_swap_by_email_and_alias() {
     let out = env.run(["swap", "account1@example.com", "dev"]);
     out.assert_code(0);
     assert!(out.stdout.starts_with("Swapped Account 1 and Account 2:"));
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["1"]["alias"], "dev");
     assert!(data["accounts"]["2"].get("alias").is_none());
 }
@@ -248,7 +244,7 @@ fn test_swap_same_email_accounts() {
     assert_eq!(read_creds(&env, "1", SAME_EMAIL), "creds-personal");
     assert_eq!(read_creds(&env, "2", SAME_EMAIL), "creds-org");
     assert_eq!(
-        sequence(&env)["accounts"]["2"]["organizationUuid"],
+        env.sequence()["accounts"]["2"]["organizationUuid"],
         "org-uuid-5678"
     );
     assert!(staging_files(&env).is_empty());
@@ -266,7 +262,7 @@ fn test_swap_same_email_rollback_restores_empty_slot() {
     assert_eq!(out.code, 1, "stderr:\n{}", out.stderr);
     assert_eq!(read_creds(&env, "1", SAME_EMAIL), "creds-org");
     assert_eq!(read_creds(&env, "2", SAME_EMAIL), "");
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["1"]["organizationUuid"], "org-uuid-5678");
     assert_eq!(data["activeAccountNumber"], 1);
     assert!(staging_files(&env).is_empty());
@@ -282,7 +278,7 @@ fn test_swap_same_email_one_sided_clears_destination() {
     assert_eq!(read_creds(&env, "2", SAME_EMAIL), "creds-org");
     assert_eq!(read_creds(&env, "1", SAME_EMAIL), "");
     assert_eq!(
-        sequence(&env)["accounts"]["2"]["organizationUuid"],
+        env.sequence()["accounts"]["2"]["organizationUuid"],
         "org-uuid-5678"
     );
 }
@@ -316,7 +312,7 @@ fn test_swap_refuses_leftover_staging() {
     assert_eq!(read_creds(&env, "1", SAME_EMAIL), "creds-org");
     assert_eq!(read_creds(&env, "2", SAME_EMAIL), "creds-personal");
     assert_eq!(
-        sequence(&env)["accounts"]["1"]["organizationUuid"],
+        env.sequence()["accounts"]["1"]["organizationUuid"],
         "org-uuid-5678"
     );
     assert_eq!(staging_files(&env), vec![".swap-staging-creds-1.json"]);
@@ -345,7 +341,7 @@ fn test_swap_failed_required_clear_aborts_commit() {
         "{}",
         out.stdout
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["1"]["organizationUuid"], "org-uuid-5678");
     assert_eq!(data["activeAccountNumber"], 1);
     assert_eq!(read_creds(&env, "1", SAME_EMAIL), "creds-org");
@@ -431,7 +427,7 @@ fn test_unreadable_enc_aborts_the_swap_before_anything_changes() {
         out.stderr,
         "Error: Account-2's stored credential could not be read (keychain unavailable?); nothing was changed. Retry once it is readable again.\n"
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "1"), "account1@example.com");
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert_eq!(read_creds(&env, "1", "account1@example.com"), "rt-1");
@@ -442,7 +438,7 @@ fn test_unreadable_enc_aborts_the_swap_before_anything_changes() {
 fn test_absent_source_still_swaps() {
     let env = seeded(sample_sequence_data());
     env.run(["swap", "1", "2"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "1"), "account2@example.com");
     assert_eq!(accounts_email(&data, "2"), "account1@example.com");
 }
@@ -473,7 +469,7 @@ fn swap_and_move_refuse_inside_a_session_profile() {
             out.stderr
         );
     }
-    assert_eq!(accounts_email(&sequence(&env), "1"), "account1@example.com");
+    assert_eq!(accounts_email(&env.sequence(), "1"), "account1@example.com");
 }
 
 #[test]
@@ -517,7 +513,7 @@ fn test_move_to_empty_slot_relocates() {
     let out = env.run(["move", "2", "5"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Moved account2@example.com to slot 5\n");
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "5"), "account2@example.com");
     assert!(data["accounts"].get("2").is_none());
     assert_eq!(accounts_email(&data, "1"), "account1@example.com");
@@ -527,14 +523,14 @@ fn test_move_to_empty_slot_relocates() {
 fn test_move_to_empty_slot_updates_rotation_sequence() {
     let env = seeded(sample_sequence_data());
     env.run(["move", "2", "5"]).assert_code(0);
-    assert_eq!(sequence(&env)["sequence"], json!([1, 5]));
+    assert_eq!(env.sequence()["sequence"], json!([1, 5]));
 }
 
 #[test]
 fn test_move_keeps_sequence_sorted() {
     let env = seeded(sample_sequence_data());
     env.run(["move", "1", "5"]).assert_code(0);
-    assert_eq!(sequence(&env)["sequence"], json!([2, 5]));
+    assert_eq!(env.sequence()["sequence"], json!([2, 5]));
 }
 
 #[test]
@@ -543,7 +539,7 @@ fn test_move_unbacked_account_clears_stale_target_key() {
     write_creds(&env, "5", "account2@example.com", "stale-foreign");
     env.run(["move", "2", "5"]).assert_code(0);
     assert_eq!(read_creds(&env, "5", "account2@example.com"), "");
-    assert_eq!(accounts_email(&sequence(&env), "5"), "account2@example.com");
+    assert_eq!(accounts_email(&env.sequence(), "5"), "account2@example.com");
 }
 
 #[test]
@@ -560,7 +556,7 @@ fn test_move_failed_required_clear_aborts_commit() {
         "{}",
         out.stderr
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert!(data["accounts"].get("5").is_none());
 }
@@ -577,7 +573,7 @@ fn test_move_strict_clear_fails_closed_on_unreadable_dir() {
 
     out.assert_code(1);
     assert!(out.stderr.contains("could not be read"), "{}", out.stderr);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert!(data["accounts"].get("5").is_none());
     assert_eq!(
@@ -596,7 +592,7 @@ fn test_move_strict_clear_fails_closed_on_locked_keychain() {
 
     out.assert_code(1);
     assert!(out.stderr.contains("could not be read"), "{}", out.stderr);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert!(data["accounts"].get("5").is_none());
     assert_eq!(
@@ -619,7 +615,7 @@ fn test_move_metadata_failure_leaves_account_intact() {
     assert_eq!(out.code, 1, "stderr:\n{}", out.stderr);
     assert_eq!(read_creds(&env, "2", "account2@example.com"), "creds-two");
     assert_eq!(read_creds(&env, "5", "account2@example.com"), "");
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert!(data["accounts"].get("5").is_none());
 }
@@ -628,7 +624,7 @@ fn test_move_metadata_failure_leaves_account_intact() {
 fn test_move_active_account_to_empty_slot_follows_active() {
     let env = seeded(sample_sequence_data());
     env.run(["move", "1", "9"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["activeAccountNumber"], 9);
     assert_eq!(accounts_email(&data, "9"), "account1@example.com");
 }
@@ -639,7 +635,7 @@ fn test_move_by_email_and_alias() {
     data["accounts"]["2"]["alias"] = "dev".into();
     let env = seeded(data);
     env.run(["move", "dev", "7"]).assert_code(0);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(data["accounts"]["7"]["alias"], "dev");
     assert!(data["accounts"].get("2").is_none());
 }
@@ -692,7 +688,7 @@ fn move_drops_the_relocated_profiles_stale_credentials() {
 fn test_move_to_empty_slot_with_missing_backups() {
     let env = seeded(sample_sequence_data());
     env.run(["move", "2", "5"]).assert_code(0);
-    assert_eq!(accounts_email(&sequence(&env), "5"), "account2@example.com");
+    assert_eq!(accounts_email(&env.sequence(), "5"), "account2@example.com");
     assert_eq!(read_creds(&env, "5", "account2@example.com"), "");
 }
 
@@ -705,7 +701,7 @@ fn test_move_to_occupied_slot_swaps() {
         out.stdout,
         "Swapped Account 1 and Account 2:\n  1: account2@example.com\n  2: account1@example.com\n"
     );
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account1@example.com");
     assert_eq!(accounts_email(&data, "1"), "account2@example.com");
 }
@@ -718,8 +714,8 @@ fn test_move_is_general_form_of_swap() {
     swapped.run(["swap", "1", "2"]).assert_code(0);
     for num in ["1", "2"] {
         assert_eq!(
-            accounts_email(&sequence(&moved), num),
-            accounts_email(&sequence(&swapped), num)
+            accounts_email(&moved.sequence(), num),
+            accounts_email(&swapped.sequence(), num)
         );
     }
 }
@@ -730,7 +726,7 @@ fn test_move_to_same_slot_is_noop() {
     let out = env.run(["move", "1", "1"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Already in slot 1: account1@example.com\n");
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "1"), "account1@example.com");
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
 }
@@ -741,7 +737,7 @@ fn test_move_normalizes_padded_target() {
     let out = env.run(["move", "2", "05"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Moved account2@example.com to slot 5\n");
-    assert_eq!(accounts_email(&sequence(&env), "5"), "account2@example.com");
+    assert_eq!(accounts_email(&env.sequence(), "5"), "account2@example.com");
 }
 
 #[test]
@@ -792,7 +788,7 @@ fn test_move_cap_stretches_to_existing_max_slot() {
 
     env.run(["move", "1", "120"]).assert_code(0);
     assert_eq!(
-        accounts_email(&sequence(&env), "120"),
+        accounts_email(&env.sequence(), "120"),
         "account1@example.com"
     );
 
@@ -820,7 +816,7 @@ fn test_unreadable_enc_aborts_the_move_before_anything_changes() {
 
     out.assert_code(1);
     assert!(out.stderr.contains("could not be read"), "{}", out.stderr);
-    let data = sequence(&env);
+    let data = env.sequence();
     assert_eq!(accounts_email(&data, "2"), "account2@example.com");
     assert!(data["accounts"].get("6").is_none());
     assert_eq!(read_creds(&env, "2", "account2@example.com"), "live-rt");
@@ -830,7 +826,7 @@ fn test_unreadable_enc_aborts_the_move_before_anything_changes() {
 fn test_absent_source_still_moves() {
     let env = seeded(sample_sequence_data());
     env.run(["move", "2", "5"]).assert_code(0);
-    assert_eq!(accounts_email(&sequence(&env), "5"), "account2@example.com");
+    assert_eq!(accounts_email(&env.sequence(), "5"), "account2@example.com");
 }
 
 #[test]
@@ -875,7 +871,7 @@ fn move_store_written_by_one_implementation_reads_back_in_the_other() {
         .assert_code(0);
     assert_eq!(read_creds(&env, "2", SAME_EMAIL), "creds-org");
     assert_eq!(
-        sequence(&env)["accounts"]["2"]["organizationUuid"],
+        env.sequence()["accounts"]["2"]["organizationUuid"],
         "org-uuid-5678"
     );
 }

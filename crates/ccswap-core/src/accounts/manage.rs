@@ -1,5 +1,6 @@
 //! Managing registered slots: remove, disable/enable, alias, purge.
 
+use crate::pyjson::py_str;
 use serde_json::Value;
 
 use super::{Accounts, Console, accounts_mut, display_tag, sequence_mut};
@@ -72,7 +73,9 @@ impl Accounts<'_> {
 
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         let num = resolve_existing(&data, &identifier)?;
-        let email = python_str(record(&data, &num).and_then(|r| r.get("email")));
+        let email = record(&data, &num)
+            .and_then(|r| r.get("email"))
+            .map_or("None".into(), py_str);
         let org = text_field(&data, &num, "organizationUuid");
         session_profile::ensure_no_live_session(self.paths, &num, &email, "--remove-account")?;
 
@@ -194,7 +197,7 @@ impl Accounts<'_> {
             .unwrap_or_default();
         Ok(sequence
             .iter()
-            .map(|v| python_str(Some(v)))
+            .map(py_str)
             .filter(|num| {
                 let Some(rec) = record(&data, num).filter(|r| !r.is_empty()) else {
                     return false;
@@ -266,7 +269,7 @@ impl Accounts<'_> {
                     .map(|(num, rec)| {
                         (
                             num.clone(),
-                            python_str(rec.get("alias")),
+                            rec.get("alias").map_or("None".into(), py_str),
                             rec.get("email")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default()
@@ -473,18 +476,8 @@ fn text_field(data: &JsonObject, num: &str, key: &str) -> String {
         .to_string()
 }
 
-/// `str(value)` as an f-string renders it.
-fn python_str(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => "None".into(),
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Bool(true)) => "True".into(),
-        Some(Value::Bool(false)) => "False".into(),
-        Some(other) => other.to_string(),
-    }
-}
-
 /// `str(activeAccountNumber)`.
 fn active_number(data: &JsonObject) -> String {
-    python_str(data.get("activeAccountNumber"))
+    data.get("activeAccountNumber")
+        .map_or("None".into(), py_str)
 }

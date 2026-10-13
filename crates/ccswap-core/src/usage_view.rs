@@ -2,6 +2,7 @@
 //! schema-v1 JSON projection (upstream `switcher.py` list rendering and
 //! `json_output.py`).
 
+use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
 
 use crate::accounts::display_tag;
@@ -12,14 +13,6 @@ use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::process_detection::InstanceGroup;
 use crate::usage::{account_headroom, error_note, fresh_reset_strings, now_secs, truthy};
 use crate::usage_store::{DecisionValue, UsageEntry};
-
-/// Python `str()` of a JSON scalar as the human view prints it.
-fn py_str(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
 
 fn pct_cell(pct: Option<&Value>) -> String {
     format!("{:>3.0}%", pct.and_then(Value::as_f64).unwrap_or(0.0))

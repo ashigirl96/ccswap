@@ -487,6 +487,35 @@ mod tests {
     }
 
     #[test]
+    fn email_check_matches_the_upstream_pattern() {
+        for ok in [
+            "user@example.com",
+            "a.b+c%d_e-f@sub.example.co",
+            "x@a.b.cd",
+            "x@a..cd",
+            "setup-token-3@token.local",
+            "user@example.com\n",
+        ] {
+            assert!(is_valid_email(ok), "{ok:?}");
+        }
+        for bad in [
+            "not-an-email",
+            "../../evil",
+            "a@b",
+            "@example.com",
+            "user@.com",
+            "user@example.c",
+            "user@example.c0m",
+            "us er@example.com",
+            "a@b@example.com",
+            "user@example.com\n\n",
+            "ü@example.com",
+        ] {
+            assert!(!is_valid_email(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
     fn next_number_is_one_past_the_highest_slot() {
         assert_eq!(next_account_number(None), 1);
         let data = json!({"accounts": {"1": {}, "3": {}}});

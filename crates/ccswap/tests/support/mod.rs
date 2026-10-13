@@ -232,6 +232,11 @@ impl TestEnv {
     }
 
     /// Write `sequence.json` into the store with upstream's permissions.
+    /// The store's `sequence.json` as it is on disk now.
+    pub fn sequence(&self) -> Value {
+        self.read_json(self.store_dir().join("sequence.json"))
+    }
+
     pub fn seed_sequence(&self, data: Value) -> PathBuf {
         let store = self.store_dir();
         for dir in [

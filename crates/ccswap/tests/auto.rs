@@ -435,7 +435,7 @@ fn model_flag_binds_the_per_model_limit() {
 fn api_key_flag_pair_is_last_wins() {
     let env = TestEnv::new();
     three(&env);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.write_json(env.store_dir().join("sequence.json"), &data);
     env.security().set_item(
@@ -470,7 +470,7 @@ fn dry_run_reports_and_mutates_nothing() {
     let env = TestEnv::new();
     three(&env);
     stub_five_hour(&env, &[(1, 95.0), (2, 40.0), (3, 20.0)]);
-    let sequence_before = env.read_json(env.store_dir().join("sequence.json"));
+    let sequence_before = env.sequence();
 
     let out = env.run(["auto", "--once", "--json", "--dry-run"]);
     out.assert_code(0);
@@ -480,10 +480,7 @@ fn dry_run_reports_and_mutates_nothing() {
     assert_eq!(switch[0]["to"], json!({"number": 3, "email": EMAILS[3]}));
     assert_eq!(live_token(&env), "at-1");
     assert!(!state_path(&env).exists());
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json")),
-        sequence_before
-    );
+    assert_eq!(env.sequence(), sequence_before);
 
     let human = env.run(["auto", "--once", "--dry-run"]);
     human.assert_code(0);

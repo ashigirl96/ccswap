@@ -349,7 +349,7 @@ fn claude_missing_from_path_is_an_error() {
 fn api_key_slots_are_refused() {
     let env = TestEnv::new();
     seed(&env, 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.seed_sequence(data);
 
@@ -822,7 +822,7 @@ fn overwriting_a_live_slot_is_refused() {
 
     assert_error(&out, "Exit it first, then retry the operation.");
     assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["accounts"]["2"]["email"],
+        env.sequence()["accounts"]["2"]["email"],
         json!("b@example.com")
     );
     assert_eq!(
@@ -840,10 +840,7 @@ fn swap_and_move_are_refused_while_a_slot_is_live() {
 
     assert_error(&env.run(["swap", "1", "2"]), "retry --swap-accounts.");
     assert_error(&env.run(["move", "2", "7"]), "retry --move-account.");
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["sequence"],
-        json!([1, 2, 3])
-    );
+    assert_eq!(env.sequence()["sequence"], json!([1, 2, 3]));
 }
 
 #[test]
@@ -880,10 +877,7 @@ fn switch_to_a_live_session_account_warns_marks_the_outgoing_profile_and_complet
         "{}",
         out.stdout
     );
-    assert_eq!(
-        env.read_json(env.store_dir().join("sequence.json"))["activeAccountNumber"],
-        json!(2)
-    );
+    assert_eq!(env.sequence()["activeAccountNumber"], json!(2));
     assert!(!outgoing.join(".credentials.json").exists());
 }
 

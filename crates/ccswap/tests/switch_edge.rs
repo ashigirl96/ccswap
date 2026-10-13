@@ -89,10 +89,6 @@ fn backup(env: &TestEnv, num: u32) -> Option<String> {
     env.security().item(BACKUP_SERVICE, &backup_account(num))
 }
 
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
-
 fn parse(text: &str) -> Value {
     serde_json::from_str(text).unwrap()
 }
@@ -222,7 +218,7 @@ fn a_full_rotation_resolved_to_the_outgoing_slot_is_backed_up() {
 fn a_resolved_rotation_backfills_an_empty_slot_uuid() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["1"]["uuid"] = json!("");
     env.seed_sequence(seq);
     set_live(&env, &oauth("at-f", "rt-1-rotated").to_string());
@@ -230,7 +226,7 @@ fn a_resolved_rotation_backfills_an_empty_slot_uuid() {
 
     env.run(["switch", "2"]).assert_code(0);
 
-    assert_eq!(sequence(&env)["accounts"]["1"]["uuid"], "uuid-resolved");
+    assert_eq!(env.sequence()["accounts"]["1"]["uuid"], "uuid-resolved");
 }
 
 // test_foreign_credential_preserved_never_backed_into_any_slot
@@ -366,7 +362,7 @@ fn an_unmanaged_accounts_credential_is_stashed_with_a_human_warning() {
 fn an_email_match_on_a_slot_without_a_uuid_is_alien() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["2"]["uuid"] = json!("");
     env.seed_sequence(seq);
     let drifted = oauth("at-d", "rt-d").to_string();
@@ -419,7 +415,7 @@ fn a_uuid_only_identity_of_the_outgoing_slot_is_backed_up() {
 fn a_uuid_only_identity_matches_a_slot_that_records_an_org() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["1"]["organizationUuid"] = json!("org-1");
     env.seed_sequence(seq);
     let mut account = oauth_account(1);
@@ -515,7 +511,7 @@ fn a_failed_safety_copy_aborts_before_the_live_login_is_replaced() {
     out.assert_code(1);
     assert_eq!(live(&env).as_deref(), Some(alien.as_str()));
     assert_eq!(backup(&env, 1), Some(creds("1")));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 // test_moved_bytes_between_prefetch_and_lock_fall_to_unresolved
@@ -588,7 +584,7 @@ fn a_diverged_self_switch_resolved_to_the_slot_resyncs_its_backup() {
 fn a_rotation_landing_on_a_diverged_resolved_live_slot_reconciles() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 2);
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["activeAccountNumber"] = json!(1);
     env.seed_sequence(seq);
     let rotated = oauth("at-2-new", "rt-2-rotated").to_string();
@@ -599,7 +595,7 @@ fn a_rotation_landing_on_a_diverged_resolved_live_slot_reconciles() {
 
     assert_eq!(report["reason"], "already-active");
     assert_eq!(backup(&env, 2).as_deref(), Some(rotated.as_str()));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
 
 // -- direct activation ------------------------------------------------------
@@ -637,7 +633,7 @@ fn switching_from_an_unmanaged_login_stashes_it_and_activates_the_target() {
         row["liveOauthAccount"]["emailAddress"],
         "stranger@example.com"
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
     assert_eq!(backup(&env, 1), Some(creds("1")));
 }
 
@@ -682,7 +678,7 @@ fn a_failed_safety_copy_aborts_direct_activation() {
         "{message}"
     );
     assert_eq!(live(&env).as_deref(), Some(stranger.as_str()));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 // test_force_proceeds_with_warning_when_stash_fails
@@ -778,7 +774,7 @@ fn force_onto_another_slot_skips_the_outgoing_backup() {
     );
     assert_eq!(backup(&env, 1), Some(creds("1")));
     assert_eq!(parse(&live(&env).unwrap()), parse(&creds("2")));
-    assert_eq!(sequence(&env)["activeAccountNumber"], 2);
+    assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
 
 // test_direct_activation_rolls_back_live_creds_on_sequence_write_failure
@@ -804,7 +800,7 @@ fn a_failed_direct_activation_restores_the_live_login_and_config() {
         std::fs::read_to_string(env.global_config_path()).unwrap(),
         config_before
     );
-    assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+    assert_eq!(env.sequence()["activeAccountNumber"], 1);
 }
 
 // test_unreadable_live_credentials_without_config_identity_abort
@@ -886,7 +882,7 @@ fn a_fresh_machine_skips_a_broken_recorded_slot() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 2);
     std::fs::remove_file(env.global_config_path()).unwrap();
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["1"]["disabled"] = json!(true);
     env.seed_sequence(seq);
     env.security()
@@ -903,7 +899,7 @@ fn a_fresh_machine_skips_a_broken_recorded_slot() {
     );
 
     std::fs::remove_file(env.global_config_path()).unwrap();
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["activeAccountNumber"] = json!(1);
     env.seed_sequence(seq);
     let report = env.run(["switch", "--json"]).json();
@@ -916,7 +912,7 @@ fn a_fresh_machine_with_no_usable_slot_fails() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
     std::fs::remove_file(env.global_config_path()).unwrap();
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["accounts"]["1"]["disabled"] = json!(true);
     env.seed_sequence(seq);
     env.security()
@@ -1095,7 +1091,7 @@ fn a_direct_activation_pulls_the_new_active_plan_to_the_floor() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
     std::fs::remove_file(env.global_config_path()).unwrap();
-    let mut seq = sequence(&env);
+    let mut seq = env.sequence();
     seq["activeAccountNumber"] = json!(2);
     env.seed_sequence(seq);
     let now = std::time::SystemTime::now()

@@ -310,7 +310,7 @@ fn token_identity_test_conflicting_uuid_quarantines_instead_of_activating() {
 fn token_identity_test_blank_slot_uuid_is_backfilled_from_the_refresh() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["uuid"] = json!("");
     env.write_json(env.store_dir().join("sequence.json"), &data);
     set_backup(&env, 2, &creds_expiring(2, near_expiry()));
@@ -325,7 +325,7 @@ fn token_identity_test_blank_slot_uuid_is_backfilled_from_the_refresh() {
 
     auto(&env).assert_code(0);
 
-    let data = env.read_json(env.store_dir().join("sequence.json"));
+    let data = env.sequence();
     assert_eq!(data["accounts"]["2"]["uuid"], "uuid-2-real");
     assert_eq!(live_token(&env), "at-2-new");
 }
@@ -442,7 +442,7 @@ fn unknown_active_usage_waits_below_unhealthy_ticks() {
 fn api_key_accounts_test_api_key_is_last_resort_when_included() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.write_json(env.store_dir().join("sequence.json"), &data);
     set_backup(&env, 2, "sk-ant-api03-key");
@@ -458,7 +458,7 @@ fn api_key_accounts_test_api_key_is_last_resort_when_included() {
 fn api_key_accounts_test_api_key_used_only_when_oauth_exhausted() {
     let env = TestEnv::new();
     seed(&env, &[1, 2, 3], 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["kind"] = json!("api_key");
     env.write_json(env.store_dir().join("sequence.json"), &data);
     set_backup(&env, 2, "sk-ant-api03-key");

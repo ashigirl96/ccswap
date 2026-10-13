@@ -1,6 +1,7 @@
 //! What the engine reports. Every outcome is one event; frontends render
 //! them as human lines or as one JSON object per line.
 
+use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
 
 use crate::presentation::SCHEMA_VERSION;
@@ -344,17 +345,6 @@ fn poll_human(
         py_str(&active["email"]),
         pct_label(threshold)
     )
-}
-
-/// Python `str()` of a JSON scalar as the human lines print it.
-fn py_str(value: &Value) -> String {
-    match value {
-        Value::Null => "None".into(),
-        Value::String(s) => s.clone(),
-        Value::Bool(true) => "True".into(),
-        Value::Bool(false) => "False".into(),
-        other => other.to_string(),
-    }
 }
 
 /// Python `f"{v:.0f}"`.

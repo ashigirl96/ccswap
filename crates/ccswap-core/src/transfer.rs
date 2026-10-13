@@ -67,7 +67,7 @@ impl Transfer<'_> {
             })?;
 
         let targets: Vec<String> = match account {
-            Some(identifier) => match resolve_account_identifier(&data, identifier)? {
+            Some(identifier) => match store::resolve_account_identifier(Some(&data), identifier)? {
                 Some(num) if accounts.contains_key(&num) => vec![num],
                 _ => return Err(transfer_error(format!("account not found: {identifier}"))),
             },
@@ -593,7 +593,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
         return Err(transfer_error("account entry must be a JSON object"));
     };
     let email = match account.get("email") {
-        Some(Value::String(e)) if is_valid_email(e) => e.clone(),
+        Some(Value::String(e)) if store::is_valid_email(e) => e.clone(),
         other => {
             return Err(transfer_error(format!(
                 "invalid or missing email in imported account: {}",
@@ -633,66 +633,6 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
             .map_err(|e| transfer_error(format!("invalid alias for {email}: {e}")))?;
     }
     Ok((account, email, num))
-}
-
-/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`, whose
-/// `$` also matches before one trailing newline.
-fn is_valid_email(email: &str) -> bool {
-    let email = email.strip_suffix('\n').unwrap_or(email);
-    let Some((local, domain)) = email.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let domain_ok = domain
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    let tld_ok = domain.rfind('.').is_some_and(|dot| {
-        let tld = &domain[dot + 1..];
-        dot >= 1 && tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
-    });
-    local_ok && domain_ok && tld_ok
-}
-
-/// Number, then alias, then email; an email shared across organizations is ambiguous.
-fn resolve_account_identifier(data: &JsonObject, identifier: &str) -> Result<Option<String>> {
-    if !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(Some(identifier.to_string()));
-    }
-    if let Some(num) = store::find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let Some(accounts) = store::accounts(data) else {
-        return Ok(None);
-    };
-    let matches: Vec<&String> = accounts
-        .iter()
-        .filter(|(_, a)| a.get("email").and_then(Value::as_str) == Some(identifier))
-        .map(|(n, _)| n)
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some((*one).clone())),
-        many => {
-            let details: Vec<String> = many
-                .iter()
-                .map(|n| {
-                    let name = accounts[n.as_str()]
-                        .get("organizationName")
-                        .filter(|v| truthy(v))
-                        .and_then(Value::as_str)
-                        .unwrap_or("personal");
-                    format!("{n} [{name}]")
-                })
-                .collect();
-            Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
-                details.join(", ")
-            )))
-        }
-    }
 }
 
 fn parse_payload(text: &str, label: &str) -> Result<JsonObject> {
@@ -876,27 +816,6 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn email_rule_matches_the_upstream_regex() {
-        for ok in ["a@b.co", "a.b+c%d_e-f@x-y.example.com", "a@b.co\n"] {
-            assert!(is_valid_email(ok), "{ok:?}");
-        }
-        for bad in [
-            "../../evil",
-            "a@b",
-            "a@.com",
-            "@b.com",
-            "a@b.c",
-            "a@b.c0m",
-            "a@@b.com",
-            "a b@c.com",
-            "a@b.com\n\n",
-            "é@b.com",
-        ] {
-            assert!(!is_valid_email(bad), "{bad:?}");
-        }
-    }
 
     #[test]
     fn repr_follows_python() {

@@ -98,7 +98,7 @@ fn five_hour(rows: &[(u32, f64)]) -> Vec<UsageRow> {
 }
 
 fn active(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))["activeAccountNumber"].clone()
+    env.sequence()["activeAccountNumber"].clone()
 }
 
 fn live_token(env: &TestEnv) -> String {
@@ -220,7 +220,7 @@ fn best_noop_reasons_and_messages() {
 fn best_strategy_ignores_disabled_candidate() {
     let env = TestEnv::new();
     seed(&env, &[1, 2], 1, 1);
-    let mut data = env.read_json(env.store_dir().join("sequence.json"));
+    let mut data = env.sequence();
     data["accounts"]["2"]["disabled"] = true.into();
     env.seed_sequence(data);
     stub_usage(&env, &five_hour(&[(1, 90.0), (2, 0.0)]));

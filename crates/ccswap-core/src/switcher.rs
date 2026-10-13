@@ -2,6 +2,7 @@
 //! Claude Code's locks that backs up the outgoing login, activates the
 //! target and rolls every recorded step back if a later one fails.
 
+use crate::pyjson::py_str;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -357,7 +358,7 @@ impl Switcher<'_> {
             let active = self
                 .roster()?
                 .get("activeAccountNumber")
-                .map_or("None".into(), python_str);
+                .map_or("None".into(), py_str);
             console.line(&format!(
                 "It has been automatically added as Account-{active}."
             ));
@@ -421,7 +422,7 @@ impl Switcher<'_> {
 
         let mut next = None;
         for offset in 1..sequence.len() {
-            let candidate = python_str(&sequence[(start + offset) % sequence.len()]);
+            let candidate = py_str(&sequence[(start + offset) % sequence.len()]);
             if is_disabled(&data, &candidate) {
                 if json {
                     warnings.push(format!("Skipped Account-{candidate} (disabled)"));
@@ -535,18 +536,18 @@ impl Switcher<'_> {
         let sequence: Vec<String> = data
             .get("sequence")
             .and_then(Value::as_array)
-            .map(|s| s.iter().map(python_str).collect())
+            .map(|s| s.iter().map(py_str).collect())
             .unwrap_or_default();
         let preferred = data
             .get("activeAccountNumber")
             .filter(|v| truthy(v))
-            .map(python_str)
+            .map(py_str)
             .or_else(|| {
                 data.get("sequence")
                     .and_then(Value::as_array)
                     .and_then(|s| s.first())
                     .filter(|v| truthy(v))
-                    .map(python_str)
+                    .map(py_str)
             })
             .ok_or_else(|| Error::config("No accounts are managed yet"))?;
 
@@ -602,10 +603,10 @@ impl Switcher<'_> {
         store::read_sequence_migrated(self.paths)?;
 
         let mut identifier = identifier.to_string();
-        if !is_digits(&identifier) {
+        if !store::is_slot_number(&identifier) {
             let data = self.roster()?;
             let is_alias = store::find_account_by_alias(&data, &identifier).is_some();
-            if !is_alias && !is_valid_email(&identifier) {
+            if !is_alias && !store::is_valid_email(&identifier) {
                 return Err(Error::new(
                     ErrorKind::ValidationError,
                     format!("Invalid account identifier: {identifier}"),
@@ -621,12 +622,13 @@ impl Switcher<'_> {
         }
 
         let data = self.roster()?;
-        let target = resolve_identifier(&data, &identifier)?.ok_or_else(|| {
-            Error::new(
-                ErrorKind::AccountNotFoundError,
-                format!("No account found with identifier: {identifier}"),
-            )
-        })?;
+        let target =
+            store::resolve_account_identifier(Some(&data), &identifier)?.ok_or_else(|| {
+                Error::new(
+                    ErrorKind::AccountNotFoundError,
+                    format!("No account found with identifier: {identifier}"),
+                )
+            })?;
         let Some(record) = store::accounts(&data).and_then(|a| a.get(&target)) else {
             return Err(Error::new(
                 ErrorKind::AccountNotFoundError,
@@ -721,7 +723,7 @@ impl Switcher<'_> {
             .prompt("Enter account number to switch to: ")
             .map(|c| c.trim().to_string())
             .unwrap_or_default();
-        if is_digits(&choice) && matches.iter().any(|(num, _)| **num == choice) {
+        if store::is_slot_number(&choice) && matches.iter().any(|(num, _)| **num == choice) {
             Choice::Picked(choice)
         } else {
             console.line(&self.style.dimmed("Cancelled"));
@@ -771,7 +773,7 @@ impl Switcher<'_> {
                 None => data
                     .get("activeAccountNumber")
                     .filter(|v| !v.is_null())
-                    .map(python_str),
+                    .map(py_str),
             };
 
             match (&identity, current_account) {
@@ -1586,42 +1588,6 @@ fn followup(backend: ActiveBackend) -> &'static str {
     }
 }
 
-/// Number, then alias, then email; an email on several slots is an error.
-fn resolve_identifier(data: &JsonObject, identifier: &str) -> Result<Option<String>> {
-    if is_digits(identifier) {
-        return Ok(Some(identifier.to_string()));
-    }
-    if let Some(num) = store::find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let matches: Vec<(&String, &Value)> = store::accounts(data)
-        .into_iter()
-        .flatten()
-        .filter(|(_, r)| r.get("email").and_then(Value::as_str) == Some(identifier))
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [(num, _)] => Ok(Some((*num).clone())),
-        _ => {
-            let details: Vec<String> = matches
-                .iter()
-                .map(|(num, r)| {
-                    let org = r
-                        .get("organizationName")
-                        .and_then(Value::as_str)
-                        .filter(|o| !o.is_empty())
-                        .unwrap_or("personal");
-                    format!("{num} [{org}]")
-                })
-                .collect();
-            Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
-                details.join(", ")
-            )))
-        }
-    }
-}
-
 fn target_oauth_account(target_config: &Value) -> Result<Value> {
     target_config
         .get("oauthAccount")
@@ -1665,15 +1631,6 @@ fn slot_number(value: &Value) -> Option<i64> {
     }
 }
 
-/// Python's `str()` of a roster value, as slot keys are derived.
-fn python_str(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Null => "None".into(),
-        other => other.to_string(),
-    }
-}
-
 fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -1682,49 +1639,5 @@ fn truthy(value: &Value) -> bool {
         Value::String(s) => !s.is_empty(),
         Value::Array(a) => !a.is_empty(),
         Value::Object(o) => !o.is_empty(),
-    }
-}
-
-fn is_digits(text: &str) -> bool {
-    !text.is_empty() && text.chars().all(|c| c.is_ascii_digit())
-}
-
-/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`.
-fn is_valid_email(text: &str) -> bool {
-    let text = text.strip_suffix('\n').unwrap_or(text);
-    let Some((local, domain)) = text.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let domain_chars_ok = domain
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    let Some((host, tld)) = domain.rsplit_once('.') else {
-        return false;
-    };
-    local_ok
-        && domain_chars_ok
-        && !host.is_empty()
-        && tld.len() >= 2
-        && tld.chars().all(|c| c.is_ascii_alphabetic())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn email_validation_matches_the_upstream_pattern() {
-        assert!(is_valid_email("a.b+c@example.co"));
-        assert!(is_valid_email("a@b.example.com\n"));
-        assert!(!is_valid_email("a@example.c"));
-        assert!(!is_valid_email("a@example.c0m"));
-        assert!(!is_valid_email("a@.com"));
-        assert!(!is_valid_email("work"));
-        assert!(!is_valid_email("a@b@example.com"));
-        assert!(!is_valid_email("@example.com"));
     }
 }

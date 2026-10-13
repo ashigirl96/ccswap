@@ -59,10 +59,6 @@ fn backup_account(num: u32, email: &str) -> String {
     format!("account-{num}-{email}")
 }
 
-fn sequence(env: &TestEnv) -> Value {
-    env.read_json(env.store_dir().join("sequence.json"))
-}
-
 fn assert_timestamp(value: &Value) {
     let s = value.as_str().expect("timestamp string");
     assert_eq!(s.len(), 20, "{s}");
@@ -107,7 +103,7 @@ fn first_add_creates_the_store_and_backs_up_into_the_keychain() {
         !text.ends_with('\n'),
         "json.dumps writes no trailing newline"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     let keys: Vec<&str> = seq
         .as_object()
         .unwrap()
@@ -257,7 +253,7 @@ fn add_takes_the_number_after_the_highest_slot() {
     let out = env.run(["add"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Added Account 4: new@example.com [personal]\n");
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 3, 4]));
     assert_eq!(seq["activeAccountNumber"], 4);
     assert_eq!(
@@ -280,7 +276,7 @@ fn readding_the_same_account_refreshes_its_slot_in_place() {
         out.stdout,
         "Updated credentials for Account 1 (a@example.com [Acme]).\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1]));
     assert_eq!(seq["accounts"].as_object().unwrap().len(), 1);
     let sec = env.security();
@@ -309,7 +305,7 @@ fn slot_flag_registers_into_an_empty_slot() {
     let out = env.run(["add", "--slot", "2"]);
     out.assert_code(0);
     assert_eq!(out.stdout, "Added Account 2: new@example.com [personal]\n");
-    assert_eq!(sequence(&env)["sequence"], json!([1, 2, 3]));
+    assert_eq!(env.sequence()["sequence"], json!([1, 2, 3]));
 }
 
 #[test]
@@ -381,7 +377,7 @@ fn an_occupied_slot_is_replaced_after_yes() {
          Removed 1 directory mapping(s) for this account\n\
          Added Account 3: new@example.com [personal]\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 3]));
     assert_eq!(seq["accounts"]["3"]["email"], "new@example.com");
     assert!(
@@ -434,7 +430,7 @@ fn slot_flag_moves_the_same_account_and_carries_its_alias() {
         out.stdout,
         "Moved from slot 3 → 5\nAdded Account 5: three@example.com [personal]\n"
     );
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["sequence"], json!([1, 5]));
     assert!(seq["accounts"].get("3").is_none());
     assert_eq!(seq["accounts"]["5"]["alias"], "work");
@@ -451,7 +447,7 @@ fn alias_flag_sets_a_normalized_alias() {
     logged_in(&env, "a@example.com", "", "", "A");
 
     env.run(["add", "--alias", "  Dev.Box_1 "]).assert_code(0);
-    assert_eq!(sequence(&env)["accounts"]["1"]["alias"], "dev.box_1");
+    assert_eq!(env.sequence()["accounts"]["1"]["alias"], "dev.box_1");
 }
 
 #[test]
@@ -480,7 +476,7 @@ fn invalid_aliases_are_refused_before_anything_is_written() {
         let out = env.run(["add", "--json", &format!("--alias={alias}")]);
         out.assert_code(2);
     }
-    let seq = sequence(&env);
+    let seq = env.sequence();
     assert_eq!(seq["accounts"], json!({}));
 }
 
@@ -496,7 +492,7 @@ fn an_alias_held_by_another_account_is_refused() {
         out.stderr,
         "Error: Alias 'work' is already used by account 3\n"
     );
-    assert!(sequence(&env)["accounts"].get("4").is_none());
+    assert!(env.sequence()["accounts"].get("4").is_none());
 }
 
 #[test]
@@ -575,7 +571,7 @@ fn a_credential_owned_by_another_account_is_refused() {
         out.stderr,
         "Error: The stored credential does not belong to ax@example.com: the token resolves to account u-other, not uuid-ax@example.com. Nothing was changed. This happens when the config names one account while the credential store still holds another's token (e.g. a renamed .claude.json over a live keychain item). Log in as ax@example.com in THIS environment, then re-run.\n"
     );
-    assert!(sequence(&env)["accounts"].get("7").is_none());
+    assert!(env.sequence()["accounts"].get("7").is_none());
     assert_eq!(
         env.security()
             .item(BACKUP_SERVICE, &backup_account(7, "ax@example.com")),
@@ -641,7 +637,7 @@ fn a_profile_without_an_org_block_registers_an_org_slot() {
     );
 
     env.run(["add"]).assert_code(0);
-    assert_eq!(sequence(&env)["accounts"]["1"]["organizationUuid"], "org-1");
+    assert_eq!(env.sequence()["accounts"]["1"]["organizationUuid"], "org-1");
 }
 
 #[test]
@@ -715,7 +711,7 @@ fn a_login_landing_during_the_profile_lookup_is_refused() {
         out.stderr,
         "Error: The active account changed while ax@example.com was being verified (now someone-else@example.com). Nothing was changed. Re-run when no other login is in flight.\n"
     );
-    assert!(sequence(&env)["accounts"].get("7").is_none());
+    assert!(env.sequence()["accounts"].get("7").is_none());
 }
 
 #[test]
@@ -749,7 +745,7 @@ fn a_refresh_landing_during_the_profile_lookup_is_refused() {
         out.stderr,
         "Error: The stored credential rotated while it was being verified. Nothing was changed. Registering the pre-rotation generation would hand the slot a credential the server has already retired. Re-run when no refresh is in flight.\n"
     );
-    assert_eq!(sequence(&env)["accounts"], json!({}));
+    assert_eq!(env.sequence()["accounts"], json!({}));
 }
 
 #[test]

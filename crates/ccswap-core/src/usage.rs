@@ -1,6 +1,7 @@
 //! Usage measurements as upstream's `oauth.py` normalises them, plus the
 //! states that stand in for one.
 
+use crate::pyjson::py_str;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -250,13 +251,6 @@ pub fn fresh_reset_strings(window: &Map<String, Value>) -> Option<(String, Strin
     let clock = window.get("clock")?;
     let countdown = window.get("countdown").map_or("?".into(), py_str);
     Some((countdown, py_str(clock)))
-}
-
-fn py_str(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
 }
 
 /// Python truthiness of a JSON value.
