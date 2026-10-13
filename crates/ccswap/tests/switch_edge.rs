@@ -1,7 +1,3 @@
-//! `switch` when the outgoing credential's owner is in question, direct
-//! activation (fresh machine, unmanaged live login, `--force`) and the
-//! `unclaimed` stash.
-//!
 //! Ported from upstream tests/test_switcher.py::TestProvenanceGuard,
 //! TestSelfSwitchProvenance, TestDirectActivationPreservation,
 //! TestUuidConflictClassification, TestSwitchToSelfSlotAndForce (force),
@@ -51,8 +47,6 @@ fn record(num: u32) -> Value {
            "organizationName": "", "added": "2024-01-01T00:00:00Z"})
 }
 
-/// Slots `nums` each with a Keychain backup `creds("<num>")` and a config
-/// backup; the live login is slot `active` holding the same bytes.
 fn seed(env: &TestEnv, nums: &[u32], active: u32) {
     let accounts: serde_json::Map<String, Value> =
         nums.iter().map(|n| (n.to_string(), record(*n))).collect();
@@ -95,7 +89,6 @@ fn parse(text: &str) -> Value {
     serde_json::from_str(text).unwrap()
 }
 
-/// The profile endpoint answers every token with this identity.
 fn resolves_to(env: &TestEnv, uuid: &str, email: Option<&str>, org: Option<&str>) {
     let mut body = json!({"account": {"uuid": uuid, "email": email}});
     if let Some(org) = org {
@@ -141,7 +134,6 @@ fn manifest(env: &TestEnv) -> Value {
     env.read_json(credentials_dir(env).join(".unclaimed-manifest.json"))
 }
 
-/// The one stashed entry: its id, decoded-as-base64 check, and manifest row.
 fn only_stash_entry(env: &TestEnv, expected_bytes: &str) -> (String, Value) {
     let files = stash_files(env);
     assert_eq!(files.len(), 1, "{files:?}");
@@ -180,8 +172,6 @@ fn base64(bytes: &[u8]) -> String {
     }
     out
 }
-
-// -- outgoing classification ----------------------------------------------
 
 // test_access_token_rotation_same_lineage_backs_up
 #[test]
@@ -543,8 +533,6 @@ fn a_resolution_of_bytes_that_moved_before_the_lock_is_discarded() {
     assert_eq!(warnings(&report), Vec::<String>::new());
 }
 
-// -- switching onto the live slot -----------------------------------------
-
 // test_diverged_unresolvable_self_switch_noops_silently
 #[test]
 fn a_diverged_self_switch_whose_owner_is_unknown_changes_nothing() {
@@ -599,8 +587,6 @@ fn a_rotation_landing_on_a_diverged_resolved_live_slot_reconciles() {
     assert_eq!(backup(&env, 2).as_deref(), Some(rotated.as_str()));
     assert_eq!(env.sequence()["activeAccountNumber"], 2);
 }
-
-// -- direct activation ------------------------------------------------------
 
 // test_switch_to_from_unmanaged_account / test_unmanaged_live_login_stashed_before_activation
 #[test]
@@ -828,8 +814,6 @@ fn an_unreadable_live_credential_aborts_direct_activation() {
     assert!(!env.global_config_path().exists());
 }
 
-// -- fresh machine (no live identity) ---------------------------------------
-
 // test_orphaned_live_login_without_config_identity_is_stashed / test_switch_rotate_after_import_uses_active_from_envelope
 #[test]
 fn a_bare_switch_without_a_live_identity_activates_the_recorded_slot() {
@@ -1005,8 +989,6 @@ fn a_fresh_machine_keeps_the_live_machine_shared_credential_state() {
     expected["mcpOAuth"] = json!({"server": {"refreshToken": "current"}});
     assert_eq!(parse(&live(&env).unwrap()), expected);
 }
-
-// -- unclaimed ----------------------------------------------------------------
 
 #[test]
 fn unclaimed_lists_and_purges_stashed_entries() {

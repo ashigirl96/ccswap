@@ -1,6 +1,3 @@
-//! Usage bars, account cards and the accounts panel (upstream
-//! `tui/widgets.py`), as styled ratatui lines.
-
 use ccswap_core::snapshot::{AccountSnapshot, AccountsSnapshot};
 use ccswap_core::usage::{Sentinel, error_note, truthy};
 use ccswap_core::usage_store::STALE_OK_S;
@@ -43,7 +40,6 @@ fn round_half_even(x: f64) -> i64 {
     }
 }
 
-/// The bar glyphs: severity-coloured fill, track, optional threshold tick.
 pub fn bar_cells(
     pct: Option<f64>,
     width: usize,
@@ -75,7 +71,6 @@ pub fn bar_cells(
         .collect()
 }
 
-/// `5h ━━━━╸────┃──  47%  resets 2h 13m · 20:39`.
 pub fn usage_bar(
     label: &str,
     pct: Option<f64>,
@@ -105,7 +100,6 @@ pub struct UsageRow {
     pub label: String,
     pub pct: f64,
     pub suffix: String,
-    /// The suffix with the absolute reset clock, for rows that fit it.
     pub suffix_full: String,
 }
 
@@ -152,7 +146,6 @@ fn append(suffix: &mut String, marker: &str) {
     }
 }
 
-/// One row per window the account has: spend, 5h, 7d, then per-model.
 pub fn usage_rows(last_good: Option<&Value>, now: f64, fetched_at: Option<f64>) -> Vec<UsageRow> {
     let Some(last_good) = last_good.and_then(Value::as_object) else {
         return Vec::new();
@@ -247,7 +240,6 @@ fn is_stale(acc: &AccountSnapshot) -> bool {
     acc.usage.age_s.is_some_and(|a| a > STALE_OK_S)
 }
 
-/// The full card: a header line and one bar row per window.
 pub fn account_card(
     acc: &AccountSnapshot,
     width: usize,
@@ -346,7 +338,6 @@ pub fn account_card(
     lines
 }
 
-/// One line for an inactive account: `2  work@acme.dev  [personal]   5h 92% · 7d 63%`.
 pub fn mini_account(acc: &AccountSnapshot, now: f64, palette: &Palette) -> Line<'static> {
     let mut spans = vec![Span::styled(
         format!("{:>2}  ", acc.number),
@@ -418,8 +409,6 @@ pub fn mini_account(acc: &AccountSnapshot, now: f64, palette: &Palette) -> Line<
     Line::from(spans)
 }
 
-/// The dashboard's monitor: the active account full-size, the others as
-/// one-line minis, in slot order.
 pub fn accounts_panel(
     snapshot: Option<&AccountsSnapshot>,
     width: usize,

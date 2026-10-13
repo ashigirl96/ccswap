@@ -1,4 +1,3 @@
-//! `ccswap menubar` as a launchd LaunchAgent (upstream `launch_agent.py`).
 //! The label is cswap's, so installing replaces a Python cswap service.
 
 mod plist;
@@ -28,7 +27,6 @@ pub fn plist_path(home: &Path) -> PathBuf {
         .join(format!("{LABEL}.plist"))
 }
 
-/// `(stdout, stderr)` log destinations.
 pub fn log_paths(home: &Path) -> (PathBuf, PathBuf) {
     let logs = home.join("Library/Logs");
     (
@@ -37,10 +35,8 @@ pub fn log_paths(home: &Path) -> (PathBuf, PathBuf) {
     )
 }
 
-/// What launchd runs, minus the `menubar` subcommand: `argv[0]` made absolute
-/// but not symlink-resolved (a symlinked install keeps its name across
-/// upgrades while its target moves), else `ccswap` from `PATH`, else this
-/// executable.
+/// `argv[0]` is not symlink-resolved, so a symlinked install keeps its name
+/// across upgrades while its target moves.
 pub fn resolve_program(
     argv0: Option<&OsStr>,
     cwd: &Path,
@@ -250,8 +246,7 @@ impl LaunchAgent {
         Ok(true)
     }
 
-    /// Writes the plist and hands it to launchd, booting out a loaded job
-    /// first so a reinstall re-reads the plist.
+    /// Boots out a loaded job first so a reinstall re-reads the plist.
     pub fn install(&self, program: Vec<String>) -> Result<Installed, Error> {
         let plist = plist_path(&self.home);
         let (out_log, err_log) = log_paths(&self.home);

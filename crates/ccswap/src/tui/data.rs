@@ -14,7 +14,6 @@ fn resets_at_ts(window: Option<&Value>) -> Option<f64> {
     usage::parse_reset_ts(window?.as_object()?.get("resets_at"))
 }
 
-/// `resets 2h 13m`, or `resets now` once elapsed.
 pub fn reset_text(window: Option<&Value>, now: f64) -> Option<String> {
     let remaining = resets_at_ts(window)? - now;
     if remaining <= 0.0 {
@@ -33,7 +32,6 @@ pub fn reset_clock(window: Option<&Value>, now: f64) -> Option<String> {
     Some(usage::reset_clock(at(ts)?, at(now)?))
 }
 
-/// `45s`, `12m`, `2h 13m`, `3d 4h`.
 pub fn format_duration(seconds: f64) -> String {
     let s = seconds as i64;
     if s < 60 {
@@ -64,7 +62,6 @@ pub fn format_age(age_s: Option<f64>) -> Option<String> {
     Some(format!("· {} ago", format_duration(age)))
 }
 
-/// Whether a weekly window is meaningfully ahead of pace at `fetched_at`.
 pub fn ahead_of_pace(window: &Value, fetched_at: Option<f64>) -> bool {
     pace::compute_pace(window.as_object(), fetched_at).is_some_and(|p| p.ahead)
 }

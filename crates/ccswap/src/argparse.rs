@@ -1,7 +1,5 @@
-//! The subset of Python's argparse that upstream's parsers rely on, kept
-//! byte-compatible: unique-prefix long options, `--opt=value`, mutually
-//! exclusive groups, `choices`/`int` validation, and argparse's error text
-//! (`usage: …` / `<prog>: error: …`, exit 2).
+//! The subset of Python's argparse that upstream's parsers rely on,
+//! byte-compatible down to its error text and exit code 2.
 
 use std::collections::BTreeMap;
 
@@ -119,7 +117,6 @@ impl Parsed {
     }
 }
 
-/// What parsing stopped on.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     Parsed,

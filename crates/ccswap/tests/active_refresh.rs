@@ -1,13 +1,6 @@
-//! The active slot's usage fetch: an expired or server-rejected active
-//! token is refreshed under Claude Code's lock protocol, and only a lineage
-//! attributed to the slot is consumed or written into its backup.
-//!
 //! Ported from upstream test_switcher.py::TestActiveAccountRefresh,
 //! TestActiveRefreshProvenance and TestActiveSlotStrikeParity, driven
-//! through `list` / `list --json`. One process is one usage pass, so the
-//! cases that need the live store to change between the pass's read and
-//! the locked re-read, or an in-process verdict seeded by hand, are not
-//! ported (see the list at the end of this file).
+//! through `list` / `list --json`; the cases not ported are listed at the end.
 
 mod support;
 
@@ -49,7 +42,6 @@ fn backup_account() -> String {
     format!("account-1-{EMAIL}")
 }
 
-/// Slot 1 (`test@example.com`, uuid `uuid-1`, personal) is the live login.
 fn env_with(uuid: Option<&str>, live: &str, backup: &str) -> TestEnv {
     let env = TestEnv::new();
     let mut record = json!({"email": EMAIL, "organizationUuid": "", "organizationName": "",
@@ -91,7 +83,6 @@ fn oauth_field(credentials: &str, key: &str) -> Value {
     serde_json::from_str::<Value>(credentials).unwrap()["claudeAiOauth"][key].clone()
 }
 
-/// The token endpoint rotates any grant to `sk-new` / `rt-new`.
 fn stub_refresh_ok(env: &TestEnv) {
     env.http().respond(
         "POST",
@@ -103,7 +94,6 @@ fn stub_refresh_ok(env: &TestEnv) {
     );
 }
 
-/// Usage per bearer token; anything else is a 500.
 fn stub_usage(env: &TestEnv, by_token: Vec<(&'static str, StubResponse)>) {
     env.http()
         .respond_with("GET", "/api/oauth/usage", move |req| {
@@ -194,8 +184,7 @@ fn config_lock(env: &TestEnv) -> PathBuf {
     env.home().join(".claude.json.lock")
 }
 
-/// Holds an exclusive `flock` on `path` until dropped (another process's
-/// `FileLock`).
+/// Stands in for another process's `FileLock` on `path` until dropped.
 struct Flock {
     _file: std::fs::File,
 }
@@ -212,8 +201,6 @@ impl Flock {
         Flock { _file: file }
     }
 }
-
-// --- TestActiveAccountRefresh -------------------------------------------------
 
 #[test]
 fn active_account_refresh_test_expired_refreshes_under_locks_and_persists_both_stores() {
@@ -498,8 +485,7 @@ fn profile(uuid: &str, email: Option<&str>, org: Option<&str>) -> String {
     body.to_string()
 }
 
-/// The live login was rotated elsewhere (`sk-new` / `rt-new`, fresh) while
-/// the backup still holds the consumed predecessor.
+/// The live login was rotated elsewhere while the backup still holds the consumed predecessor.
 fn drifted(uuid: Option<&str>) -> TestEnv {
     let env = env_with(uuid, &refreshed(), &expired());
     stub_refresh_ok(&env);
@@ -736,8 +722,6 @@ fn active_account_refresh_test_dead_lineage_surfaces_invalid_grant_not_a_silent_
     assert!(usage_bearers(&env).is_empty());
 }
 
-// --- TestActiveRefreshProvenance ----------------------------------------------
-
 #[test]
 fn active_refresh_provenance_test_unattributed_live_grant_is_never_consumed() {
     let live_creds = creds("sk-live", Some("rt-live"), Some(1000));
@@ -768,8 +752,6 @@ fn active_refresh_provenance_test_same_lineage_live_credential_still_refreshes()
     assert_eq!(oauth_field(&live, "accessToken"), "sk-new");
     assert_eq!(backup(&env), Some(live));
 }
-
-// --- TestActiveSlotStrikeParity -----------------------------------------------
 
 fn seed_strike(env: &TestEnv, struck: &str) {
     env.write_json(

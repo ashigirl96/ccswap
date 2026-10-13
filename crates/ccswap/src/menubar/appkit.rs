@@ -1,5 +1,4 @@
-//! Thin AppKit wrappers: render [`Entry`] trees into `NSMenu`s, modal
-//! alerts and text prompts, notifications. Main thread only.
+//! Main thread only.
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -16,8 +15,7 @@ use super::menu::{Command, Entry};
 
 pub const NOTIFICATION_TITLE: &str = "claude-swap";
 
-/// Builds the menu; item tags index into `commands`, which the caller
-/// keeps for the action handler.
+/// Item tags index into `commands`.
 pub fn build_menu(
     mtm: MainThreadMarker,
     entries: &[Entry],
@@ -119,9 +117,7 @@ pub fn prompt(mtm: MainThreadMarker, title: &str, message: &str, ok: &str) -> Op
     (!text.is_empty()).then_some(text)
 }
 
-/// Posts through `NSUserNotificationCenter` (the bundle id comes from the
-/// embedded Info.plist); falls back to `osascript` when the center is
-/// unavailable.
+/// Falls back to `osascript` when `NSUserNotificationCenter` is unavailable.
 pub fn notify(subtitle: &str, message: &str) {
     #[allow(deprecated)]
     let center: Option<Retained<NSUserNotificationCenter>> = unsafe {

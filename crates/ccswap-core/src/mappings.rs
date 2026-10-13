@@ -48,7 +48,6 @@ impl MappingStore {
         self.load().remove(key)
     }
 
-    /// Upserts the mapping for a normalized key.
     pub fn set(&self, key: &str, email: &str, org_uuid: &str) -> std::io::Result<()> {
         let mut mappings = self.load();
         mappings.insert(

@@ -1,6 +1,4 @@
-//! The Auto screen's engine: the real auto-switch loop on its own thread,
-//! controlled through its [`LoopHandle`], behind a factory so tests can put
-//! a stand-in engine there.
+//! The engine sits behind a factory so tests can put a stand-in engine there.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -52,7 +50,6 @@ pub struct EngineStart {
 
 pub type EngineFactory = Arc<dyn Fn(EngineStart) -> Box<dyn EngineControl> + Send + Sync>;
 
-/// No engine at all: for an app that never opens the Auto screen.
 pub fn idle_factory() -> EngineFactory {
     Arc::new(|_| Box::new(LoopHandle::new()))
 }
@@ -65,8 +62,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "engine thread panicked".into())
 }
 
-/// The store, Keychain and network engine; the host is built on the engine
-/// thread because it borrows its secret store and client.
+/// The host is built on the engine thread because it borrows its secret store
+/// and client.
 pub fn live_factory(env: Environment) -> EngineFactory {
     Arc::new(move |start: EngineStart| {
         let handle = LoopHandle::new();

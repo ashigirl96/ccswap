@@ -1,5 +1,4 @@
-//! Drawing: the dashboard, the switch list, modals, footer and toasts
-//! (the layout of upstream `cswap.tcss`).
+//! The layout follows upstream `cswap.tcss`.
 
 use std::time::Instant;
 
@@ -153,7 +152,6 @@ fn draw_dashboard(frame: &mut Frame, app: &App, mut area: Rect, palette: &Palett
     }
 }
 
-/// A list item: a thick left border (accent when highlighted) and padding.
 fn draw_list_row(
     frame: &mut Frame,
     area: Rect,
@@ -189,7 +187,6 @@ fn draw_list_row(
     );
 }
 
-/// The Switch and Watch screens: a title and every account's full card.
 fn draw_account_list(
     frame: &mut Frame,
     app: &App,
@@ -364,7 +361,6 @@ fn draw_footer(frame: &mut Frame, base: &Screen, area: Rect, palette: &Palette) 
     );
 }
 
-/// A centred modal box; returns the inner content area.
 fn modal_box(
     frame: &mut Frame,
     area: Rect,

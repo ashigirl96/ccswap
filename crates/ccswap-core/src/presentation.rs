@@ -150,7 +150,6 @@ pub fn probe_cli_background(env: &Environment, paths: &Paths, argv: &[String]) {
     );
 }
 
-/// `{schemaVersion, error: {type, message}}`.
 pub fn error_envelope(error: &Error) -> Value {
     json!({
         "schemaVersion": SCHEMA_VERSION,

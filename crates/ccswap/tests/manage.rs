@@ -1,6 +1,3 @@
-//! `remove`/`rm`, `disable`/`enable`, `alias` and `purge`: managing slots that
-//! are already registered.
-//!
 //! Ported from upstream tests/test_switcher.py::TestResolveAccountIdentifier,
 //! TestResolveByAlias, TestResolveIdentifierAmbiguity, TestAliasValidation,
 //! TestAliasCommand, TestSwitchRemoveGatesAcceptAlias (remove half),
@@ -42,7 +39,6 @@ fn config_path(num: u32, email: &str) -> String {
     format!(".claude-swap-backup/configs/.claude-config-{num}-{email}.json")
 }
 
-/// Slots 1..=3 (a@, b@, c@example.com), all switchable, slot 1 active.
 fn seed_three(env: &TestEnv) {
     env.seed_sequence(json!({
         "activeAccountNumber": 1,
@@ -72,8 +68,6 @@ fn set_record_field(env: &TestEnv, num: &str, key: &str, value: Value) {
 fn err_line(out: &Output) -> &str {
     out.stderr.trim_end()
 }
-
-// -- remove ------------------------------------------------------------------
 
 #[test]
 fn remove_by_number_deletes_backups_and_record_after_confirming() {
@@ -287,8 +281,6 @@ fn remove_without_an_identifier_is_a_usage_error() {
     );
 }
 
-// -- disable / enable ----------------------------------------------------------
-
 #[test]
 fn disable_sets_the_flag_and_keeps_the_slot_explicitly_reachable() {
     let env = TestEnv::new();
@@ -454,8 +446,6 @@ fn disable_without_a_target_is_a_usage_error() {
     let env = TestEnv::new();
     env.run(["disable"]).assert_code(2);
 }
-
-// -- alias ---------------------------------------------------------------------
 
 #[test]
 fn alias_sets_by_number_or_email_and_lowercases() {
@@ -632,8 +622,6 @@ fn alias_help_describes_the_command() {
     );
     assert!(out.stdout.contains(&format!("  {p} alias 2 --unset\n")));
 }
-
-// -- purge ---------------------------------------------------------------------
 
 fn purge_banner(env: &TestEnv) -> String {
     format!(

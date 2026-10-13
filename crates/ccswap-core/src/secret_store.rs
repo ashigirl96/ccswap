@@ -80,9 +80,8 @@ impl Keychain {
         }
     }
 
-    /// Create or update (`-U`). The secret goes hex-encoded through
-    /// `security -i`'s stdin; only a command line too long for its buffer
-    /// falls back to argv.
+    /// The secret goes through `security -i`'s stdin to stay off argv, unless
+    /// the line overflows its buffer.
     pub fn set_password(
         &self,
         service: &str,
@@ -242,7 +241,6 @@ pub fn profile_service_name(config_dir: &str) -> String {
     format!("{ACTIVE_OAUTH_SERVICE}-{}", &hex[..8])
 }
 
-/// Outcome of reading Claude Code's active credential.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveCredentials {
     /// The credential, `Some("")` when absent everywhere, `None` when the
@@ -272,8 +270,6 @@ struct Capability {
     op_failed: bool,
 }
 
-/// Claude Code's active credential and claude-swap's per-slot backups,
-/// across the Keychain and the file backend.
 pub struct SecretStore {
     keychain: Keychain,
     paths: Paths,
@@ -480,11 +476,8 @@ impl SecretStore {
             .unwrap_or_default()
     }
 
-    /// The credential of the profile this environment points Claude Code at,
-    /// for capture into a slot (`_read_capture_credentials`). `Ok(None)` is
-    /// "could not be read", `Ok(Some(""))` is "logged out". An unreadable
-    /// Keychain is an error rather than a silent fall back to a plaintext
-    /// copy that may be a superseded generation.
+    /// Upstream `_read_capture_credentials`: `Ok(None)` is "could not be
+    /// read", `Ok(Some(""))` is "logged out".
     pub fn read_capture(&self) -> Result<Option<String>> {
         if let Some(secure) = &self.securestorage_dir {
             let (dir, service) = if secure.is_empty() {
@@ -584,9 +577,8 @@ impl SecretStore {
             .join(format!(".creds-{num}-{email}.enc.prev"))
     }
 
-    /// A slot's backup. A non-empty, valid `.enc` wins over the Keychain copy
-    /// (it was written while the Keychain was unusable and is newer); an
-    /// absent, empty or corrupt one falls through to the Keychain.
+    /// A valid non-empty `.enc` wins over the Keychain copy because it was
+    /// written while the Keychain was unusable.
     pub fn read_backup(&self, num: &str, email: &str) -> BackupRead {
         let mut unreadable = false;
         let enc = self.backup_enc_path(num, email);
@@ -646,10 +638,7 @@ impl SecretStore {
             .unwrap_or_default()
     }
 
-    /// Store a slot backup: the Keychain while it is usable (then the `.enc`
-    /// is removed so it cannot shadow the new item), else an atomic `.enc`
-    /// (then the stale Keychain item is removed best-effort). The replaced
-    /// generation is kept as `.prev` first.
+    /// The backend not written is cleared so its stale copy cannot shadow the new one.
     pub fn write_backup(&self, num: &str, email: &str, credentials: &str) -> Result<()> {
         self.retain_previous_backup(num, email, credentials);
         let account = Self::backup_account_name(num, email);
@@ -748,10 +737,8 @@ impl SecretStore {
         }
     }
 
-    /// A pre-commit clear that fails closed: backend errors and a key that
-    /// still reads non-empty or unreadable are a `CredentialError`, since a
-    /// destination that should be empty but may still serve material is the
-    /// wrong-credential state a renumber must never commit.
+    /// Fails closed: a key that should be empty but may still serve material
+    /// must never be committed.
     pub fn delete_backup_strict(&self, num: &str, email: &str) -> Result<()> {
         self.delete_backup(num, email);
         let failed = |detail: String| {

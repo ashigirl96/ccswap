@@ -1,6 +1,3 @@
-//! The TUI's state machine (upstream `tui/app.py` and the screens of
-//! `tui/dashboard.py` / `tui/modals.py`): the snapshot poll loop with its
-//! two lanes, the single-flight actions, and every screen's key handling.
 //! Blocking work runs on worker threads that report back over a channel.
 
 use ccswap_core::pyjson::py_str;
@@ -95,7 +92,6 @@ impl Dashboard {
     }
 }
 
-/// A live list of full account cards (the Switch and Watch screens).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SwitchScreen {
     pub numbers: Vec<String>,
@@ -115,9 +111,8 @@ impl SwitchScreen {
         list
     }
 
-    /// Rebuilds when the slot list changed (cursor on the active account
-    /// the first time, else kept in range), then flashes the rows whose
-    /// stored measurement advanced.
+    /// The cursor lands on the active account only on the first build; later
+    /// rebuilds keep it in range.
     fn apply(&mut self, snap: &AccountsSnapshot, cursor: bool) {
         let numbers: Vec<String> = snap.accounts.iter().map(|a| a.number.clone()).collect();
         if numbers != self.numbers {
@@ -276,7 +271,6 @@ enum Message {
     Engine(EngineReport),
 }
 
-/// What the app reads from settings.json at startup.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AppConfig {
     pub threshold: Option<f64>,
@@ -372,7 +366,6 @@ impl App {
         self
     }
 
-    /// Stops a running auto-switch engine before the process leaves.
     pub fn shutdown(&mut self) {
         if let Some(engine) = self.engine.take() {
             engine.stop();
@@ -400,8 +393,6 @@ impl App {
             _ => unreachable!("the bottom screen is the dashboard"),
         }
     }
-
-    // -- snapshot poll loop -------------------------------------------------
 
     /// One poll tick: the network lane when it is idle, else a store-only
     /// repaint so other processes' writes still show while a fetch blocks.
@@ -542,14 +533,12 @@ impl App {
         self.tick();
     }
 
-    /// Applies every finished worker result without waiting.
     pub fn drain(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             self.handle_message(message);
         }
     }
 
-    /// Waits until no worker is in flight.
     #[cfg(test)]
     pub fn settle(&mut self) {
         while self.in_flight > 0 {
@@ -566,7 +555,6 @@ impl App {
         self.normal_started_at = Some(now_secs() - seconds);
     }
 
-    /// Handles messages until `done` holds.
     #[cfg(test)]
     pub fn wait_until(&mut self, done: impl Fn(&App) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -603,8 +591,6 @@ impl App {
         }
     }
 
-    // -- notifications ------------------------------------------------------
-
     pub fn notify(&mut self, message: impl Into<String>) {
         self.notify_for(message, None, Severity::Information, 5.0);
     }
@@ -634,8 +620,6 @@ impl App {
             }
         }
     }
-
-    // -- actions (single-flight, captured, off-thread) ----------------------
 
     fn start_action(&mut self, label: String, f: ActionFn, show_output: bool) {
         if self.busy {
@@ -891,8 +875,6 @@ impl App {
         };
     }
 
-    // -- auto screen (the engine, visualized) ---------------------------------
-
     /// Opens on a dry-run engine: going live is a separate, confirmed step.
     pub fn open_auto(&mut self) {
         if self.screens.iter().any(|s| matches!(s, Screen::Auto(_))) {
@@ -1066,8 +1048,6 @@ impl App {
         self.threshold_pct = Some(value);
     }
 
-    // -- theme ----------------------------------------------------------------
-
     pub fn apply_theme(&mut self, name: ThemeName) {
         self.theme_name = name;
         let settings = Settings::in_dir(&self.actions.backup_dir());
@@ -1086,8 +1066,6 @@ impl App {
         self.apply_theme(next);
         self.notify(format!("Theme: {}", next.as_str()));
     }
-
-    // -- screens --------------------------------------------------------------
 
     fn push(&mut self, screen: Screen) {
         self.screens.push(screen);
@@ -1414,7 +1392,6 @@ fn field_mut(modal: &mut AddTokenModal) -> &mut String {
     }
 }
 
-/// An integer input accepts an optional leading sign, then digits.
 fn accepts_integer_char(current: &str, c: char) -> bool {
     c.is_ascii_digit() || (current.is_empty() && (c == '-' || c == '+'))
 }

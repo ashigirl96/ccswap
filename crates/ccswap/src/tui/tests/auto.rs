@@ -235,8 +235,6 @@ fn menu_auto_entry_opens_it() {
     assert!(matches!(h.app.screen(), Screen::Auto(_)));
 }
 
-// -- theme wiring -------------------------------------------------------------
-
 fn themed(settings: Value, detected_light: Option<bool>) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();

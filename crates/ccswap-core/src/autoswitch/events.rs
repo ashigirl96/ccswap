@@ -1,5 +1,4 @@
-//! What the engine reports. Every outcome is one event; frontends render
-//! them as human lines or as one JSON object per line.
+//! Every engine outcome is one event, rendered as a human line or a JSONL object.
 
 use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
@@ -218,7 +217,7 @@ impl AutoSwitchEvent {
         Value::Object(out)
     }
 
-    /// The line `auto` prints without `--json` (after its timestamp).
+    /// The human line, without its timestamp prefix.
     pub fn human(&self) -> String {
         match &self.kind {
             EventKind::Poll {
@@ -358,9 +357,7 @@ fn py_round1(value: f64) -> f64 {
     s.parse().unwrap_or(value)
 }
 
-/// A percentage for display, as configured (`f"{v:.10g}"`): 85.555555 stays
-/// itself and 99.9 never renders as a rounded 100, while float noise in
-/// computed utilizations is absorbed.
+/// Python `f"{v:.10g}"`: 99.9 never renders as 100, yet float noise in computed utilizations is absorbed.
 pub fn pct_label(value: f64) -> String {
     if value == 0.0 {
         return "0".into();

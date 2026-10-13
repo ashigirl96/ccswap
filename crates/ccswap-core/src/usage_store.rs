@@ -1,12 +1,8 @@
-//! `cache/usage.json` (schemaVersion 2): rows keyed by slot, guarded by the
-//! slot's `(email, organizationUuid)` so a reused slot never serves the
-//! previous account's row. Shared live with Python `cswap`, the TUI and the
-//! menubar: writes are read-modify-write under `cache/.usage.lock`, reads
-//! are lock-free.
-//!
-//! A collector reserves the slots it will fetch (a claim with a lease),
-//! fetches outside the lock, then records the outcomes fenced by the claim
-//! id, so concurrent collectors never double-fetch or overwrite each other.
+//! `cache/usage.json` (schemaVersion 2), shared live with Python `cswap`:
+//! rows are guarded by the slot's `(email, organizationUuid)` so a reused
+//! slot never serves the previous account's row, and writes are fenced by a
+//! leased claim id so concurrent collectors never double-fetch or overwrite
+//! each other.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -71,7 +67,6 @@ impl FetchRecord {
     }
 }
 
-/// One slot's usage as a collector sees it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UsageEntry {
     pub sentinel: Option<Sentinel>,
@@ -229,7 +224,6 @@ fn rate_limited_trust_ok(
     now < bound
 }
 
-/// Seconds to back off after the `consecutive_failures`-th failure in a row.
 pub fn failure_backoff_s(
     consecutive_failures: i64,
     retry_after_s: Option<f64>,

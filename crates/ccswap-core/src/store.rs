@@ -39,9 +39,7 @@ pub fn current_identity(paths: &Paths) -> Option<Identity> {
     })
 }
 
-/// `sequence.json`: `None` only when it does not exist; unreadable or
-/// non-object content is an error so callers never rebuild the roster from
-/// an empty read.
+/// `None` only when absent: rebuilding the roster from an unreadable file would drop accounts.
 pub fn read_sequence(paths: &Paths) -> Result<Option<JsonObject>> {
     read_json_strict(&paths.sequence_file())
 }
@@ -94,7 +92,6 @@ pub fn setup_directories(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// Writes an empty roster unless one exists.
 pub fn init_sequence(paths: &Paths) -> Result<()> {
     if paths.sequence_file().exists() {
         return Ok(());

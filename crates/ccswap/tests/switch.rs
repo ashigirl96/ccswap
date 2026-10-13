@@ -1,5 +1,3 @@
-//! `switch` / `switch <num|email|alias>`: the normal switch transaction.
-//!
 //! Ported from upstream tests/test_switcher.py::TestPerformSwitchPostDisplay,
 //! TestSwitchSkipsBrokenSlots, TestSharedOAuthCredentialPreservation,
 //! TestClaudeCodeLockCooperation, TestResolveIdentifierAmbiguity,
@@ -51,8 +49,6 @@ fn record(num: u32) -> Value {
            "organizationName": "", "added": "2024-01-01T00:00:00Z"})
 }
 
-/// Slots `nums` each with a Keychain backup `creds("<num>")` and a config
-/// backup; the live login is slot `active` holding the same bytes.
 fn seed(env: &TestEnv, nums: &[u32], active: u32) {
     let accounts: serde_json::Map<String, Value> =
         nums.iter().map(|n| (n.to_string(), record(*n))).collect();

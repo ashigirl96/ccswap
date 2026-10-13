@@ -1,5 +1,3 @@
-//! Managing registered slots: remove, disable/enable, alias, purge.
-
 use crate::pyjson::py_str;
 use serde_json::Value;
 

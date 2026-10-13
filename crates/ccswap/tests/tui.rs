@@ -1,7 +1,5 @@
-//! Launching the TUI. Ported from upstream
-//! tests/test_tui.py::TestBareInvocation::{test_bare_tty_launches_tui,
-//! test_bare_non_tty_keeps_usage_error}; the screens themselves are tested
-//! in-crate against a fake surface.
+//! Ported from upstream tests/test_tui.py::TestBareInvocation::{test_bare_tty_launches_tui,
+//! test_bare_non_tty_keeps_usage_error}.
 
 mod support;
 

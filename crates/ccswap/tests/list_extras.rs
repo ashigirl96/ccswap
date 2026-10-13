@@ -1,6 +1,3 @@
-//! `list` extras: weekly pace, duplicate/lockstep warnings, running
-//! instances, `--token-status` and the first-run setup.
-//!
 //! Ported from upstream test_switcher.py::TestFormatUsageLines (pace
 //! markers), test_json_output.py::TestJsonHelpers (pace fields),
 //! TestDuplicateAccountDetection, TestLockstepUsageDetection,

@@ -271,10 +271,8 @@ impl AnthropicClient {
         }
     }
 
-    /// The refresh-token grant, POSTed straight to the token endpoint. Only
-    /// a 4xx whose body names `invalid_grant` / `invalid_client` is
-    /// permanent; anything ambiguous stays `transient`, since a wrongly
-    /// permanent verdict quarantines a live token.
+    /// Only a 4xx whose body names `invalid_grant` / `invalid_client` is
+    /// permanent, since a wrongly permanent verdict quarantines a live token.
     pub fn try_refresh_oauth_credentials(
         &self,
         credentials: &str,

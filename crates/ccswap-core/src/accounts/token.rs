@@ -12,7 +12,6 @@ use crate::store::{self, JsonObject};
 
 const SETUP_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
 
-/// Where the token comes from.
 #[derive(Debug, Clone)]
 pub enum TokenInput {
     Value(String),
@@ -26,7 +25,7 @@ pub enum TokenInput {
 pub struct AddTokenOptions {
     pub email: Option<String>,
     pub slot: Option<i64>,
-    /// Skip the overwrite prompt (callers that confirmed already).
+    /// Skip the overwrite prompt.
     pub assume_yes: bool,
 }
 

@@ -1,5 +1,3 @@
-//! argparse-compatible usage errors (exit 2, `usage:` line + `<prog>: error:`).
-//!
 //! Ported from upstream tests/test_cli.py::TestCLI::{test_no_args_shows_error,
 //! test_mutually_exclusive_args, test_strategy_rejects_unknown_value,
 //! test_token_status_flag_requires_list} and

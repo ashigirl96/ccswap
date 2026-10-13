@@ -1,11 +1,9 @@
-//! `swap` and `move`: renumbering slots. Everything keyed by the slot number
-//! follows its account (record incl. alias, credential and config backups,
-//! session profile, `sequence` membership, `activeAccountNumber`); directory
-//! mappings and usage-cache rows key on identity and are left alone.
+//! Directory mappings and usage-cache rows key on identity, so a renumber
+//! leaves them alone.
 //!
-//! The `sequence.json` write is the commit point. Destination keys are set
+//! The `sequence.json` write is the commit point: destination keys are set
 //! before it and old keys cleared only after it, so the roster never points
-//! at missing material; a failure before it restores both slots.
+//! at missing material.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -280,9 +278,8 @@ impl Renumber<'_, '_> {
         Ok(())
     }
 
-    /// Reads a slot's material before anything moves. An unreadable (not
-    /// absent) credential aborts: carrying it as "" would drop the slot's
-    /// live refresh token at its new number.
+    /// An unreadable (not absent) credential aborts: carrying it as "" would
+    /// drop the slot's live refresh token at its new number.
     fn snapshot(&self, num: String, email: String) -> Result<Side> {
         let read = self.acc.secrets.read_backup(&num, &email);
         if read.unreadable {
@@ -299,9 +296,8 @@ impl Renumber<'_, '_> {
         })
     }
 
-    /// Sets key `(num, email)` to `owner`'s exact state: writes what exists
-    /// and actively clears what does not, so an unbacked account never
-    /// adopts leftover material under its new key.
+    /// Clears what `owner` lacks, so an unbacked account never adopts leftover
+    /// material under its new key.
     fn set_key(&self, num: &str, email: &str, owner: &Side) -> Result<()> {
         self.restore(Kind::Creds, num, email, &owner.creds, true)?;
         self.restore(Kind::Config, num, email, &owner.config, true)
@@ -348,8 +344,7 @@ impl Renumber<'_, '_> {
         );
     }
 
-    /// Exchanges two profile dirs, staging the first through a temporary
-    /// name since same-email paths swap directly. Best effort: a profile
+    /// Same-email paths swap directly, hence the temporary name; a profile
     /// that cannot move costs only its history, as `run` re-seeds it.
     fn swap_session_dirs(&self, num_a: &str, email_a: &str, num_b: &str, email_b: &str) {
         let dir =
@@ -385,9 +380,8 @@ impl Renumber<'_, '_> {
         }
     }
 
-    /// Parks each side's material in `.swap-staging-<kind>-<num>.json`
-    /// (0600, `O_EXCL`). A leftover from an interrupted swap may be the only
-    /// surviving copy of a credential, so it is never overwritten.
+    /// A leftover from an interrupted swap may be the only surviving copy of a
+    /// credential, so it is never overwritten.
     fn stage_overlap_material(&mut self, sides: &[&Side]) -> Result<Vec<PathBuf>> {
         let dir = self.acc.paths.credentials_dir();
         let mut staged = Vec::new();
@@ -428,9 +422,8 @@ impl Renumber<'_, '_> {
         }
     }
 
-    /// Puts both slots back under their old keys after a failure before the
-    /// commit. Every step is attempted; if any fails, the staged copies stay
-    /// on disk for manual recovery.
+    /// Every step is attempted; if any fails, the staged copies stay on disk
+    /// for manual recovery.
     fn rollback_swap(&mut self, a: &Side, b: &Side, staging: &[PathBuf]) {
         crate::log::error(format!(
             "Swap {} <-> {} failed mid-write; restoring both slots",

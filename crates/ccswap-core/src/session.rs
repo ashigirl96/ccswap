@@ -218,8 +218,7 @@ impl Sessions<'_> {
             .collect()
     }
 
-    /// Ensures a valid profile exists. The stale marker is honoured only
-    /// while nothing runs against the profile.
+    /// The stale marker is honoured only while nothing runs against the profile.
     fn setup_session(
         &self,
         target: &Target,
@@ -503,7 +502,6 @@ fn judge_auth_status(report: &Map<String, Value>, email: &str, org: &str) -> Ver
     Verdict::Valid
 }
 
-/// `shutil.which`: the first executable regular file named `name` on `PATH`.
 /// Setup-token credentials have no refresh token by design; an unknown
 /// shape lets the refresh attempt decide.
 fn has_refresh_token(creds: &str) -> bool {
@@ -519,6 +517,7 @@ fn has_refresh_token(creds: &str) -> bool {
     }
 }
 
+/// `shutil.which`: the first executable regular file named `name` on `PATH`.
 pub fn which(env: &Environment, name: &str) -> Option<PathBuf> {
     let path = env.get("PATH")?.clone();
     std::env::split_paths(&path)

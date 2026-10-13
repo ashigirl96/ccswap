@@ -1,8 +1,6 @@
-//! Safety copies of live credentials a switch displaced without being able
-//! to attribute them to the outgoing slot: `credentials/.unclaimed-<id>.enc`
-//! (base64, 0600) plus a manifest row of classification evidence. Always
-//! files, never the Keychain, so a flaky Keychain cannot start blocking
-//! switches through a failed stash.
+//! Safety copies of live credentials a switch could not attribute to the
+//! outgoing slot. Always files, never the Keychain, so a flaky Keychain
+//! cannot block switches through a failed stash.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -53,9 +51,8 @@ impl<'a> UnclaimedStash<'a> {
         self.dir().join(format!("{ENTRY_PREFIX}{id}{ENTRY_SUFFIX}"))
     }
 
-    /// Stores `credentials` with `context` as its manifest row and returns
-    /// the entry id. The bytes land before the row: an entry without a row
-    /// is still listed, a row without bytes is worthless.
+    /// The bytes land before the row: an entry without a row is still
+    /// listed, a row without bytes is worthless.
     pub fn write(&self, credentials: &str, context: JsonObject) -> Result<String> {
         let now = unix_now();
         let created = store::format_timestamp(now);

@@ -1,9 +1,7 @@
-//! `swap` / `move`, ported from upstream tests/test_swap_accounts.py and
-//! tests/test_move_accounts.py (test names keep upstream's `test_<name>`).
-//! Upstream's monkeypatched faults are reproduced from outside: a read-only
-//! store dir fails the sequence.json commit, a failing
-//! `delete-generic-password` fails a required clear, and chmod 000 makes a
-//! backup unreadable.
+//! Ported from upstream tests/test_swap_accounts.py and
+//! tests/test_move_accounts.py. Upstream's monkeypatched faults are reproduced
+//! from outside: a read-only store dir, a failing `delete-generic-password`
+//! and a chmod 000 backup.
 
 mod support;
 
@@ -137,8 +135,6 @@ fn make_store_root_read_only(env: &TestEnv) {
 fn accounts_email(data: &Value, num: &str) -> Value {
     data["accounts"][num]["email"].clone()
 }
-
-// -- swap ------------------------------------------------------------------
 
 #[test]
 fn test_swap_by_number() {
@@ -318,9 +314,7 @@ fn test_swap_refuses_leftover_staging() {
     assert_eq!(staging_files(&env), vec![".swap-staging-creds-1.json"]);
 }
 
-/// Also covers test_swap_same_email_persistent_failure_keeps_staged_copy:
-/// the Keychain delete keeps failing during the rollback, so the staged
-/// pre-swap copy is kept (0600) and reported.
+/// Also covers upstream test_swap_same_email_persistent_failure_keeps_staged_copy.
 #[test]
 fn test_swap_failed_required_clear_aborts_commit() {
     let env = seeded(sample_sequence_data_with_org());
@@ -504,8 +498,6 @@ fn swap_argument_errors_match_argparse() {
             .contains(&format!("  {p} swap dev user@example.com\n"))
     );
 }
-
-// -- move ------------------------------------------------------------------
 
 #[test]
 fn test_move_to_empty_slot_relocates() {

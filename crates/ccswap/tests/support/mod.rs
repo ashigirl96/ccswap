@@ -1,14 +1,11 @@
-//! Black-box harness for the `ccswap` binary (seam 1 of #1).
+//! Black-box harness for the `ccswap` binary.
 //!
-//! Every test gets a [`TestEnv`]: a throwaway `HOME`, a fake `security`, a stub
-//! HTTP server and fakes of `claude` and `launchctl` first on `PATH`. The binary is launched with
-//! a cleared environment that points every seam at those doubles, so nothing
-//! can reach the real `~/.claude-swap-backup`, `~/.claude*` or Keychain.
+//! Each [`TestEnv`] owns a throwaway `HOME`, a fake `security`, a stub HTTP
+//! server and fake `claude` / `launchctl` on `PATH`; [`check_isolation`] refuses
+//! to launch unless every seam points at them, so tests never touch the real
+//! store, `~/.claude*` or Keychain.
 //!
 //! ```ignore
-//! mod support;
-//! use support::TestEnv;
-//!
 //! let env = TestEnv::new();
 //! env.seed_login("a@example.com", "org-1", "Acme");
 //! env.seed_sequence(serde_json::json!({ "accounts": { /* ... */ } }));
@@ -16,37 +13,16 @@
 //! env.http().respond("GET", "/api/oauth/usage", StubResponse::json(200, "{}"));
 //!
 //! let out = env.run(&["status", "--json"]);
-//! assert_eq!(out.code, 0);
-//! let calls = env.security().calls();        // argv + stdin of each `security` call
-//! let reqs = env.http().requests();           // method, path, headers, body
+//! let calls = env.security().calls();
+//! let reqs = env.http().requests();
 //! ```
 //!
-//! - Seed files with [`TestEnv::write_json`] / [`TestEnv::seed_sequence`] /
-//!   [`TestEnv::seed_login`]. Use timestamps relative to now (upstream `_iso_in`);
-//!   the clock is never faked.
-//! - [`TestEnv::cmd`] returns a builder for extra env vars, stdin, or running
-//!   as root (`.sudo()`, see [`sudo_available`]).
-//! - `CLAUDE_CONFIG_DIR` is unset by default (the default profile). Call
-//!   [`TestEnv::use_custom_config_dir`] to point it into the temp dir.
-//! - Differential runs: set `CCSWAP_TEST_UPSTREAM=<path to the upstream
-//!   checkout>` and the same tests run against Python `cswap` through
-//!   `upstream_shim.py` (needs `uv`). Branch on [`is_upstream`] / [`prog`] only
-//!   for intended differences such as the binary name.
-//! - `env.http().respond_with(method, path, |req| ...)` runs code when the
-//!   request arrives (e.g. a `/login` landing mid-request);
-//!   `env.security().fail_command("add-generic-password", 51)` fails one
-//!   `security` command only; `fail_command_for_service` /
-//!   `fail_command_for_item` narrow it to one service / item.
-//! - `env.cmd(..).using(Impl::Ccswap | Impl::Upstream)` pins one
-//!   implementation for cswap/ccswap round trips (Upstream needs
-//!   `CCSWAP_TEST_UPSTREAM`).
-//! - `env.launchctl()` models launchd for the menu bar service: `bootstrap`
-//!   loads the job, `bootout` unloads it, `print` answers while loaded;
-//!   `.script(sub, replies)` overrides the next calls of one subcommand.
-//! - The isolation guard ([`check_isolation`]) runs before every launch and
-//!   refuses to start the binary unless `HOME`, the `security` path and every
-//!   HTTP endpoint point at this env's doubles, and `launchctl` on `PATH`
-//!   is the fake.
+//! - Use timestamps relative to now; the clock is never faked.
+//! - [`TestEnv::cmd`] adds env vars, stdin, `.sudo()` or `.using(Impl::..)`.
+//! - `CLAUDE_CONFIG_DIR` is unset unless [`TestEnv::use_custom_config_dir`] is called.
+//! - Differential runs: set `CCSWAP_TEST_UPSTREAM=<upstream checkout>` to run the
+//!   same tests against Python `cswap` (needs `uv`); branch on [`is_upstream`],
+//!   [`prog`] or [`hint`] only for intended differences such as the binary name.
 
 #![allow(dead_code)]
 
@@ -84,13 +60,10 @@ pub fn is_upstream() -> bool {
     std::env::var_os(UPSTREAM_ENV).is_some_and(|v| !v.is_empty())
 }
 
-/// The program name the binary under test reports (`ccswap`, or `cswap` upstream).
 pub fn prog() -> &'static str {
     if is_upstream() { "cswap" } else { "ccswap" }
 }
 
-/// `text` with each command hint (`cswap add`, `cswap --switch-to 1`, ...)
-/// naming the binary under test; ccswap's hints say `ccswap`.
 pub fn hint(text: &str) -> String {
     if is_upstream() {
         return text.to_string();
@@ -171,19 +144,16 @@ impl TestEnv {
         &self.home
     }
 
-    /// `~/.claude-swap-backup` inside the temp `HOME`.
     pub fn store_dir(&self) -> PathBuf {
         self.home.join(".claude-swap-backup")
     }
 
-    /// Claude Code's config home: `CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
     pub fn claude_config_home(&self) -> PathBuf {
         self.config_dir
             .clone()
             .unwrap_or_else(|| self.home.join(".claude"))
     }
 
-    /// Claude Code's global config (`.claude.json`), following the same rule.
     pub fn global_config_path(&self) -> PathBuf {
         match &self.config_dir {
             Some(dir) => dir.join(".claude.json"),
@@ -214,7 +184,6 @@ impl TestEnv {
         &self.launchctl
     }
 
-    /// The directory prepended to the binary's `PATH` (holds the fake `claude`).
     pub fn claude_bin_dir(&self) -> &Path {
         &self.claude.bin_dir
     }
@@ -239,7 +208,6 @@ impl TestEnv {
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
     }
 
-    /// Write `.claude.json` with an `oauthAccount`, as Claude Code does after `/login`.
     pub fn seed_login(&self, email: &str, org_uuid: &str, org_name: &str) -> PathBuf {
         let mut account = serde_json::json!({
             "emailAddress": email,
@@ -255,8 +223,6 @@ impl TestEnv {
         )
     }
 
-    /// Write `sequence.json` into the store with upstream's permissions.
-    /// The store's `sequence.json` as it is on disk now.
     pub fn sequence(&self) -> Value {
         self.read_json(self.store_dir().join("sequence.json"))
     }
@@ -336,8 +302,6 @@ impl TestEnv {
     }
 }
 
-/// Refuse to launch unless every seam in `vars` points inside `root` or at
-/// the local stub server.
 pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(), String> {
     let inside = |name: &str| -> Result<(), String> {
         let value = vars
@@ -393,19 +357,17 @@ pub struct Cmd<'a> {
 }
 
 impl Cmd<'_> {
-    /// Run in `dir` instead of the temp `HOME`.
     pub fn current_dir(mut self, dir: impl AsRef<Path>) -> Self {
         self.cwd = Some(dir.as_ref().to_path_buf());
         self
     }
 
-    /// Launch a specific implementation (see [`Impl`]).
     pub fn using(mut self, which: Impl) -> Self {
         self.which = which;
         self
     }
 
-    /// Launch with this `argv[0]` (ccswap only; the upstream shim sets its own).
+    /// The upstream shim sets its own `argv[0]`, so this only affects ccswap.
     pub fn arg0(mut self, name: &str) -> Self {
         self.arg0 = Some(name.into());
         self
@@ -479,9 +441,7 @@ impl Cmd<'_> {
         })
     }
 
-    /// Starts the program in the background (stdin closed) for long-running
-    /// commands such as the `auto` loop: read its stdout as it comes, send
-    /// it signals, then collect it with [`Running::finish`].
+    /// Starts with stdin closed; collect the result with [`Running::finish`].
     pub fn spawn(self) -> Running {
         check_isolation(&self.vars, &self.env.root())
             .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
@@ -523,16 +483,12 @@ impl Cmd<'_> {
         }
     }
 
-    /// Runs with stdin, stdout and stderr on a 100x32 pseudo-terminal, typing
-    /// `keys` once the program has written its first output. `stdout` is the
-    /// raw terminal output; the run is killed after `timeout`.
+    /// Runs on a 100x32 pseudo-terminal and kills the program after `timeout`.
     pub fn run_in_terminal(self, keys: &str, timeout: std::time::Duration) -> Output {
         self.run_in_terminal_on(None, keys, timeout)
     }
 
-    /// Like a terminal, answers the DA1 query and, given `background`
-    /// (e.g. `rgb:ffff/ffff/ffff`), the OSC 11 background query; the keys
-    /// are typed once something beyond those queries was drawn.
+    /// Answers the DA1 query and, given `background`, the OSC 11 query, then types `keys` once more was drawn.
     pub fn run_in_terminal_on(
         self,
         background: Option<&str>,
@@ -629,8 +585,7 @@ impl Cmd<'_> {
     }
 }
 
-/// Which implementation a [`Cmd`] launches. [`Impl::UnderTest`] follows
-/// `CCSWAP_TEST_UPSTREAM`; the other two pin one side for compatibility tests.
+/// [`Impl::UnderTest`] follows `CCSWAP_TEST_UPSTREAM`; the other two pin one side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Impl {
     UnderTest,
@@ -720,7 +675,6 @@ impl Output {
     }
 }
 
-/// A program started with [`Cmd::spawn`].
 pub struct Running {
     child: std::process::Child,
     lines: std::sync::mpsc::Receiver<String>,
@@ -730,8 +684,7 @@ pub struct Running {
 }
 
 impl Running {
-    /// Waits for a stdout line matching `pred`; every line read so far is
-    /// kept for [`finish`](Self::finish).
+    /// Every line read so far is kept for [`finish`](Self::finish).
     pub fn wait_for_line(
         &mut self,
         timeout: std::time::Duration,
@@ -756,7 +709,7 @@ impl Running {
         assert_eq!(rc, 0, "kill({sig})");
     }
 
-    /// Waits for exit (killing the program after `timeout`, code -1).
+    /// Kills the program after `timeout` and reports code -1.
     pub fn finish(mut self, timeout: std::time::Duration) -> Output {
         let deadline = std::time::Instant::now() + timeout;
         let code = loop {
@@ -812,10 +765,7 @@ fn install_script(dir: &Path, name: &str, template: &str) -> PathBuf {
     path
 }
 
-/// One copy of each fake per test run, hard-linked into every env: macOS
-/// scans each new executable on first exec (~0.3 s, serialized), which under
-/// parallel tests pushed `security` calls past their 5 s timeout. The fakes
-/// find their state directory from their own (linked) path.
+/// Hard-linked from one copy per run because macOS scans each new executable on first exec (~0.3 s, serialized), pushing parallel `security` calls past their 5 s timeout.
 fn shared_script(name: &str, template: &str) -> PathBuf {
     let digest = template.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
@@ -846,9 +796,7 @@ fn read_jsonl(path: &Path) -> Vec<Value> {
     }
 }
 
-/// `security` double: items keyed by `(service, account)`, exit 44 for a
-/// missing item, the secret printed only with `-w`, and `-i` commands read
-/// from stdin.
+/// Mirrors `security`: exit 44 for a missing item, the secret printed only with `-w`, `-i` commands read from stdin.
 #[derive(Clone)]
 pub struct FakeSecurity {
     path: PathBuf,
@@ -859,7 +807,6 @@ pub struct FakeSecurity {
 pub struct SecurityCall {
     pub argv: Vec<String>,
     pub stdin: Option<String>,
-    /// Whether each path given to [`FakeSecurity::observe`] existed when the call ran.
     pub observed: BTreeMap<String, bool>,
 }
 
@@ -892,7 +839,6 @@ impl FakeSecurity {
             .map(|i| i["password"].as_str().unwrap().to_string())
     }
 
-    /// `(service, account, password)` for every stored item.
     pub fn items(&self) -> Vec<(String, String, String)> {
         self.raw_items()
             .into_iter()
@@ -908,13 +854,11 @@ impl FakeSecurity {
         std::fs::write(self.state.join("fail_rc"), rc.to_string()).unwrap();
     }
 
-    /// Make only `command` (e.g. `add-generic-password`) fail with `rc`,
-    /// including when it arrives through `security -i`.
+    /// Also applies when `command` arrives through `security -i`.
     pub fn fail_command(&self, command: &str, rc: i32) {
         std::fs::write(self.state.join(format!("fail_{command}")), rc.to_string()).unwrap();
     }
 
-    /// Like [`Self::fail_command`], only for items of `service`.
     pub fn fail_command_for_service(&self, command: &str, service: &str, rc: i32) {
         std::fs::write(
             self.state.join(format!("fail_{command}@{service}")),
@@ -923,7 +867,6 @@ impl FakeSecurity {
         .unwrap();
     }
 
-    /// Like [`Self::fail_command`], only for one `(service, account)` item.
     pub fn fail_command_for_item(&self, command: &str, service: &str, account: &str, rc: i32) {
         std::fs::write(
             self.state
@@ -933,7 +876,6 @@ impl FakeSecurity {
         .unwrap();
     }
 
-    /// Record, on every later call, whether each of `paths` exists (e.g. a lock).
     pub fn observe(&self, paths: &[&Path]) {
         let list: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
         std::fs::write(
@@ -943,14 +885,13 @@ impl FakeSecurity {
         .unwrap();
     }
 
-    /// Hold the next `command` call (also via `security -i`) until [`Self::release`],
-    /// for at most 4.5 s since callers time out at 5 s.
+    /// Holds for at most 4.5 s because callers time out at 5 s.
     pub fn pause_next(&self, command: &str) {
         let _ = std::fs::remove_file(self.state.join("release"));
         std::fs::write(self.state.join(format!("pause_{command}")), "").unwrap();
     }
 
-    /// Wait until a call is held by [`Self::pause_next`]; false on timeout.
+    /// Returns false on timeout.
     pub fn wait_until_paused(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         while !self.state.join("paused").exists() {
@@ -993,8 +934,6 @@ impl FakeSecurity {
     }
 }
 
-/// `claude` double placed first on `PATH`. Records argv, cwd and the full
-/// environment of each call; replies are configured per joined argv.
 pub struct FakeClaude {
     bin_dir: PathBuf,
     state: PathBuf,
@@ -1016,7 +955,6 @@ impl FakeClaude {
         }
     }
 
-    /// Reply to `claude <args>` (e.g. `"auth status --json"`) with this output.
     pub fn respond(&self, args: &str, stdout: &str, exit: i32) {
         let path = self.state.join("responses.json");
         let mut responses: serde_json::Map<String, Value> = std::fs::read_to_string(&path)
@@ -1067,7 +1005,7 @@ impl StubResponse {
 #[derive(Debug, Clone)]
 pub struct StubRequest {
     pub method: String,
-    /// Path including any query string.
+    /// Includes any query string.
     pub target: String,
     pub headers: Vec<(String, String)>,
     pub body: String,
@@ -1089,7 +1027,7 @@ impl StubRequest {
 type Handler = Arc<dyn Fn(&StubRequest) -> StubResponse + Send + Sync>;
 type Routes = Arc<Mutex<BTreeMap<(String, String), Handler>>>;
 
-/// Local HTTP/1.1 server. Unrouted requests get 404 and are still recorded.
+/// Unrouted requests get 404 and are still recorded.
 pub struct StubServer {
     addr: std::net::SocketAddr,
     routes: Routes,
@@ -1128,13 +1066,11 @@ impl StubServer {
         format!("http://{}", self.addr)
     }
 
-    /// Answer `method path` (path without query) with `response` from now on.
+    /// Matches `path` without its query string.
     pub fn respond(&self, method: &str, path: &str, response: StubResponse) {
         self.respond_with(method, path, move |_| response.clone());
     }
 
-    /// Answer `method path` by running `handler` when the request arrives,
-    /// e.g. to change files while the binary waits on the network.
     pub fn respond_with<F>(&self, method: &str, path: &str, handler: F)
     where
         F: Fn(&StubRequest) -> StubResponse + Send + Sync + 'static,
@@ -1213,8 +1149,7 @@ fn serve(stream: TcpStream, routes: &Routes, requests: &Mutex<Vec<StubRequest>>)
     let _ = stream.write_all(response.body.as_bytes());
 }
 
-/// `launchctl` double (see the module docs). Records each call's argv and
-/// whether the job was loaded when it ran.
+/// Models launchd: `bootstrap` loads the job, `bootout` unloads it, `print` answers only while loaded.
 pub struct FakeLaunchctl {
     bin_dir: PathBuf,
     state: PathBuf,
@@ -1239,7 +1174,7 @@ impl FakeLaunchctl {
         &self.bin_dir
     }
 
-    /// Mark the job loaded; `print` answers with `print_stdout` until a `bootout`.
+    /// `print` answers with `print_stdout` until a `bootout`.
     pub fn load(&self, print_stdout: &str) {
         std::fs::write(self.state.join("loaded"), print_stdout).unwrap();
     }
@@ -1276,7 +1211,6 @@ impl FakeLaunchctl {
             .collect()
     }
 
-    /// The subcommand of each call, in order.
     pub fn subcommands(&self) -> Vec<String> {
         self.calls()
             .into_iter()

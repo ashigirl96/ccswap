@@ -1,14 +1,7 @@
-//! `auto --once` safety through the binary: the pre-switch refresh, the
-//! quarantine lifecycle, the no-return bar, failover, the live-session skip,
-//! API-key accounts as a last resort, and the known-foreign classification
-//! a usage pass hands to the switch in the same process.
-//!
 //! Ported from upstream tests/test_autoswitch.py (TestFreshening,
 //! TestQuarantineLifecycle, TestTokenIdentity, TestApiKeyAccounts,
 //! TestDecisionTable failover rows) and tests/test_switcher.py
-//! (test_cached_foreign_verdict_survives_a_failed_switch_time_probe), with
-//! the real switcher, consume gate and stub endpoints in place of patched
-//! methods.
+//! (test_cached_foreign_verdict_survives_a_failed_switch_time_probe).
 
 mod support;
 
@@ -54,7 +47,6 @@ fn backup_account(num: u32) -> String {
     format!("account-{num}-{}", EMAILS[num as usize])
 }
 
-/// Slots `nums` with stored credentials and configs; `live` is logged in.
 fn seed(env: &TestEnv, nums: &[u32], live: u32) {
     let accounts: serde_json::Map<String, Value> = nums
         .iter()
@@ -105,7 +97,6 @@ fn five_hour(pct: f64) -> Value {
     json!({"five_hour": {"utilization": pct}, "seven_day": {"utilization": 0.0}})
 }
 
-/// Usage per bearer token; unknown tokens answer 500.
 fn stub_usage(env: &TestEnv, rows: &[(&str, f64)]) {
     let rows: Vec<(String, String)> = rows
         .iter()
@@ -471,8 +462,7 @@ fn api_key_accounts_test_api_key_used_only_when_oauth_exhausted() {
     assert_eq!(of_kind(&events(&out), "switch")[0]["to"]["number"], 2);
 }
 
-/// Slot 2 is active after a proactive move off slot 1, which left 9 points
-/// of headroom behind.
+/// Leaves slot 1 behind with 9 points of headroom after a proactive move to slot 2.
 fn landed_on_two(env: &TestEnv) {
     seed(env, &[1, 2], 2);
     settings(env, json!({"hysteresisPct": 0}));
@@ -514,10 +504,7 @@ fn no_return_bar_releases_once_the_left_account_recovered() {
     assert_eq!(live_token(&env), "at-1");
 }
 
-/// The usage pass proves the live credential foreign (the profile endpoint
-/// names another account); the switch it triggers cannot probe again (the
-/// endpoint is down by then) and must still keep those bytes out of the
-/// outgoing slot.
+/// The profile endpoint is down by switch time, so only the usage pass's foreign verdict keeps those bytes out of the outgoing slot.
 #[test]
 fn cached_foreign_verdict_survives_a_failed_switch_time_probe() {
     let env = TestEnv::new();
@@ -577,9 +564,7 @@ fn usage_requests(env: &TestEnv) -> usize {
         .count()
 }
 
-/// Upstream TestAdaptiveScheduler::test_idle_hold_skips_candidate_polling:
-/// a failed locked refresh of the expired active token backs the row off,
-/// and the next pass idles without spending a candidate poll.
+/// Ported from upstream TestAdaptiveScheduler::test_idle_hold_skips_candidate_polling.
 #[test]
 fn adaptive_scheduler_test_idle_hold_skips_candidate_polling() {
     let env = TestEnv::new();
@@ -609,8 +594,7 @@ fn adaptive_scheduler_test_idle_hold_skips_candidate_polling() {
     );
 }
 
-/// Upstream TestAdaptiveScheduler::
-/// test_expired_active_enters_idle_hold_even_during_backoff.
+/// Ported from upstream TestAdaptiveScheduler::test_expired_active_enters_idle_hold_even_during_backoff.
 #[test]
 fn adaptive_scheduler_test_expired_active_enters_idle_hold_even_during_backoff() {
     let env = TestEnv::new();

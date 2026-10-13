@@ -1,11 +1,6 @@
-//! `auto --once` / `--dry-run` / `--json`: one engine tick through the
-//! binary.
-//!
-//! Ported from upstream tests/test_cli.py::TestAutoCommand (exit codes,
-//! flags over settings.json, pure JSONL, `--bogus`, help) and
+//! Ported from upstream tests/test_cli.py::TestAutoCommand and
 //! tests/test_config_cli.py::test_auto_picks_up_configured_threshold, with
-//! the real engine instead of a FakeEngine: usage is served by the stub
-//! usage endpoint per bearer token (unknown tokens answer 500).
+//! the real engine in place of FakeEngine.
 
 mod support;
 
@@ -27,7 +22,6 @@ fn oauth_account(num: u32) -> Value {
     json!({"emailAddress": EMAILS[num as usize], "accountUuid": format!("uuid-{num}")})
 }
 
-/// Slots `nums` with stored credentials and configs; `live` is logged in.
 fn seed(env: &TestEnv, nums: &[u32], live: u32) {
     let accounts: serde_json::Map<String, Value> = nums
         .iter()
@@ -66,7 +60,6 @@ fn three(env: &TestEnv) {
     seed(env, &[1, 2, 3], 1);
 }
 
-/// Usage endpoint bodies per slot; slots left out answer 500.
 fn stub(env: &TestEnv, bodies: Vec<(u32, Value)>) {
     let bodies: Vec<(String, String)> = bodies
         .into_iter()
@@ -553,8 +546,6 @@ fn auto_help() {
     assert!(out.stdout.contains("--once"));
     assert!(out.stdout.contains("Exit codes"));
 }
-
-// --- the loop (no --once) -------------------------------------------------------
 
 const LOOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 

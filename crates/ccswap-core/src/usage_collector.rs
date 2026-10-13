@@ -1,7 +1,5 @@
 //! One store-backed usage pass over a set of accounts (upstream
-//! `_collect_usage_entries`): network-free verdicts first, then a reserve
-//! of the slots that are due, parallel fetches outside every lock, and a
-//! claim-fenced record. Everything else is served from `cache/usage.json`.
+//! `_collect_usage_entries`); fetches run outside every lock.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -28,7 +26,6 @@ mod active;
 /// Delay between request starts so N accounts never hit the endpoint at once.
 const FETCH_STAGGER: Duration = Duration::from_millis(250);
 
-/// A managed account as a usage pass sees it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountInfo {
     /// The slot as `sequence` stores it (normally an integer).
@@ -51,8 +48,7 @@ impl AccountInfo {
     }
 }
 
-/// Every account in `sequence` order, with the live login resolved to its
-/// slot; `active` is the live-credential read when a slot is active.
+/// Every account in `sequence` order, with the live login resolved to its slot.
 pub fn build_accounts_info(
     paths: &Paths,
     secrets: &SecretStore,
@@ -352,7 +348,6 @@ fn record_of(outcome: UsageOutcome) -> FetchRecord {
     }
 }
 
-/// What one pass's fetches share across threads.
 struct Fetcher<'f> {
     paths: &'f Paths,
     secrets: &'f SecretStore,
@@ -364,7 +359,7 @@ struct Fetcher<'f> {
 }
 
 impl Fetcher<'_> {
-    /// One network fetch for one slot. Never fails: problems become records.
+    /// Never fails: problems become records.
     fn fetch_account(&self, info: &AccountInfo) -> FetchRecord {
         if info.is_active {
             return self.fetch_active(info);

@@ -1,14 +1,9 @@
-//! The consume gate, driven black-box through the usage pass of an expired
-//! (or server-rejected) inactive slot: `list --json` fetches slot 2, whose
-//! refresh goes through the gate.
-//!
 //! Ported from upstream tests/test_switcher.py: TestConsumeGate,
 //! TestInactiveRefreshRoutesThroughGate, TestConsumeGateLockFailures,
 //! TestPermanentlyUnreadableStashRow, TestGateUltraReviewFixes,
 //! TestStashReaderUnreadableVsAbsent. A test whose upstream form hands the
-//! gate a stale snapshot is driven through the 401 path instead: the usage
-//! handler changes the store while the slot's fetch is in flight, so the
-//! gate's locked re-read sees what the collector's read did not.
+//! gate a stale snapshot is driven through the 401 path instead, with the usage
+//! handler changing the store while the slot's fetch is in flight.
 
 mod support;
 
@@ -53,7 +48,6 @@ fn live_looking(access: &str, refresh: &str) -> String {
     creds(access, refresh, 9_999_999_999_000)
 }
 
-/// Slot 1 (`a@`) is the live login; slot 2 (`b@`) stores `backup`.
 fn setup(backup: &str) -> TestEnv {
     let env = TestEnv::new();
     env.seed_sequence(json!({
@@ -80,8 +74,7 @@ fn setup(backup: &str) -> TestEnv {
     env
 }
 
-/// Usage for every bearer except `sk-old`, which the server rejects;
-/// `side` runs first and may answer instead.
+/// The server rejects `sk-old`; `side` runs first and may answer instead.
 fn usage_answers<F>(env: &TestEnv, side: F)
 where
     F: Fn(&str) -> Option<StubResponse> + Send + Sync + 'static,
@@ -105,7 +98,6 @@ where
 
 type Posted = Arc<Mutex<Vec<String>>>;
 
-/// The token endpoint; records each POSTed refresh token.
 fn token_endpoint<F>(env: &TestEnv, answer: F) -> Posted
 where
     F: Fn(&str) -> StubResponse + Send + Sync + 'static,
@@ -228,7 +220,6 @@ fn session_dir(env: &TestEnv) -> PathBuf {
     dir
 }
 
-/// An exclusive flock on `path`, held until dropped.
 struct Held {
     _file: std::fs::File,
 }
@@ -249,8 +240,6 @@ fn chmod(path: &PathBuf, mode: u32) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
-// --- TestInactiveRefreshRoutesThroughGate ----------------------------------
-
 #[test]
 fn inactive_refresh_routes_through_gate_test_expired_inactive_fetch_uses_gate() {
     let env = setup(&old());
@@ -267,8 +256,6 @@ fn inactive_refresh_routes_through_gate_test_expired_inactive_fetch_uses_gate() 
     assert_eq!(oauth_field(&stored, "refreshToken"), "rt-new");
     assert_eq!(slot2(&payload)["usageStatus"], "ok");
 }
-
-// --- TestConsumeGate ---------------------------------------------------------
 
 #[test]
 fn consume_gate_test_gate_rereads_under_lock_and_posts_rereread_bytes() {
@@ -560,8 +547,6 @@ fn consume_gate_test_an_absent_slot_defers_even_when_a_newer_profile_exists() {
     );
 }
 
-// --- TestConsumeGateLockFailures --------------------------------------------
-
 #[test]
 fn consume_gate_lock_failures_test_lock_failure_before_post_is_transient() {
     let env = setup(&old());
@@ -607,8 +592,6 @@ fn consume_gate_lock_failures_test_a_stashed_successor_is_not_reported_as_freshe
         "the successor still serves this pass's request"
     );
 }
-
-// --- TestPermanentlyUnreadableStashRow ---------------------------------------
 
 #[test]
 fn permanently_unreadable_stash_row_test_ten_passes_name_the_condition_instead_of_network() {
@@ -656,8 +639,6 @@ fn permanently_unreadable_stash_row_test_the_kind_carries_its_remedy_and_skips_t
         "spent a guaranteed 401 on a token known to be expired"
     );
 }
-
-// --- TestGateUltraReviewFixes ------------------------------------------------
 
 #[test]
 fn gate_ultra_review_fixes_test_a_cas_conflict_is_not_reported_as_a_failed_freshen() {
@@ -1081,8 +1062,6 @@ fn gate_ultra_review_fixes_test_a_denied_session_dir_still_leaves_the_stale_mark
 fn gate_ultra_review_fixes_test_a_denied_session_dir_still_leaves_the_stale_marker_and_parent() {
     denied_session_dir(Some("session_dir_and_parent"));
 }
-
-// --- TestStashReaderUnreadableVsAbsent ---------------------------------------
 
 #[test]
 fn stash_reader_unreadable_vs_absent_test_row_a_unreadable_entry_does_not_post_the_spent_generation()

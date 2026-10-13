@@ -1,7 +1,3 @@
-//! `list`: every managed account with its usage, plus the diagnostics
-//! shown under it (duplicate/lockstep warnings, running instances,
-//! token status).
-
 use serde_json::Value;
 
 use crate::anthropic_client::{AnthropicClient, build_token_status, credential_fingerprint};

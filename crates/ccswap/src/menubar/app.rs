@@ -1,6 +1,5 @@
-//! The running status item. Everything blocking (store locks, Keychain,
-//! network, the auto-switch engine) runs on worker threads; results come
-//! back through channels that a 1-second main-thread tick drains.
+//! Blocking work runs on worker threads whose results a 1-second main-thread
+//! tick drains, keeping AppKit responsive.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -50,7 +49,6 @@ const KEYCHAIN_BLOCKED: &str = "Couldn't read the active credential. If the menu
     as a background/login agent, macOS blocks its Keychain access — quit and relaunch it from \
     a Terminal with: ccswap menubar";
 
-/// What workers hand back to the main thread.
 enum Report {
     Snapshot(MenuSnapshot),
     Action {
@@ -367,8 +365,7 @@ impl Target {
         self.rebuild_menu();
     }
 
-    /// Runs an account action off the main thread; failures come back as
-    /// alert text.
+    /// Failures come back as alert text.
     fn spawn_action(
         &self,
         notify_switched: bool,

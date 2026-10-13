@@ -1,5 +1,3 @@
-//! The passive update notice and `upgrade`.
-//!
 //! Ported from upstream tests/test_update_check.py::TestCheckForUpdate
 //! (re-targeted from PyPI to this repository's GitHub Releases). The stub
 //! answers in both shapes (`tag_name` for ccswap, `info.version` for

@@ -185,7 +185,6 @@ impl Drop for DirLock {
     }
 }
 
-/// Sets the mtime to now.
 pub fn touch(path: &Path) -> std::io::Result<()> {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;

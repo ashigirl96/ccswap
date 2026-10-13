@@ -47,8 +47,6 @@ fn stop_on_poll(n: usize) -> impl FnMut(usize, &AutoSwitchEvent, &LoopHandle) {
     }
 }
 
-// --- TestRunLoop --------------------------------------------------------------
-
 #[test]
 fn run_loop_test_loop_ticks_until_stopped() {
     let h = Harness::three();
@@ -214,8 +212,6 @@ fn run_loop_short_waits_emit_no_sleep_event() {
     assert!(!h.has("sleep"));
 }
 
-// --- TestLoopObeysThePollPlan ---------------------------------------------------
-
 fn plan_due_in(h: &Harness, due_in: f64) {
     let entry = UsageEntry {
         last_good: usage(10.0),
@@ -262,8 +258,6 @@ fn loop_obeys_the_poll_plan_a_short_interval_is_never_raised_to_the_floor() {
     assert_eq!(engine.next_delay(TickOutcome::NoAction), 15.0);
 }
 
-// --- TestSessionThreshold -------------------------------------------------------
-
 #[test]
 fn session_threshold_test_apply_threshold_retargets_trigger_and_poll_pin() {
     let h = Harness::three();
@@ -307,8 +301,6 @@ fn session_threshold_test_collect_escalates_on_the_tick_snapshot_threshold() {
     assert!(collect_fetch_sets(90.0).contains(&all));
     assert!(!collect_fetch_sets(99.9).contains(&all));
 }
-
-// --- TestAdaptiveScheduler ------------------------------------------------------
 
 /// The fake host with the real usage store behind `usage_entries`: fetches
 /// are counted and planned like the collector does, with a jitter of 0.

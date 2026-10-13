@@ -1,11 +1,7 @@
-//! AutoSwitchEngine: poll usage, switch accounts before they hit their
-//! limits. UI-agnostic: every outcome is an [`AutoSwitchEvent`] handed to a
-//! callback, and time comes from an injected clock, so the CLI, the TUI and
-//! the menubar share one engine and tests can step time.
+//! Polls usage and switches accounts before they hit their limits.
 //!
-//! One [`tick`](AutoSwitchEngine::tick) is one decision. Cooldown, quarantine
-//! and the last move persist in `autoswitch_state.json` so cron-driven
-//! `auto --once` runs behave like one long-running loop.
+//! Cooldown, quarantine and the last move persist in `autoswitch_state.json`
+//! so cron-driven `auto --once` runs behave like one long-running loop.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -44,7 +40,6 @@ use rank::{BarInput, RankInput, Ranked, binding_recovery_ts};
 /// Refresh a target whose token expires within this window: twice Claude
 /// Code's own 5-minute buffer.
 pub const FRESHEN_BUFFER_MS: f64 = 10.0 * 60.0 * 1000.0;
-/// Recheck an exhausted fleet at the exhausted-account poll cadence.
 pub const MAX_SLEEP_S: f64 = poll_policy::EXHAUSTED_INTERVAL_S;
 pub const NO_RESET_FALLBACK_S: f64 = 300.0;
 /// After this long an owned-and-expired active token stops idling the
@@ -106,8 +101,7 @@ enum Freshen {
     Systemic(&'static str),
 }
 
-/// UTC ISO-8601 with `Z`, microseconds only when present (Python
-/// `datetime.isoformat()`).
+/// Python `datetime.isoformat()` with `Z`: microseconds only when present.
 fn iso_utc(ts: f64) -> String {
     let micros = (ts * 1e6).round() as i64;
     let secs = micros.div_euclid(1_000_000);
@@ -237,8 +231,7 @@ impl<'a> AutoSwitchEngine<'a> {
         });
     }
 
-    /// Evaluate once: poll usage, maybe switch. Never fails; an error is an
-    /// `error` event and [`TickOutcome::Error`].
+    /// Never fails; an error is an `error` event and [`TickOutcome::Error`].
     pub fn tick(&mut self) -> TickOutcome {
         match self.tick_inner() {
             Ok(outcome) => outcome,
@@ -291,8 +284,6 @@ impl<'a> AutoSwitchEngine<'a> {
         Ok(())
     }
 
-    /// Quarantined slots whose credential was replaced since re-enter
-    /// rotation.
     fn release_recovered_quarantines(&mut self, state: State) -> Result<State> {
         let Some(Value::Object(quarantine)) = state.get("quarantine") else {
             return Ok(state);
@@ -1049,7 +1040,6 @@ impl<'a> AutoSwitchEngine<'a> {
         earliest
     }
 
-    /// Seconds until the next tick after `outcome`.
     pub fn next_delay(&mut self, outcome: TickOutcome) -> f64 {
         let interval = self.settings.interval_seconds;
         match outcome {

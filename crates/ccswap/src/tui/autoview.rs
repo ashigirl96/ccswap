@@ -1,7 +1,3 @@
-//! The Auto screen's text (upstream `tui/autoview.py`): the decision-log
-//! line for an engine event, the ranked "Next best" candidates and the
-//! summary line.
-
 use ccswap_core::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, pct_label};
 use ccswap_core::poll_policy::binding_pct;
 use ccswap_core::snapshot::AccountsSnapshot;
@@ -95,8 +91,7 @@ pub fn clock_stamp() -> String {
     chrono::Local::now().format("%H:%M:%S").to_string()
 }
 
-/// Switch targets by binding usage, best first, over the engine's window
-/// set; sentinel and unknown accounts sink to the bottom.
+/// Sentinel and unknown accounts sink to the bottom.
 pub fn candidate_lines(
     snap: &AccountsSnapshot,
     models: &[String],

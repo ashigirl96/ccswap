@@ -1,6 +1,3 @@
-//! `remove`, `disable`, `enable`, `purge` (main parser) and the
-//! pre-dispatched `alias` command.
-
 use ccswap_core::accounts::Accounts;
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
@@ -14,8 +11,6 @@ use crate::argparse::Parsed;
 use crate::cli::TerminalConsole;
 use crate::config_cmd::{looks_like_option, lookup, split_explicit};
 
-/// Runs whichever of remove/disable/enable/purge `parsed` selects; `None`
-/// when it selects none of them.
 pub fn dispatch(
     env: &Environment,
     paths: &Paths,
@@ -60,7 +55,6 @@ pub fn dispatch(
 const ALIAS_HELP: &str = include_str!("alias_help.txt");
 const ALIAS_OPTS: &[&str] = &["-h", "--help", "--unset", "--debug"];
 
-/// `alias [NUM|EMAIL] [NAME] [--unset]`: list, set or clear aliases.
 pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let usage_error = |msg: &str| {
         eprintln!("usage: {prog} alias [-h] [--unset] [--debug] [NUM|EMAIL] [NAME]");

@@ -1,6 +1,5 @@
-//! The read side interactive surfaces (TUI, menu bar) consume: one coherent
-//! account snapshot per pass, and the reconciliation that keeps a late,
-//! older pass from regressing what is on screen (upstream
+//! One coherent account snapshot per pass, and the reconciliation that keeps
+//! a late, older pass from regressing what is on screen (upstream
 //! `snapshot_source.py` and `accounts_snapshot`).
 
 use std::collections::{HashMap, HashSet};
@@ -25,7 +24,6 @@ pub enum AccountKind {
     ApiKey,
 }
 
-/// One managed account as interactive surfaces see it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountSnapshot {
     pub number: String,
@@ -73,8 +71,8 @@ pub fn account_identity(acc: &AccountSnapshot) -> (&str, &str, AccountKind) {
     (&acc.email, &acc.org_uuid, acc.kind)
 }
 
-/// `fetch = None` lets every stale account be fetched (what `list` does);
-/// `Some(empty)` reads the store only.
+/// `fetch = None` lets every stale account be fetched; `Some(empty)` reads
+/// the store only.
 pub fn accounts_snapshot(
     paths: &Paths,
     env: &Environment,

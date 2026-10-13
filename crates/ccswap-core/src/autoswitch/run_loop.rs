@@ -1,6 +1,5 @@
-//! The long-running loop around [`AutoSwitchEngine::tick`], and the
-//! [`LoopHandle`] other threads (signal watcher, TUI, menubar) use to stop
-//! it, cut its sleep short or retarget its threshold.
+//! The long-running loop around [`AutoSwitchEngine::tick`], controllable from
+//! other threads through a [`LoopHandle`].
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -15,9 +14,8 @@ struct Flags {
     threshold: Option<f64>,
 }
 
-/// Cloneable, `Send + Sync` control for one engine's loop. Build it first
-/// and hand a clone to [`AutoSwitchEngine::loop_handle`] when the engine
-/// itself has to live on another thread.
+/// Build it before the engine and pass a clone to
+/// [`AutoSwitchEngine::loop_handle`] when the engine lives on another thread.
 #[derive(Clone, Default)]
 pub struct LoopHandle(Arc<(Mutex<Flags>, Condvar)>);
 
@@ -83,7 +81,6 @@ impl LoopHandle {
 }
 
 impl AutoSwitchEngine<'_> {
-    /// Shares `handle` as this engine's loop control.
     pub fn loop_handle(mut self, handle: LoopHandle) -> Self {
         self.handle = handle;
         self
@@ -108,8 +105,7 @@ impl AutoSwitchEngine<'_> {
         self.host.set_poll_policy_inputs(threshold, &self.models);
     }
 
-    /// Ticks until stopped; returns the exit code (always 0). A failing tick
-    /// is an `error` event, never the end of the loop.
+    /// Always returns 0; a failing tick is an `error` event, never the end of the loop.
     pub fn run_loop(&mut self) -> i32 {
         loop {
             let (stopped, threshold) = self.handle.begin_pass();

@@ -1,6 +1,6 @@
 //! `export` / `import`: accounts carried between machines in a JSON envelope
-//! (format version 1). Every human message goes to the `notice` sink (stderr
-//! in the CLI) so `export -` keeps stdout pure JSON.
+//! (format version 1). Every human message goes to the `notice` sink so
+//! `export -` keeps stdout pure JSON.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};

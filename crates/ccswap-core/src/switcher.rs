@@ -1,6 +1,5 @@
-//! The switch: pick a target, then one transaction under the store lock and
-//! Claude Code's locks that backs up the outgoing login, activates the
-//! target and rolls every recorded step back if a later one fails.
+//! A switch is one transaction under the store lock and Claude Code's locks
+//! that rolls every recorded step back if a later one fails.
 
 use crate::pyjson::py_str;
 use std::path::{Path, PathBuf};
@@ -39,7 +38,6 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
 
 const ACCOUNT_CREDENTIAL_KEYS: [&str; 2] = ["claudeAiOauth", "trustedDeviceToken"];
 
-/// Prints the account list after a human-mode switch.
 pub type Listing<'a> = dyn Fn(&mut dyn Console) -> Result<()> + 'a;
 
 pub struct Switcher<'a> {
@@ -48,8 +46,8 @@ pub struct Switcher<'a> {
     pub secrets: &'a SecretStore,
     pub client: &'a AnthropicClient,
     pub style: &'a Style,
-    /// Prints the account list after a human-mode switch; an error becomes
-    /// a one-line notice instead of failing the switch.
+    /// Printed after a human-mode switch; an error becomes a one-line notice
+    /// instead of failing the switch.
     pub listing: Option<&'a Listing<'a>>,
 }
 
@@ -733,7 +731,6 @@ impl Switcher<'_> {
         }
     }
 
-    /// The switch transaction. Human output is printed only when `emit`.
     /// `force` activates the target's stored login without backing up the
     /// live one; `provenance` is a pre-lock resolution already made.
     fn perform(
@@ -839,8 +836,6 @@ impl Switcher<'_> {
         Ok(Performed { from, to, warnings })
     }
 
-    /// The normal path: back up (or stash) the outgoing login, then the
-    /// recorded steps, rolled back newest first when a later one fails.
     #[allow(clippy::too_many_arguments)]
     fn switch_normally(
         &self,
@@ -908,8 +903,8 @@ impl Switcher<'_> {
         }
     }
 
-    /// Steps 1-5 of the normal path; every mutation of the live state is
-    /// recorded in `transaction` as soon as it lands.
+    /// Every mutation of the live state is recorded in `transaction` as soon
+    /// as it lands.
     #[allow(clippy::too_many_arguments)]
     fn run_steps(
         &self,
@@ -1068,9 +1063,8 @@ impl Switcher<'_> {
         }
     }
 
-    /// Fresh machine, unmanaged live login or `--force`: the target's stored
-    /// login replaces the live one with no backup step, so a live credential
-    /// that differs from it is stashed first.
+    /// There is no backup step here, so a live credential that differs from
+    /// the target's is stashed first.
     #[allow(clippy::too_many_arguments)]
     fn activate_directly(
         &self,

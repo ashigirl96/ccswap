@@ -1,6 +1,5 @@
-//! `ccswap config [list|get KEY|set KEY VALUE|unset KEY|path]`, with the
-//! argparse surface of upstream's dedicated `config` parser (a top-level
-//! parser with `--json`/`--debug` and one subparser per verb).
+//! Mirrors upstream's dedicated `config` argparse parser: `--json`/`--debug`
+//! plus one subparser per verb.
 
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::Error;

@@ -1,14 +1,4 @@
-//! The consume gate (upstream `consume_backup_grant`): every POST of a
-//! slot's backup refresh token goes through here. A refresh token is
-//! one-time-use, so the gate consumes the provably freshest copy under a
-//! per-slot consume lock held across re-read → POST → compare-and-swap, and
-//! never discards a consumed generation: a successor it cannot persist is
-//! parked in the unclaimed stash and adopted by the next pass. The store
-//! lock itself never covers the network call.
-//!
-//! The usage pass (expired inactive slots), auto's pre-switch freshen and
-//! `run`'s pre-seed refresh all call [`ConsumeGate::consume_backup_grant`];
-//! the active slot's locked refresh takes the same consume lock.
+//! Refresh tokens are one-time-use, so every POST of a backup's goes through upstream's `consume_backup_grant` protocol.
 
 use std::path::PathBuf;
 
@@ -74,10 +64,9 @@ enum Prepared {
 }
 
 impl ConsumeGate<'_> {
-    /// Refreshes slot `num`'s backup. `credentials` on the outcome is the
-    /// slot's now-current credential (ours, or a racing writer's newer
-    /// lineage); `error` is the refresh failure or the gate's own refusal.
-    /// Never fails. The caller must not hold the store lock.
+    /// `credentials` on the outcome is the slot's now-current credential,
+    /// possibly a racing writer's newer lineage. The caller must not hold the
+    /// store lock.
     pub fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome {
         if self
             .env

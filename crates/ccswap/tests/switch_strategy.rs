@@ -1,11 +1,8 @@
-//! `switch --strategy best|next-available` and `--model`.
-//!
 //! Ported from upstream tests/test_switcher.py::TestUsageAwareSwitch,
 //! test_best_strategy_ignores_disabled_candidate and
 //! tests/test_cli.py (strategy/model flag validation, model fallback to
-//! `autoswitch.model`, `models`/`modelSource` in `--json`). Usage is served
-//! by the stub usage endpoint per bearer token instead of patching
-//! `_usage_by_account`; a token without a stub answers 500 (usage unknown).
+//! `autoswitch.model`, `models`/`modelSource` in `--json`). A token without
+//! a usage stub answers 500 (usage unknown).
 
 mod support;
 
@@ -68,7 +65,6 @@ fn seed(env: &TestEnv, nums: &[u32], live: u32, recorded: u32) {
 /// Slot, then its five-hour utilization and optional Fable limit.
 type UsageRow = (u32, Option<(f64, Option<f64>)>);
 
-/// Five-hour utilization per slot, plus an optional Fable weekly limit.
 /// `None` leaves the slot's usage unknown.
 fn stub_usage(env: &TestEnv, rows: &[UsageRow]) {
     let bodies: Vec<(String, String)> = rows

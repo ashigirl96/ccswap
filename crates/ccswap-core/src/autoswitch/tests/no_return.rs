@@ -22,8 +22,6 @@ fn trigger(h: &Harness) -> Trigger {
     h.switch().expect("a switch event").0
 }
 
-// --- TestEveryAccountAboveThreshold ------------------------------------------
-
 #[test]
 fn every_account_above_threshold_test_moves_to_the_soonest_recovering_account() {
     let h = Harness::three();
@@ -155,8 +153,6 @@ fn every_account_above_threshold_test_at_limit_trigger_still_ignores_the_landing
     assert_eq!(trigger(&h), Trigger::AtLimit);
 }
 
-// --- TestRecoveryIsUsefulEitherClause ----------------------------------------
-
 #[test]
 fn recovery_is_useful_either_clause_test_the_active_alone_being_inside_the_horizon_is_enough() {
     let now = 1_000_000.0;
@@ -180,8 +176,6 @@ fn recovery_is_useful_either_clause_test_the_control_neither_inside_falls_back_t
         now
     ));
 }
-
-// --- TestRecoveryHorizon -------------------------------------------------------
 
 #[test]
 fn recovery_horizon_test_a_minutes_away_reset_still_wins() {
@@ -293,8 +287,6 @@ fn recovery_horizon_test_a_peer_with_real_headroom_still_wins_past_the_horizon()
     assert_eq!(h.active(), s("2"));
 }
 
-// --- TestTheHorizonDoesNotDiscardWhatItAlreadyKnows -------------------------
-
 #[test]
 fn the_horizon_does_not_discard_what_it_already_knows_test_equal_headroom_past_the_horizon_takes_the_sooner_reset()
  {
@@ -337,8 +329,6 @@ fn the_horizon_does_not_discard_what_it_already_knows_test_an_unchoosable_peer_d
     assert_eq!(h.tick(&mut e, &usage), TickOutcome::Switched);
     assert_eq!(h.active(), s("2"));
 }
-
-// --- TestTheReleasePredicateOneStateShapePerTest ------------------------------
 
 /// Upstream `_left_account_recovered(state, usage, headroom, active, ..)`:
 /// only the left account "2" is measured, the active "1" is not.
@@ -459,8 +449,6 @@ fn the_release_predicate_one_state_shape_per_test_test_at_limit_escape_still_wor
     }
 }
 
-// --- TestAllSpentGoesToTheSoonestReset --------------------------------------
-
 #[test]
 fn all_spent_goes_to_the_soonest_reset_test_all_spent_moves_to_the_soonest_reset() {
     let h = Harness::three();
@@ -525,8 +513,6 @@ fn all_spent_goes_to_the_soonest_reset_test_the_flap_guard_survives_in_the_spent
     ];
     assert_ne!(h.tick(&mut e, &usage), TickOutcome::Switched);
 }
-
-// --- TestEscapeBeforeTheLimitLands ----------------------------------------
 
 #[test]
 fn escape_before_the_limit_lands_test_at_99_the_proactive_path_already_escapes() {

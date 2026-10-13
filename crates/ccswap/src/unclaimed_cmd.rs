@@ -1,6 +1,3 @@
-//! The pre-dispatched `unclaimed [--purge ID]`: list or drop the safety
-//! copies a switch stashed.
-
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;

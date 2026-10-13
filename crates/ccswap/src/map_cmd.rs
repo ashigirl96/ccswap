@@ -1,6 +1,3 @@
-//! `map [NUM|EMAIL] [PATH]` and `unmap [PATH]`: directory → account
-//! mappings for `run` without an account.
-
 use std::path::Path;
 
 use ccswap_core::accounts::{Accounts, ResolvedAccount};
@@ -109,7 +106,6 @@ impl<'a> Context<'a> {
     }
 }
 
-/// The PATH argument, or the working directory as the user sees it.
 fn target(path: Option<&String>) -> String {
     match path.filter(|p| !p.is_empty()) {
         Some(path) => path.clone(),
@@ -232,7 +228,6 @@ fn report_exit(exit: Exit, help: &str, prog: &str, usage: &str, name: &str) -> i
     }
 }
 
-/// argparse with `max` optional positionals and `-h`/`--debug`.
 fn parse(argv: &[String], max: usize) -> std::result::Result<Args, Exit> {
     let mut args = Args {
         positionals: Vec::new(),

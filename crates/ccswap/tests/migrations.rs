@@ -1,10 +1,7 @@
-//! Run-once migrations (`.migrations.json`) and the lazy org-field back-fill.
-//!
 //! Ported from upstream tests/test_migrations.py::TestMacosKeyringToSecurity,
 //! ::TestSkips, ::TestAccountNoneFallback, ::TestFailures, ::TestRunner and
 //! tests/test_switcher.py::TestUpgradeMigration. Upstream runs with `keyring`
-//! unimportable (see upstream_shim.py), so both sides take the `security`
-//! fallback path: legacy items are copied, never deleted.
+//! unimportable (see upstream_shim.py), so both sides copy legacy items via `security`.
 
 mod support;
 

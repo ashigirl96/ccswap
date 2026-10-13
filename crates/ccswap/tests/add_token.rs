@@ -1,6 +1,3 @@
-//! `add-token` (`--add-token`): register a setup-token or managed API key
-//! without a browser login.
-//!
 //! Ported from upstream tests/test_switcher.py::TestAddAccountFromToken,
 //! test_api_key_accounts.py::TestKindDetection / TestAddTokenApiKey /
 //! TestCrossKindCollision and test_cli.py (add-token dispatch and flag checks).

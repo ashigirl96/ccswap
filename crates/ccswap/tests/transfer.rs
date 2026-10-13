@@ -1,5 +1,3 @@
-//! `export` / `import`: accounts as a portable JSON envelope (version 1).
-//!
 //! Ported from upstream tests/test_transfer.py (TestRoundTrip,
 //! TestAliasTransfer, TestSelectiveExport, TestConflictPolicy, TestValidation,
 //! TestPipeMode, TestEmptyHome, TestFilePermissions,
@@ -94,7 +92,7 @@ impl<'a> Seed<'a> {
     }
 }
 
-/// Backup credential + config copy + roster record, like upstream `_seed_account`.
+/// Mirrors upstream `_seed_account`.
 fn seed(env: &TestEnv, s: Seed) {
     let creds = s.creds.clone().unwrap_or_else(|| creds_for(s.email));
     let config = s
@@ -256,8 +254,6 @@ fn sample_envelope(email: Value, number: Value) -> Value {
     })
 }
 
-// --- round trip -------------------------------------------------------------
-
 #[test]
 fn export_import_round_trip() {
     let src = TestEnv::new();
@@ -395,8 +391,6 @@ fn import_never_touches_the_live_login() {
     );
 }
 
-// --- aliases ----------------------------------------------------------------
-
 #[test]
 fn alias_round_trips() {
     let src = TestEnv::new();
@@ -482,8 +476,6 @@ fn import_invalid_alias_format_rejected() {
     );
 }
 
-// --- selective export -------------------------------------------------------
-
 #[test]
 fn export_single_by_number_or_email() {
     let env = TestEnv::new();
@@ -529,8 +521,6 @@ fn export_unknown_account_or_empty_roster_fails() {
     assert_eq!(out.stderr, "Error: account not found: 999\n");
     assert!(!file.exists());
 }
-
-// --- conflicts --------------------------------------------------------------
 
 #[test]
 fn skip_when_account_exists_without_force() {
@@ -658,8 +648,6 @@ fn slot_allocation_when_exported_slot_taken() {
     assert_eq!(seq["accounts"]["5"]["email"], "alice@example.com");
     assert_eq!(seq["sequence"], json!([1, 4, 5]));
 }
-
-// --- validation -------------------------------------------------------------
 
 fn assert_import_rejected(envelope: &Value, expected: &str) {
     let env = TestEnv::new();
@@ -840,8 +828,6 @@ fn a_linux_export_imports_into_the_keychain() {
     assert_eq!(seq["accounts"]["3"]["uuid"], "u");
 }
 
-// --- pipes, empty home, permissions -----------------------------------------
-
 #[test]
 fn export_to_stdout_writes_only_json() {
     let env = TestEnv::new();
@@ -931,8 +917,6 @@ fn export_expands_tilde() {
     assert!(env.home().join("b.cswap").exists());
 }
 
-// --- clean-home activation seeding -------------------------------------------
-
 fn export_alice_bob_active_bob() -> (TestEnv, PathBuf) {
     let src = TestEnv::new();
     seed(&src, Seed::new(1, "alice@example.com"));
@@ -980,8 +964,6 @@ fn active_seeded_when_envelope_active_was_skipped() {
     assert_eq!(seq["accounts"]["7"]["email"], "bob@example.com");
     assert_eq!(seq["activeAccountNumber"], 7);
 }
-
-// --- slim vs full -----------------------------------------------------------
 
 fn bloated_config() -> Value {
     json!({
@@ -1121,8 +1103,6 @@ fn api_key_accounts_round_trip_as_raw_strings() {
     );
 }
 
-// --- broken slots -----------------------------------------------------------
-
 fn seed_alice_without_creds_and_bob(env: &TestEnv) {
     let alice = Seed::new(1, "alice@example.com");
     seed_backup_config(
@@ -1242,8 +1222,6 @@ fn active_account_without_live_credentials_fails() {
         "Error: failed to read live credentials for active account alice@example.com\n"
     );
 }
-
-// --- dead-token quarantine ----------------------------------------------------
 
 fn export_bob_with_marker(env: &TestEnv, marker: Option<&str>) -> PathBuf {
     let file = backup_file(env, "bob.cswap");
@@ -1520,8 +1498,6 @@ fn fresh_slot_import_creates_no_quarantine() {
     assert_eq!(row["email"], "bob@example.com");
     assert_cleared(&row);
 }
-
-// --- cross-implementation ------------------------------------------------------
 
 fn normalize_volatile(text: &str) -> Value {
     let mut envelope: Value = serde_json::from_str(text).unwrap();

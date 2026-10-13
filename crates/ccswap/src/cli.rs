@@ -129,7 +129,6 @@ impl Cli {
         }
     }
 
-    /// Runs one invocation and returns the exit code.
     pub fn run(&mut self, args: Vec<String>) -> i32 {
         for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
             eprintln!("{warning}");
@@ -639,9 +638,8 @@ impl Cli {
     }
 }
 
-/// Upstream's switcher start-up: logging, then the store migrations. Every
-/// command but `upgrade` runs it, upstream before the root check (ccswap
-/// after it, so root never writes into the user's store).
+/// Runs after the root check, unlike upstream, so root never writes into the
+/// user's store.
 pub fn run_store_migrations(env: &Environment, paths: &Paths, debug: bool) {
     ccswap_core::log::setup(&paths.backup_root(), debug);
     let keychain = Keychain::new(Endpoints::new(env).security, env);
@@ -684,7 +682,6 @@ fn nonempty(p: &Parsed, name: &str) -> bool {
     p.value(name).is_some_and(|v| !v.is_empty())
 }
 
-/// `--model` wins; otherwise the `autoswitch.model` setting applies.
 fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
     let mut chosen = SwitchStrategy::new(Strategy::parse(parsed.value("--strategy")?)?);
     if let Some(names) = parsed.value("--model") {
@@ -697,7 +694,6 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
     Some(chosen)
 }
 
-/// `ccswap list` → `--list`, `ccswap switch X` → `--switch-to X`, etc.
 fn translate_subcommand(args: Vec<String>) -> Vec<String> {
     let Some((verb, rest)) = args.split_first() else {
         return args;

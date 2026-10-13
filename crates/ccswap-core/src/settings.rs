@@ -295,7 +295,6 @@ impl Settings {
         }
     }
 
-    /// `settings.json` inside a store (backup) directory.
     pub fn in_dir(backup_dir: &Path) -> Self {
         Settings {
             path: backup_dir.join("settings.json"),
@@ -383,8 +382,6 @@ impl Settings {
         Ok(true)
     }
 
-    /// `autoswitch.model` as names; the auto engine and the manual switch
-    /// strategies read it identically.
     pub fn autoswitch_models(&self) -> Vec<String> {
         match self.get("autoswitch.model").map(|s| s.value) {
             Ok(SettingValue::Text(t)) => parse_model_names(&t),

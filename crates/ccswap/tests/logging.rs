@@ -1,5 +1,3 @@
-//! `claude-swap.log`: the switch record and `--debug`.
-//!
 //! Ported from upstream tests/test_logging_config.py::{test_setup_does_not_create_dir,
 //! test_dir_is_created_on_first_log, test_debug_adds_console_handler}; the
 //! per-command log lines come from upstream `switcher.py`'s `_logger` calls.
@@ -28,7 +26,6 @@ fn oauth_account(num: u32) -> Value {
     json!({"emailAddress": email(num), "accountUuid": format!("uuid-{num}")})
 }
 
-/// Slots 1 and 2, slot `active` live.
 fn seed(env: &TestEnv, active: u32) {
     let record = |n: u32| {
         json!({"email": email(n), "uuid": format!("uuid-{n}"), "organizationUuid": "",

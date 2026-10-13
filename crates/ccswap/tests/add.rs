@@ -1,5 +1,3 @@
-//! `add` (`--add-account`): register the live login into a slot.
-//!
 //! Ported from upstream tests/test_add_account_identity.py (ownership guard,
 //! drift rechecks), test_switcher.py::TestAddAccountRefresh / TestAddAccountSlot
 //! / TestAddAccountAlias / TestAddAccountOrgFields / TestAliasValidation,
@@ -37,8 +35,6 @@ fn profile_body(uuid: &str, email: &str, org: Option<&str>) -> String {
     body.to_string()
 }
 
-/// A logged-in `email` whose live Keychain item holds `creds(tag)` and whose
-/// token resolves to that same account.
 fn logged_in(env: &TestEnv, email: &str, org: &str, org_name: &str, tag: &str) {
     env.seed_login(email, org, org_name);
     env.security()

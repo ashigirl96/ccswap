@@ -1,4 +1,4 @@
-//! What interactive surfaces (TUI, menu bar) may do: the snapshot read plus
+//! What interactive surfaces may do: the snapshot read plus
 //! the account operations, behind one trait so a surface can be driven by a
 //! fake (the range of upstream's test `FakeSwitcher`).
 

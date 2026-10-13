@@ -67,7 +67,6 @@ pub fn error_note(kind: &str) -> Option<&'static str> {
     })
 }
 
-/// The verdict for the active account that needs no network call.
 pub fn static_active_sentinel(active: &ActiveCredentials) -> Option<Sentinel> {
     let creds = active.value.as_deref().unwrap_or_default();
     static_sentinel(creds, || {
@@ -203,8 +202,7 @@ fn parse_offset(s: &str) -> Option<FixedOffset> {
     FixedOffset::east_opt(sign * (h * 3600 + m * 60) as i32)
 }
 
-/// `(countdown, clock)` for a reset time, clock in local time: `20:39`
-/// the same day, else `Jul 5 08:59`.
+/// `(countdown, clock)` for a reset time, the clock as `reset_clock` formats it.
 pub fn format_reset(resets_at: &Value) -> Result<(String, String), PyError> {
     let text = resets_at.as_str().ok_or("TypeError")?;
     let reset = match parse_iso(text).ok_or("ValueError")? {
@@ -407,7 +405,6 @@ fn float_or_error(v: &Value) -> Result<f64, String> {
     })
 }
 
-/// One window that gates an account: label, utilization, raw `resets_at`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Window {
     pub label: String,
