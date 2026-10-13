@@ -97,7 +97,7 @@ impl SettingSpec {
 
     /// Load-time coercion: clamp numbers, truthiness for bools, defaults for
     /// anything of the wrong type.
-    fn lenient(&self, raw: Option<&Value>) -> SettingValue {
+    pub(crate) fn lenient(&self, raw: Option<&Value>) -> SettingValue {
         let Some(raw) = raw else {
             return self.default_value();
         };
@@ -665,7 +665,7 @@ fn python_int(raw: &str) -> Option<i128> {
 }
 
 /// `float(str)`: Rust's grammar plus whitespace and `_` separators.
-fn python_float(raw: &str) -> Option<f64> {
+pub fn python_float(raw: &str) -> Option<f64> {
     let s = without_digit_underscores(python_strip(raw))?;
     s.parse::<f64>().ok()
 }

@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod actions;
 pub mod anthropic_client;
+pub mod autoswitch;
 pub mod endpoints;
 pub mod env;
 pub mod error;

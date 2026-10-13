@@ -28,6 +28,7 @@ pub struct Opt {
     pub exclusive: bool,
     pub choices: Option<&'static [&'static str]>,
     pub int: bool,
+    pub float: bool,
 }
 
 impl Opt {
@@ -39,6 +40,7 @@ impl Opt {
             exclusive: false,
             choices: None,
             int: false,
+            float: false,
         }
     }
 
@@ -74,6 +76,13 @@ impl Opt {
         Opt { int: true, ..self }
     }
 
+    pub const fn float(self) -> Self {
+        Opt {
+            float: true,
+            ..self
+        }
+    }
+
     pub const fn action(self, action: Action) -> Self {
         Opt { action, ..self }
     }
@@ -88,9 +97,16 @@ pub enum Value {
 #[derive(Debug, Default)]
 pub struct Parsed {
     values: BTreeMap<&'static str, Value>,
+    order: Vec<&'static str>,
 }
 
 impl Parsed {
+    /// Which of `names` was given last (argparse's last-wins for options
+    /// sharing a destination, e.g. `--x` / `--no-x`).
+    pub fn last_of(&self, names: &[&str]) -> Option<&'static str> {
+        self.order.iter().rev().find(|n| names.contains(n)).copied()
+    }
+
     pub fn flag(&self, name: &str) -> bool {
         self.values.contains_key(name)
     }
@@ -194,6 +210,7 @@ impl Parser<'_> {
                 Action::Version => return Ok((Outcome::Version, parsed)),
                 Action::Store => {
                     parsed.values.insert(opt.name, value);
+                    parsed.order.push(opt.name);
                 }
             }
         }
@@ -233,6 +250,12 @@ fn check_value(opt: &Opt, text: &str) -> Result<(), ParseError> {
     if opt.int && text.trim().parse::<i64>().is_err() {
         return Err(ParseError(format!(
             "argument {}: invalid int value: '{text}'",
+            opt.name
+        )));
+    }
+    if opt.float && ccswap_core::settings::python_float(text).is_none() {
+        return Err(ParseError(format!(
+            "argument {}: invalid float value: '{text}'",
             opt.name
         )));
     }

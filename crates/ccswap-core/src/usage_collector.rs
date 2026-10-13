@@ -161,7 +161,8 @@ impl<'a> UsageCollector<'a> {
 
     /// `fetch = None` makes every account a candidate under the persisted
     /// poll plans; a set restricts the candidates and lets them beat the
-    /// plans (an empty set reads the store only).
+    /// plans (an empty set reads the store only). `scheduled` keeps valid
+    /// future plans while still letting due ones fetch.
     pub fn collect_with(
         &self,
         infos: &[AccountInfo],

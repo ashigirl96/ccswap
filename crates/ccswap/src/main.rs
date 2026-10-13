@@ -1,4 +1,5 @@
 mod argparse;
+mod auto_cmd;
 mod cli;
 mod config_cmd;
 mod manage_cmd;

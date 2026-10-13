@@ -12,6 +12,7 @@ mod support;
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -85,6 +86,10 @@ const READERS: &[Reader] = &[
     (&["list", "--json"], |listing| {
         for row in listing["accounts"].as_array_mut().into_iter().flatten() {
             row["usage"] = Value::Null;
+            if let Some(row) = row.as_object_mut() {
+                row.shift_remove("usageAgeSeconds");
+                row.shift_remove("usageFetchedAt");
+            }
         }
     }),
 ];
@@ -418,4 +423,92 @@ fn cswap_operates_on_a_ccswap_store_and_ccswap_reads_the_result() {
         "ccswap skips the slot cswap disabled"
     );
     assert_reads_agree(&env, "after the ccswap switches");
+}
+
+/// Usage per account (five-hour pct by token), swappable between runs.
+fn serve_usage(env: &TestEnv) -> Arc<Mutex<Vec<f64>>> {
+    let pcts = Arc::new(Mutex::new(vec![0.0; 4]));
+    let served = pcts.clone();
+    env.http()
+        .respond_with("GET", "/api/oauth/usage", move |req| {
+            let num: usize = req
+                .header("Authorization")
+                .unwrap_or_default()
+                .strip_prefix("Bearer sk-ant-oat01-")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0);
+            let pct = served.lock().unwrap()[num];
+            StubResponse::json(
+                200,
+                &json!({"five_hour": {"utilization": pct}, "seven_day": {"utilization": 0.0}})
+                    .to_string(),
+            )
+        });
+    pcts
+}
+
+fn auto_once(env: &TestEnv, which: Impl, extra: &[&str]) -> i32 {
+    // Each step stands for a later poll: nothing may be served from the
+    // previous step's usage cache.
+    let _ = std::fs::remove_file(env.store_dir().join("cache/usage.json"));
+    let mut args = vec!["auto", "--once", "--json"];
+    args.extend_from_slice(extra);
+    let out = env.cmd(args).using(which).run();
+    assert!(out.stderr.is_empty(), "{which:?}: {}", out.stderr);
+    out.code
+}
+
+/// Key order and JSON types of `autoswitch_state.json`.
+fn state_shape(env: &TestEnv) -> Vec<(String, &'static str)> {
+    let state = env.read_json(env.store_dir().join("autoswitch_state.json"));
+    state
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| {
+            let kind = match v {
+                Value::Null => "null",
+                Value::Number(n) if n.is_f64() => "float",
+                Value::Number(_) => "int",
+                Value::String(_) => "str",
+                _ => "other",
+            };
+            (k.clone(), kind)
+        })
+        .collect()
+}
+
+#[test]
+fn auto_cooldown_and_last_move_carry_across_implementations() {
+    if skip_without_upstream() {
+        return;
+    }
+    let env = three_accounts();
+    let usage = serve_usage(&env);
+
+    *usage.lock().unwrap() = vec![0.0, 10.0, 40.0, 95.0];
+    assert_eq!(auto_once(&env, Impl::Ccswap, &[]), 0);
+    assert_eq!(active_owner(&env), Some(1));
+    assert_reads_agree(&env, "after ccswap auto switched");
+    let written_by_ccswap = state_shape(&env);
+
+    *usage.lock().unwrap() = vec![0.0, 95.0, 10.0, 40.0];
+    assert_eq!(
+        auto_once(&env, Impl::Upstream, &[]),
+        2,
+        "cswap honours ccswap's cooldown"
+    );
+    assert_eq!(active_owner(&env), Some(1));
+    assert_eq!(auto_once(&env, Impl::Upstream, &["--cooldown", "0"]), 0);
+    assert_eq!(active_owner(&env), Some(2));
+    assert_eq!(state_shape(&env), written_by_ccswap);
+
+    *usage.lock().unwrap() = vec![0.0, 10.0, 95.0, 40.0];
+    assert_eq!(
+        auto_once(&env, Impl::Ccswap, &[]),
+        2,
+        "ccswap honours cswap's cooldown"
+    );
+    assert_eq!(active_owner(&env), Some(2));
+    assert_reads_agree(&env, "after the auto ticks");
 }

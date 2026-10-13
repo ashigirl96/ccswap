@@ -155,6 +155,9 @@ impl Cli {
         if args.first().is_some_and(|v| v == "alias") {
             return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
         }
+        if args.first().is_some_and(|v| v == "auto") {
+            return crate::auto_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if args.first().is_some_and(|v| v == "map") {
             return crate::map_cmd::run_map(&self.prog, &self.env, &args[1..]);
         }
