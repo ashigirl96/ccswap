@@ -316,15 +316,22 @@ pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(
     };
     inside("HOME")?;
     inside(SECURITY_ENV)?;
-    let launchctl = vars
-        .get("PATH")
-        .into_iter()
-        .flat_map(|p| std::env::split_paths(p).collect::<Vec<_>>())
-        .map(|dir| dir.join("launchctl"))
-        .find(|candidate| candidate.is_file());
-    match launchctl {
+    let on_path = |name: &str| {
+        vars.get("PATH")
+            .into_iter()
+            .flat_map(|p| std::env::split_paths(p).collect::<Vec<_>>())
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.is_file())
+    };
+    match on_path("launchctl") {
         Some(found) if found.starts_with(root) => {}
         found => return Err(format!("launchctl on PATH is not the fake: {found:?}")),
+    }
+    match on_path("claude") {
+        Some(found) if !found.starts_with(root) => {
+            return Err(format!("claude on PATH is not the fake: {found:?}"));
+        }
+        _ => {}
     }
     for name in [
         "CLAUDE_CONFIG_DIR",
