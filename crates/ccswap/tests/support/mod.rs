@@ -413,6 +413,50 @@ impl Cmd<'_> {
         })
     }
 
+    /// Starts the program in the background (stdin closed) for long-running
+    /// commands such as the `auto` loop: read its stdout as it comes, send
+    /// it signals, then collect it with [`Running::finish`].
+    pub fn spawn(self) -> Running {
+        check_isolation(&self.vars, &self.env.root())
+            .unwrap_or_else(|e| panic!("harness refused to launch the binary: {e}"));
+        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
+        args.extend(self.args);
+        vars.extend(self.vars);
+        let mut child = Command::new(&program)
+            .env_clear()
+            .envs(&vars)
+            .args(&args)
+            .current_dir(self.cwd.as_deref().unwrap_or(&self.env.home))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("spawn {}: {e}", program.display()));
+        let (tx, lines) = std::sync::mpsc::channel::<String>();
+        let stdout = child.stdout.take().unwrap();
+        let reader = thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut stderr = child.stderr.take().unwrap();
+        let stderr = thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text);
+            text
+        });
+        Running {
+            child,
+            lines,
+            seen: Vec::new(),
+            reader: Some(reader),
+            stderr: Some(stderr),
+        }
+    }
+
     /// Runs with stdin, stdout and stderr on a 100x32 pseudo-terminal, typing
     /// `keys` once the program has written its first output. `stdout` is the
     /// raw terminal output; the run is killed after `timeout`.
@@ -581,6 +625,80 @@ impl Output {
             self.stdout, self.stderr
         );
         self
+    }
+}
+
+/// A program started with [`Cmd::spawn`].
+pub struct Running {
+    child: std::process::Child,
+    lines: std::sync::mpsc::Receiver<String>,
+    seen: Vec<String>,
+    reader: Option<thread::JoinHandle<()>>,
+    stderr: Option<thread::JoinHandle<String>>,
+}
+
+impl Running {
+    /// Waits for a stdout line matching `pred`; every line read so far is
+    /// kept for [`finish`](Self::finish).
+    pub fn wait_for_line(
+        &mut self,
+        timeout: std::time::Duration,
+        pred: impl Fn(&str) -> bool,
+    ) -> Option<String> {
+        if let Some(line) = self.seen.iter().find(|l| pred(l)) {
+            return Some(line.clone());
+        }
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let line = self.lines.recv_timeout(left).ok()?;
+            self.seen.push(line.clone());
+            if pred(&line) {
+                return Some(line);
+            }
+        }
+    }
+
+    pub fn signal(&self, sig: libc::c_int) {
+        let rc = unsafe { libc::kill(self.child.id() as libc::pid_t, sig) };
+        assert_eq!(rc, 0, "kill({sig})");
+    }
+
+    /// Waits for exit (killing the program after `timeout`, code -1).
+    pub fn finish(mut self, timeout: std::time::Duration) -> Output {
+        let deadline = std::time::Instant::now() + timeout;
+        let code = loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                break status.code().unwrap_or(-1);
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                break -1;
+            }
+            thread::sleep(std::time::Duration::from_millis(20));
+        };
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        self.seen.extend(self.lines.try_iter());
+        let stderr = self.stderr.take().map(|h| h.join().unwrap_or_default());
+        let mut stdout = self.seen.join("\n");
+        if !stdout.is_empty() {
+            stdout.push('\n');
+        }
+        Output {
+            code,
+            stdout,
+            stderr: stderr.unwrap_or_default(),
+        }
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
