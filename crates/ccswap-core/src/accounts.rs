@@ -156,6 +156,15 @@ impl Accounts<'_> {
         data.insert("activeAccountNumber".into(), num_int.into());
         data.insert("lastUpdated".into(), store::timestamp_now().into());
         store::write_sequence(self.paths, &data)?;
+        crate::log::info(format!(
+            "Added account {}: {email} (org: {})",
+            plan.num,
+            if org_uuid.is_empty() {
+                "personal"
+            } else {
+                &org_uuid
+            }
+        ));
 
         let style = self.style;
         if let Some(old) = &plan.migrate_from {
@@ -210,6 +219,10 @@ impl Accounts<'_> {
         );
         data.insert("lastUpdated".into(), store::timestamp_now().into());
         store::write_sequence(self.paths, &data)?;
+        crate::log::info(format!(
+            "Updated credentials for account {num}: {}",
+            identity.email
+        ));
 
         let style = self.style;
         console.line(&format!(

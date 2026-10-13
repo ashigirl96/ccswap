@@ -46,8 +46,8 @@ pub fn run(prog: &str, env: &Environment, verb: &str, argv: &[String]) -> i32 {
         "{prog} {verb} [-h] [--debug] {} {}",
         spec.positionals[0], spec.positionals[1]
     );
-    let positionals = match parse(&spec, argv) {
-        Ok(positionals) => positionals,
+    let (positionals, debug) = match parse(&spec, argv) {
+        Ok(parsed) => parsed,
         Err(Exit::Help) => {
             print!("{}", spec.help.replace("{prog}", prog));
             return 0;
@@ -67,7 +67,7 @@ pub fn run(prog: &str, env: &Environment, verb: &str, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, debug);
     let endpoints = Endpoints::new(env);
     let secrets = SecretStore::new(
         Keychain::new(endpoints.security.clone(), env),
@@ -169,9 +169,11 @@ fn slot_email(paths: &Paths, num: &str) -> String {
         .unwrap_or_default()
 }
 
-fn parse(spec: &Spec, argv: &[String]) -> Result<Vec<String>, Exit> {
+/// The positionals and whether `--debug` was given.
+fn parse(spec: &Spec, argv: &[String]) -> Result<(Vec<String>, bool), Exit> {
     let mut positionals = Vec::new();
     let mut extras: Vec<String> = Vec::new();
+    let mut debug = false;
     let mut options_done = false;
     for arg in argv {
         if !options_done && arg == "--" {
@@ -187,6 +189,7 @@ fn parse(spec: &Spec, argv: &[String]) -> Result<Vec<String>, Exit> {
                             "argument --debug: ignored explicit argument '{v}'"
                         )));
                     }
+                    debug = true;
                 }
                 Some(_) => return Err(Exit::Help),
                 None => extras.push(arg.clone()),
@@ -210,5 +213,5 @@ fn parse(spec: &Spec, argv: &[String]) -> Result<Vec<String>, Exit> {
             extras.join(" ")
         )));
     }
-    Ok(positionals)
+    Ok((positionals, debug))
 }

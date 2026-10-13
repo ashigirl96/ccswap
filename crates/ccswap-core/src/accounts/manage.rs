@@ -99,6 +99,7 @@ impl Accounts<'_> {
             data.insert("lastUpdated".into(), store::timestamp_now().into());
             store::write_sequence(self.paths, &data)?;
         }
+        crate::log::info(format!("Removed account {num}: {email}"));
         console.line(&format!(
             "{} Account-{num} ({email})",
             style.accent("Removed")
@@ -149,6 +150,7 @@ impl Accounts<'_> {
         };
 
         let capitalized = if disabled { "Disabled" } else { "Enabled" };
+        crate::log::info(format!("{capitalized} account {num}: {email}"));
         console.line(&format!(
             "{} Account-{num} ({email}).",
             style.accent(capitalized)

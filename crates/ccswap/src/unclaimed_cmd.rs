@@ -19,6 +19,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         2
     };
     let mut purge: Option<String> = None;
+    let mut debug = false;
     let mut extras: Vec<String> = Vec::new();
     let mut options_done = false;
     let mut args = argv.iter();
@@ -46,6 +47,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
                         "argument --debug: ignored explicit argument '{v}'"
                     ));
                 }
+                debug = true;
             }
             Some(_) => {
                 print!("{}", HELP.replace("{prog}", prog));
@@ -67,7 +69,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, debug);
     let stash = UnclaimedStash::new(&paths);
     let entries = stash.list();
 

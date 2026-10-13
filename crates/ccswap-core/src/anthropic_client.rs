@@ -210,15 +210,18 @@ impl AnthropicClient {
             }
         }
 
+        let context = format!("for account {num}");
         let failure = match self.fetch_usage(&access_token) {
             Ok(usage) => return UsageOutcome::ok(usage),
             Err(f) => f,
         };
         if failure.status != Some(401) || is_active || !has_refresh {
+            log_usage_failure(&context, &failure.kind, failure.retry_after_s);
             return UsageOutcome::failed(failure.kind, failure.retry_after_s);
         }
         let outcome = refresh(credentials);
         let Some(fresh) = outcome.credentials.clone().filter(|c| !c.is_empty()) else {
+            log_usage_failure(&context, &failure.kind, None);
             if is_dead(outcome.error.as_deref()) {
                 return dead_outcome(outcome);
             }
@@ -232,7 +235,14 @@ impl AnthropicClient {
         };
         match self.fetch_usage(&token) {
             Ok(usage) => UsageOutcome::ok(usage),
-            Err(f) => UsageOutcome::failed(f.kind, f.retry_after_s),
+            Err(f) => {
+                log_usage_failure(
+                    &format!("{context} after refresh"),
+                    &f.kind,
+                    f.retry_after_s,
+                );
+                UsageOutcome::failed(f.kind, f.retry_after_s)
+            }
         }
     }
 
@@ -252,6 +262,19 @@ impl AnthropicClient {
         let body = response.body_mut().read_to_string().ok()?;
         parse_profile(&serde_json::from_str(&body).ok()?)
     }
+}
+
+/// One WARNING with the cause; `context` never carries the email because
+/// users paste these lines into public issues.
+fn log_usage_failure(context: &str, kind: &str, retry_after_s: Option<f64>) {
+    let mut cause = match retry_after_s {
+        Some(secs) => format!("{kind}, retry-after {secs:.0}s"),
+        None => kind.to_string(),
+    };
+    if kind == "http-429" {
+        cause.push_str(" (usage-endpoint budget reached; backing off)");
+    }
+    crate::log::warning(format!("Usage fetch failed {context}: {cause}"));
 }
 
 fn classify_transport(e: &ureq::Error) -> UsageFailure {

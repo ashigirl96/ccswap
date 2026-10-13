@@ -166,6 +166,10 @@ impl Renumber<'_, '_> {
             self.acc.secrets.delete_previous_backup(&a.num, &b.email);
         }
         self.discard_staging(&staging);
+        crate::log::info(format!(
+            "Swapped slots: {} ({}) <-> {} ({})",
+            a.num, a.email, b.num, b.email
+        ));
         Ok((a.num, b.num))
     }
 
@@ -260,6 +264,7 @@ impl Renumber<'_, '_> {
         if !side.creds.is_empty() {
             self.acc.secrets.delete_previous_backup(target, email);
         }
+        crate::log::info(format!("Moved slot: {source} ({email}) -> {target}"));
         Ok(())
     }
 
