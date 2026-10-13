@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 
 use crate::accounts::{Accounts, Console};
 use crate::anthropic_client::{AnthropicClient, credential_fingerprint};
+use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
 use crate::locks::StoreLock;
@@ -228,6 +229,8 @@ impl Sessions<'_> {
             return Ok(());
         }
 
+        self.refresh_before_seeding(target, console)?;
+
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), BOOTSTRAP_LOCK_TIMEOUT)?;
         if session_profile::is_stale(dir) && profile_is_quiescent(dir) {
             session_profile::invalidate_slot_credentials(
@@ -268,6 +271,42 @@ impl Sessions<'_> {
                 )))
             }
         }
+    }
+
+    /// One refresh so the profile starts with a fresh access token, before
+    /// the bootstrap lock (the gate POSTs, and takes the store lock itself).
+    /// A plain failure is not fatal; a refresh whose successor could not be
+    /// stored is, since bootstrapping would seed the spent generation.
+    fn refresh_before_seeding(&self, target: &Target, console: &mut dyn Console) -> Result<()> {
+        let num = &target.num;
+        let creds = self.secrets.read_backup(num, &target.email).value;
+        if creds.is_empty() || !has_refresh_token(&creds) {
+            return Ok(());
+        }
+        let outcome = ConsumeGate {
+            paths: self.paths,
+            env: self.env,
+            secrets: self.secrets,
+            client: self.client,
+        }
+        .consume_backup_grant(num, &target.email, &creds);
+        if outcome.error.is_some() && outcome.credentials.is_some() {
+            return Err(session_error(if outcome.stashed {
+                format!(
+                    "Account-{num}'s refreshed credential could not be stored, so the backup still holds a spent grant. The successor is stashed — please retry, and the next run adopts it automatically."
+                )
+            } else {
+                format!(
+                    "Account-{num}'s refreshed credential could neither be stored nor stashed, so the backup holds a spent grant and the successor is gone. Fix the storage failure first; retrying before that spends nothing but earns a strike. If the slot strikes, log in again and re-add it: cswap --add-account --slot {num}"
+                )
+            }));
+        }
+        if outcome.error.is_some() {
+            console.line(&self.style.yellowed(&format!(
+                "Could not refresh the token for Account-{num}; continuing with the stored credentials."
+            )));
+        }
+        Ok(())
     }
 
     /// Seeds the profile from the backup. The caller holds the store lock.
@@ -461,6 +500,21 @@ fn judge_auth_status(report: &Map<String, Value>, email: &str, org: &str) -> Ver
 }
 
 /// `shutil.which`: the first executable regular file named `name` on `PATH`.
+/// Setup-token credentials have no refresh token by design; an unknown
+/// shape lets the refresh attempt decide.
+fn has_refresh_token(creds: &str) -> bool {
+    match serde_json::from_str::<Value>(creds) {
+        Ok(Value::Object(data)) => match data.get("claudeAiOauth") {
+            None => false,
+            Some(Value::Object(oauth)) => {
+                oauth.get("refreshToken").is_some_and(crate::usage::truthy)
+            }
+            Some(_) => true,
+        },
+        _ => true,
+    }
+}
+
 pub fn which(env: &Environment, name: &str) -> Option<PathBuf> {
     let path = env.get("PATH")?.clone();
     std::env::split_paths(&path)

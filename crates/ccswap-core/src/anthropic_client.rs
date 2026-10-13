@@ -72,13 +72,42 @@ impl UsageOutcome {
     }
 }
 
-/// A refresh-token grant attempt as a refresh gate reports it.
+/// Who a refreshed token belongs to, when the token endpoint says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenAccount {
+    pub uuid: String,
+    pub email: Option<String>,
+    pub organization_uuid: Option<String>,
+}
+
+/// A refresh-token grant attempt. `error` is `None` on success,
+/// `invalid_grant` / `no_refresh_token` for a dead lineage, `invalid_client`
+/// for a rejected client, `transient` for anything retryable, or one of the
+/// consume gate's own refusals.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RefreshOutcome {
     pub credentials: Option<String>,
     pub error: Option<String>,
+    pub token_account: Option<TokenAccount>,
+    /// The generation actually POSTed, which may differ from the caller's
+    /// snapshot: strikes bind to it.
     pub consumed_fp: Option<String>,
+    /// On a demoted outcome (`transient` with credentials): whether the
+    /// successor reached the unclaimed stash.
+    pub stashed: bool,
 }
+
+impl RefreshOutcome {
+    pub fn failed(error: &str) -> Self {
+        RefreshOutcome {
+            error: Some(error.into()),
+            ..Default::default()
+        }
+    }
+}
+
+pub const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+pub const REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Refreshes an inactive slot's credential: `(slot, email, snapshot)`.
 pub type RefreshVia<'a> = &'a (dyn Fn(&str, &str, &str) -> RefreshOutcome + Sync);
@@ -182,10 +211,7 @@ impl AnthropicClient {
         let has_refresh = oauth.get("refreshToken").is_some_and(truthy);
         let refresh = |snapshot: &str| match refresh_via {
             Some(gate) => gate(num, email, snapshot),
-            None => RefreshOutcome {
-                error: Some("transient".into()),
-                ..Default::default()
-            },
+            None => RefreshOutcome::failed("transient"),
         };
         let dead_outcome = |outcome: RefreshOutcome| UsageOutcome {
             struck_fp: outcome
@@ -243,6 +269,65 @@ impl AnthropicClient {
                 );
                 UsageOutcome::failed(f.kind, f.retry_after_s)
             }
+        }
+    }
+
+    /// The refresh-token grant, POSTed straight to the token endpoint. Only
+    /// a 4xx whose body names `invalid_grant` / `invalid_client` is
+    /// permanent; anything ambiguous stays `transient`, since a wrongly
+    /// permanent verdict quarantines a live token.
+    pub fn try_refresh_oauth_credentials(
+        &self,
+        credentials: &str,
+        timeout: Duration,
+    ) -> RefreshOutcome {
+        let Ok(Value::Object(mut data)) = serde_json::from_str::<Value>(credentials) else {
+            return RefreshOutcome::failed("transient");
+        };
+        let refresh_token = match data.get("claudeAiOauth") {
+            Some(Value::Object(oauth)) if oauth.get("refreshToken").is_some_and(truthy) => {
+                oauth["refreshToken"].clone()
+            }
+            _ => return RefreshOutcome::failed("no_refresh_token"),
+        };
+        let body = crate::pyjson::to_string_compact(&serde_json::json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": OAUTH_CLIENT_ID,
+        }));
+        let response = Self::agent(timeout)
+            .post(&self.endpoints.oauth_token_url)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", USER_AGENT)
+            .send(body.as_bytes());
+        let Ok(mut response) = response else {
+            crate::log::debug("OAuth refresh failed: network error");
+            return RefreshOutcome::failed("transient");
+        };
+        let status = response.status().as_u16();
+        let text = response.body_mut().read_to_string().unwrap_or_default();
+        if status >= 400 {
+            let preview: String = text.chars().take(500).collect();
+            crate::log::debug(format!(
+                "OAuth refresh failed: HTTP Error {status}, body: {preview}"
+            ));
+            if matches!(status, 400 | 401 | 403)
+                && let Ok(Value::Object(err)) = serde_json::from_str::<Value>(&text)
+                && let Some(kind @ ("invalid_grant" | "invalid_client")) =
+                    err.get("error").and_then(Value::as_str)
+            {
+                return RefreshOutcome::failed(kind);
+            }
+            return RefreshOutcome::failed("transient");
+        }
+        let Some((credentials, token_account)) = apply_token_response(&mut data, &text) else {
+            crate::log::debug("OAuth refresh failed: malformed token response");
+            return RefreshOutcome::failed("transient");
+        };
+        RefreshOutcome {
+            credentials: Some(credentials),
+            token_account,
+            ..Default::default()
         }
     }
 
@@ -320,6 +405,76 @@ fn parse_profile(data: &Value) -> Option<Profile> {
             .and_then(Value::as_str)
             .map(str::to_string),
         organization_uuid,
+    })
+}
+
+/// Rotates `data`'s `claudeAiOauth` with a token-endpoint response;
+/// `None` when the response is not the expected shape.
+fn apply_token_response(
+    data: &mut Map<String, Value>,
+    text: &str,
+) -> Option<(String, Option<TokenAccount>)> {
+    let Value::Object(resp) = serde_json::from_str::<Value>(text).ok()? else {
+        return None;
+    };
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let expires_at = match resp.get("expires_in")? {
+        Value::Bool(b) => Value::from(now_ms + i64::from(*b) * 1000),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => Value::from(now_ms + i * 1000),
+            None => Value::from(now_ms as f64 + n.as_f64()? * 1000.0),
+        },
+        _ => return None,
+    };
+    let access_token = resp.get("access_token")?.clone();
+    let scopes = match resp.get("scope") {
+        Some(scope) if truthy(scope) => Some(Value::from(
+            scope
+                .as_str()?
+                .split_whitespace()
+                .map(Value::from)
+                .collect::<Vec<_>>(),
+        )),
+        _ => None,
+    };
+    let Some(Value::Object(oauth)) = data.get_mut("claudeAiOauth") else {
+        return None;
+    };
+    oauth.insert("accessToken".into(), access_token);
+    oauth.insert("expiresAt".into(), expires_at);
+    if let Some(rt) = resp.get("refresh_token").filter(|v| truthy(v)) {
+        oauth.insert("refreshToken".into(), rt.clone());
+    }
+    if let Some(scopes) = scopes {
+        oauth.insert("scopes".into(), scopes);
+    }
+    let credentials = crate::pyjson::to_string_compact(&Value::Object(data.clone()));
+    Some((credentials, parse_token_account(&resp)))
+}
+
+/// The optional identity a refresh response carries; usable only with a
+/// non-blank `account.uuid`.
+fn parse_token_account(resp: &Map<String, Value>) -> Option<TokenAccount> {
+    let account = resp.get("account")?.as_object()?;
+    let uuid = account.get("uuid")?.as_str()?.trim();
+    if uuid.is_empty() {
+        return None;
+    }
+    Some(TokenAccount {
+        uuid: uuid.to_string(),
+        email: account
+            .get("email_address")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        organization_uuid: resp
+            .get("organization")
+            .and_then(Value::as_object)
+            .and_then(|o| o.get("uuid"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 

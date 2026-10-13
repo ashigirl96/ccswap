@@ -124,6 +124,56 @@ impl<'a> UnclaimedStash<'a> {
         })
     }
 
+    /// Manifest rows, or `Err("unreadable" | "corrupt")`: "no rows" and
+    /// "could not establish the rows" must not read the same, since a row
+    /// is the only record of a generation a gate already consumed.
+    pub fn rows(&self) -> std::result::Result<JsonObject, &'static str> {
+        match self.read_manifest() {
+            ManifestRead::Ok(rows) => Ok(rows),
+            ManifestRead::Unreadable => Err("unreadable"),
+            ManifestRead::Corrupt => Err("corrupt"),
+        }
+    }
+
+    /// Whether any entry's bytes are on disk; an unlistable directory
+    /// answers `true` (nothing proves them absent).
+    pub fn entry_files_exist(&self) -> bool {
+        match std::fs::read_dir(self.dir()) {
+            Ok(dir) => dir.flatten().any(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                name.starts_with(ENTRY_PREFIX) && name.ends_with(ENTRY_SUFFIX)
+            }),
+            Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+        }
+    }
+
+    /// `(credentials, unreadable)`: absent and undecodable entries both read
+    /// as `("", false)`; only an entry that exists but cannot be read now is
+    /// `unreadable`.
+    pub fn read_entry(&self, id: &str) -> (String, bool) {
+        let encoded = match std::fs::read_to_string(self.entry_path(id)) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (String::new(), false),
+            Err(e) => {
+                crate::log::warning(format!("Unclaimed credential {id} unreadable: {e}"));
+                return (String::new(), true);
+            }
+        };
+        match BASE64
+            .decode(encoded.trim())
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+        {
+            Some(value) => (value, false),
+            None => {
+                crate::log::warning(format!(
+                    "Failed to decode unclaimed credential {id}: invalid base64"
+                ));
+                (String::new(), false)
+            }
+        }
+    }
+
     fn read_manifest(&self) -> ManifestRead {
         let raw = match std::fs::read(self.manifest_path()) {
             Ok(raw) => raw,
