@@ -5,6 +5,7 @@ pub mod paths;
 pub mod presentation;
 pub mod pyjson;
 pub mod secret_store;
+pub mod settings;
 pub mod status;
 pub mod store;
 pub mod usage;

@@ -1,5 +1,6 @@
 mod argparse;
 mod cli;
+mod config_cmd;
 
 use ccswap_core::env::Environment;
 
