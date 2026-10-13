@@ -27,6 +27,7 @@
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
@@ -637,7 +638,11 @@ fn upstream_python(upstream: &Path) -> PathBuf {
     static PYTHON: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     PYTHON
         .get_or_init(|| {
-            let venv = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("upstream-venv");
+            // Outside target/, because CI's rust-cache strips non-Cargo files there and restores a gutted venv.
+            let mut hasher = DefaultHasher::new();
+            env!("CARGO_TARGET_TMPDIR").hash(&mut hasher);
+            let venv =
+                std::env::temp_dir().join(format!("ccswap-upstream-venv-{:016x}", hasher.finish()));
             let status = Command::new("uv")
                 .args(["sync", "--quiet", "--frozen", "--no-dev", "--no-editable"])
                 .arg("--project")
