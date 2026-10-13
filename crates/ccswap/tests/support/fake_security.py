@@ -3,6 +3,7 @@ import json
 import os
 import shlex
 import sys
+import time
 
 STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state")
 ITEMS = os.path.join(STATE_DIR, "items.json")
@@ -118,8 +119,26 @@ def run(argv, out):
     return 1
 
 
+def pause_if_armed(cmd):
+    armed = os.path.join(STATE_DIR, f"pause_{cmd}")
+    try:
+        # Only the call that wins the rename pauses.
+        os.rename(armed, os.path.join(STATE_DIR, "paused"))
+    except OSError:
+        return
+    # Callers time `security` out after 5 s.
+    deadline = time.monotonic() + 4.5
+    while not os.path.exists(os.path.join(STATE_DIR, "release")):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.01)
+
+
 def main():
     stdin = sys.stdin.read() if sys.argv[1:2] == ["-i"] else None
+    words = shlex.split(stdin) if stdin is not None else sys.argv[1:]
+    if words:
+        pause_if_armed(words[0])
     record = {"argv": sys.argv[1:], "stdin": stdin}
     if os.path.exists(OBSERVE):
         with open(OBSERVE) as f:

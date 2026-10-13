@@ -527,7 +527,12 @@ fn shared_script(name: &str, template: &str) -> PathBuf {
     let path = dir.join(format!("{name}-{digest:016x}"));
     if !path.exists() {
         std::fs::create_dir_all(&dir).expect("create shared fakes dir");
-        let temp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        static PUBLISHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let temp = dir.join(format!(
+            "{name}.{}.{}.tmp",
+            std::process::id(),
+            PUBLISHES.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::write(&temp, template).expect("write fake");
         std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::rename(&temp, &path).expect("publish fake");
@@ -640,6 +645,29 @@ impl FakeSecurity {
             serde_json::to_string(&list).unwrap(),
         )
         .unwrap();
+    }
+
+    /// Hold the next `command` call (also via `security -i`) until [`Self::release`],
+    /// for at most 4.5 s since callers time out at 5 s.
+    pub fn pause_next(&self, command: &str) {
+        let _ = std::fs::remove_file(self.state.join("release"));
+        std::fs::write(self.state.join(format!("pause_{command}")), "").unwrap();
+    }
+
+    /// Wait until a call is held by [`Self::pause_next`]; false on timeout.
+    pub fn wait_until_paused(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while !self.state.join("paused").exists() {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        true
+    }
+
+    pub fn release(&self) {
+        std::fs::write(self.state.join("release"), "").unwrap();
     }
 
     pub fn calls(&self) -> Vec<SecurityCall> {
