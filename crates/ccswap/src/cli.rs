@@ -1,6 +1,6 @@
 use std::io::{IsTerminal, Write};
 
-use ccswap_core::accounts::{Accounts, AddOptions, Console};
+use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, Console, TokenInput};
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
@@ -181,6 +181,8 @@ impl Cli {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
+        } else if let Some(token) = parsed.value("--add-token") {
+            self.add_token(&paths, &style, token, &parsed)
         } else {
             let command = COMMAND_FLAGS
                 .iter()
@@ -245,6 +247,37 @@ impl Cli {
             assume_yes: false,
         };
         accounts.add_account(&options, &mut TerminalConsole)
+    }
+
+    fn add_token(
+        &mut self,
+        paths: &Paths,
+        style: &Style,
+        token: &str,
+        parsed: &Parsed,
+    ) -> Result<(), Error> {
+        let endpoints = Endpoints::new(&self.env);
+        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
+        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
+        let client = AnthropicClient::new(endpoints);
+        let accounts = Accounts {
+            paths,
+            env: &self.env,
+            secrets: &secrets,
+            client: &client,
+            style,
+        };
+        let input = match token {
+            "-" => TokenInput::Stdin,
+            "" => TokenInput::Prompt,
+            value => TokenInput::Value(value.to_string()),
+        };
+        let options = AddTokenOptions {
+            email: parsed.value("--email").map(str::to_string),
+            slot: parsed.value("--slot").and_then(|s| s.trim().parse().ok()),
+            assume_yes: false,
+        };
+        accounts.add_token(input, &options, &mut TerminalConsole)
     }
 
     /// Flag-combination checks, in upstream's order.
@@ -351,6 +384,10 @@ impl Console for TerminalConsole {
             Ok(0) | Err(_) => None,
             Ok(_) => Some(answer.trim_end_matches(['\n', '\r']).to_string()),
         }
+    }
+
+    fn secret(&mut self, question: &str) -> Option<String> {
+        accounts::getpass(question)
     }
 }
 
