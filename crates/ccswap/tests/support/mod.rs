@@ -32,6 +32,13 @@
 //!   checkout>` and the same tests run against Python `cswap` through
 //!   `upstream_shim.py` (needs `uv`). Branch on [`is_upstream`] / [`prog`] only
 //!   for intended differences such as the binary name.
+//! - `env.http().respond_with(method, path, |req| ...)` runs code when the
+//!   request arrives (e.g. a `/login` landing mid-request);
+//!   `env.security().fail_command("add-generic-password", 51)` fails one
+//!   `security` command only.
+//! - `env.cmd(..).using(Impl::Ccswap | Impl::Upstream)` pins one
+//!   implementation for cswap/ccswap round trips (Upstream needs
+//!   `CCSWAP_TEST_UPSTREAM`).
 //! - The isolation guard ([`check_isolation`]) runs before every launch and
 //!   refuses to start the binary unless `HOME`, the `security` path and every
 //!   HTTP endpoint point at this env's doubles.
@@ -237,6 +244,7 @@ impl TestEnv {
             vars: self.base_env(),
             stdin: String::new(),
             as_root: false,
+            which: Impl::UnderTest,
         }
     }
 
@@ -321,9 +329,16 @@ pub struct Cmd<'a> {
     vars: BTreeMap<String, String>,
     stdin: String,
     as_root: bool,
+    which: Impl,
 }
 
 impl Cmd<'_> {
+    /// Launch a specific implementation (see [`Impl`]).
+    pub fn using(mut self, which: Impl) -> Self {
+        self.which = which;
+        self
+    }
+
     pub fn env(mut self, name: &str, value: &str) -> Self {
         self.vars.insert(name.into(), value.into());
         self
@@ -352,7 +367,7 @@ impl Cmd<'_> {
     pub fn try_run(self) -> Result<Output, String> {
         check_isolation(&self.vars, &self.env.root())
             .map_err(|e| format!("harness refused to launch the binary: {e}"))?;
-        let (program, mut args, mut vars) = target(&self.env.root());
+        let (program, mut args, mut vars) = target(&self.env.root(), self.which);
         args.extend(self.args);
         vars.extend(self.vars);
         let mut command = if self.as_root {
@@ -390,15 +405,34 @@ impl Cmd<'_> {
     }
 }
 
-fn target(root: &Path) -> (PathBuf, Vec<String>, BTreeMap<String, String>) {
-    let Some(upstream) = std::env::var_os(UPSTREAM_ENV).filter(|v| !v.is_empty()) else {
+/// Which implementation a [`Cmd`] launches. [`Impl::UnderTest`] follows
+/// `CCSWAP_TEST_UPSTREAM`; the other two pin one side for compatibility tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Impl {
+    UnderTest,
+    Ccswap,
+    Upstream,
+}
+
+fn upstream_root() -> Option<PathBuf> {
+    std::env::var_os(UPSTREAM_ENV)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+fn target(root: &Path, which: Impl) -> (PathBuf, Vec<String>, BTreeMap<String, String>) {
+    let upstream = match which {
+        Impl::Ccswap => None,
+        Impl::UnderTest => upstream_root(),
+        Impl::Upstream => Some(upstream_root().expect("CCSWAP_TEST_UPSTREAM is not set")),
+    };
+    let Some(upstream) = upstream else {
         return (
             PathBuf::from(env!("CARGO_BIN_EXE_ccswap")),
             Vec::new(),
             BTreeMap::new(),
         );
     };
-    let upstream = PathBuf::from(upstream);
     let python = upstream_python(&upstream);
     let shim = root.join("upstream_shim.py");
     if !shim.exists() {
@@ -472,10 +506,31 @@ fn install_script(dir: &Path, name: &str, template: &str) -> PathBuf {
     std::fs::create_dir_all(&state).expect("create fake state dir");
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).expect("create fake bin dir");
-    let literal = serde_json::to_string(&state.display().to_string()).unwrap();
     let path = bin.join(name);
-    std::fs::write(&path, template.replace("@STATE_DIR@", &literal)).expect("write fake");
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let shared = shared_script(name, template);
+    if std::fs::hard_link(&shared, &path).is_err() {
+        std::fs::copy(&shared, &path).expect("copy fake");
+    }
+    path
+}
+
+/// One copy of each fake per test run, hard-linked into every env: macOS
+/// scans each new executable on first exec (~0.3 s, serialized), which under
+/// parallel tests pushed `security` calls past their 5 s timeout. The fakes
+/// find their state directory from their own (linked) path.
+fn shared_script(name: &str, template: &str) -> PathBuf {
+    let digest = template.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fakes");
+    let path = dir.join(format!("{name}-{digest:016x}"));
+    if !path.exists() {
+        std::fs::create_dir_all(&dir).expect("create shared fakes dir");
+        let temp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        std::fs::write(&temp, template).expect("write fake");
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::rename(&temp, &path).expect("publish fake");
+    }
     path
 }
 
@@ -547,6 +602,12 @@ impl FakeSecurity {
     /// Make every later call fail with `rc` (e.g. 51: locked / interaction not allowed).
     pub fn fail_with(&self, rc: i32) {
         std::fs::write(self.state.join("fail_rc"), rc.to_string()).unwrap();
+    }
+
+    /// Make only `command` (e.g. `add-generic-password`) fail with `rc`,
+    /// including when it arrives through `security -i`.
+    pub fn fail_command(&self, command: &str, rc: i32) {
+        std::fs::write(self.state.join(format!("fail_{command}")), rc.to_string()).unwrap();
     }
 
     pub fn calls(&self) -> Vec<SecurityCall> {
@@ -668,7 +729,8 @@ impl StubRequest {
     }
 }
 
-type Routes = Arc<Mutex<BTreeMap<(String, String), StubResponse>>>;
+type Handler = Arc<dyn Fn(&StubRequest) -> StubResponse + Send + Sync>;
+type Routes = Arc<Mutex<BTreeMap<(String, String), Handler>>>;
 
 /// Local HTTP/1.1 server. Unrouted requests get 404 and are still recorded.
 pub struct StubServer {
@@ -711,10 +773,19 @@ impl StubServer {
 
     /// Answer `method path` (path without query) with `response` from now on.
     pub fn respond(&self, method: &str, path: &str, response: StubResponse) {
+        self.respond_with(method, path, move |_| response.clone());
+    }
+
+    /// Answer `method path` by running `handler` when the request arrives,
+    /// e.g. to change files while the binary waits on the network.
+    pub fn respond_with<F>(&self, method: &str, path: &str, handler: F)
+    where
+        F: Fn(&StubRequest) -> StubResponse + Send + Sync + 'static,
+    {
         self.routes
             .lock()
             .unwrap()
-            .insert((method.to_uppercase(), path.into()), response);
+            .insert((method.to_uppercase(), path.into()), Arc::new(handler));
     }
 
     pub fn requests(&self) -> Vec<StubRequest> {
@@ -761,12 +832,15 @@ fn serve(stream: TcpStream, routes: &Routes, requests: &Mutex<Vec<StubRequest>>)
         headers,
         body: String::from_utf8_lossy(&body).into_owned(),
     };
-    let response = routes
+    let handler = routes
         .lock()
         .unwrap()
         .get(&(request.method.clone(), request.path().to_string()))
-        .cloned()
-        .unwrap_or_else(|| StubResponse::json(404, r#"{"error":"not stubbed"}"#));
+        .cloned();
+    let response = match handler {
+        Some(handler) => handler(&request),
+        None => StubResponse::json(404, r#"{"error":"not stubbed"}"#),
+    };
     requests.lock().unwrap().push(request);
     let mut stream = reader.into_inner();
     let mut head = format!(

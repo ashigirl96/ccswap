@@ -4,7 +4,7 @@ import os
 import shlex
 import sys
 
-STATE_DIR = @STATE_DIR@
+STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state")
 ITEMS = os.path.join(STATE_DIR, "items.json")
 CALLS = os.path.join(STATE_DIR, "calls.jsonl")
 FAIL_RC = os.path.join(STATE_DIR, "fail_rc")
@@ -62,6 +62,12 @@ def run(argv, out):
     if not argv:
         return 1
     cmd, rest = argv[0], argv[1:]
+    fail_path = os.path.join(STATE_DIR, f"fail_{cmd}")
+    if os.path.exists(fail_path):
+        with open(fail_path) as f:
+            rc = int(f.read().strip())
+        out["err"].append("security: SecKeychainItemModifyContent: User interaction is not allowed.")
+        return rc
     opts, flags = parse(cmd, rest)
     items = load()
     service, account = opts.get("-s"), opts.get("-a")
