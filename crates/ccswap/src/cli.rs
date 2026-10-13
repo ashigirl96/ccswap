@@ -10,10 +10,11 @@ use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
+use ccswap_core::ranking::Strategy;
 use ccswap_core::secret_store::{Keychain, SecretStore};
-use ccswap_core::settings::Settings;
+use ccswap_core::settings::{Settings, parse_model_names};
 use ccswap_core::status;
-use ccswap_core::switcher::Switcher;
+use ccswap_core::switcher::{ModelSource, SwitchStrategy, Switcher};
 use ccswap_core::transfer::Transfer;
 use ccswap_core::usage_view;
 
@@ -360,9 +361,7 @@ impl Cli {
     }
 
     fn switch(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
-        if parsed.value("--strategy").is_some() {
-            return Err(not_implemented_error("switch --strategy"));
-        }
+        let strategy = switch_strategy(paths, parsed);
         let secrets = self.secrets(paths);
         let client = AnthropicClient::new(Endpoints::new(&self.env));
         let env = &self.env;
@@ -387,11 +386,15 @@ impl Cli {
             Some(target) => {
                 switcher.switch_to(target, json, parsed.flag("--force"), &mut TerminalConsole)?
             }
-            None => switcher.switch_next(json, &mut TerminalConsole)?,
+            None => switcher.switch_next(strategy.as_ref(), json, &mut TerminalConsole)?,
         };
         if let Some(report) = report.filter(|_| json) {
-            self.stdout
-                .push(pyjson::to_string_pretty(&report.to_json()));
+            let mut payload = report.to_json();
+            if let Some(s) = strategy.as_ref().filter(|s| !s.models.is_empty()) {
+                payload["models"] = s.models.clone().into();
+                payload["modelSource"] = s.model_source.map(ModelSource::as_str).into();
+            }
+            self.stdout.push(pyjson::to_string_pretty(&payload));
         }
         Ok(())
     }
@@ -568,6 +571,19 @@ impl Console for TerminalConsole {
 
 fn nonempty(p: &Parsed, name: &str) -> bool {
     p.value(name).is_some_and(|v| !v.is_empty())
+}
+
+/// `--model` wins; otherwise the `autoswitch.model` setting applies.
+fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
+    let mut chosen = SwitchStrategy::new(Strategy::parse(parsed.value("--strategy")?)?);
+    if let Some(names) = parsed.value("--model") {
+        chosen.models = parse_model_names(names);
+        chosen.model_source = Some(ModelSource::Cli);
+    } else {
+        chosen.models = Settings::new(paths).autoswitch_models();
+        chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
+    }
+    Some(chosen)
 }
 
 fn not_implemented_error(command: &str) -> Error {

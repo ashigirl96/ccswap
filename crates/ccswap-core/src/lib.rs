@@ -12,6 +12,7 @@ pub mod paths;
 pub mod poll_policy;
 pub mod presentation;
 pub mod pyjson;
+pub mod ranking;
 pub mod secret_store;
 pub mod session_profile;
 pub mod settings;
