@@ -35,7 +35,8 @@
 //! - `env.http().respond_with(method, path, |req| ...)` runs code when the
 //!   request arrives (e.g. a `/login` landing mid-request);
 //!   `env.security().fail_command("add-generic-password", 51)` fails one
-//!   `security` command only.
+//!   `security` command only; `fail_command_for_service` /
+//!   `fail_command_for_item` narrow it to one service / item.
 //! - `env.cmd(..).using(Impl::Ccswap | Impl::Upstream)` pins one
 //!   implementation for cswap/ccswap round trips (Upstream needs
 //!   `CCSWAP_TEST_UPSTREAM`).
@@ -526,7 +527,10 @@ fn shared_script(name: &str, template: &str) -> PathBuf {
     let path = dir.join(format!("{name}-{digest:016x}"));
     if !path.exists() {
         std::fs::create_dir_all(&dir).expect("create shared fakes dir");
-        let temp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        // Parallel test threads share the pid, so each call needs its own temp name.
+        static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = NEXT_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp = dir.join(format!("{name}.{}.{seq}.tmp", std::process::id()));
         std::fs::write(&temp, template).expect("write fake");
         std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::rename(&temp, &path).expect("publish fake");
@@ -557,6 +561,8 @@ pub struct FakeSecurity {
 pub struct SecurityCall {
     pub argv: Vec<String>,
     pub stdin: Option<String>,
+    /// Whether each path given to [`FakeSecurity::observe`] existed when the call ran.
+    pub observed: BTreeMap<String, bool>,
 }
 
 impl FakeSecurity {
@@ -610,12 +616,42 @@ impl FakeSecurity {
         std::fs::write(self.state.join(format!("fail_{command}")), rc.to_string()).unwrap();
     }
 
+    /// Like [`Self::fail_command`], only for items of `service`.
+    pub fn fail_command_for_service(&self, command: &str, service: &str, rc: i32) {
+        std::fs::write(
+            self.state.join(format!("fail_{command}@{service}")),
+            rc.to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Like [`Self::fail_command`], only for one `(service, account)` item.
+    pub fn fail_command_for_item(&self, command: &str, service: &str, account: &str, rc: i32) {
+        std::fs::write(
+            self.state
+                .join(format!("fail_{command}@{service}@{account}")),
+            rc.to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Record, on every later call, whether each of `paths` exists (e.g. a lock).
+    pub fn observe(&self, paths: &[&Path]) {
+        let list: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+        std::fs::write(
+            self.state.join("observe.json"),
+            serde_json::to_string(&list).unwrap(),
+        )
+        .unwrap();
+    }
+
     pub fn calls(&self) -> Vec<SecurityCall> {
         read_jsonl(&self.state.join("calls.jsonl"))
             .into_iter()
             .map(|c| SecurityCall {
                 argv: serde_json::from_value(c["argv"].clone()).unwrap(),
                 stdin: c["stdin"].as_str().map(str::to_string),
+                observed: serde_json::from_value(c["observed"].clone()).unwrap_or_default(),
             })
             .collect()
     }

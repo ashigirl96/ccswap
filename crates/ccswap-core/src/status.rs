@@ -39,7 +39,7 @@ pub fn status(
     let unmanaged = || StatusReport::Unmanaged {
         email: identity.email.clone(),
     };
-    let Some(data) = store::read_sequence(paths)?.filter(|d| !d.is_empty()) else {
+    let Some(data) = store::read_sequence_migrated(paths)?.filter(|d| !d.is_empty()) else {
         return Ok(unmanaged());
     };
     let Some(num) = find_account_slot(&data, &identity.email, &identity.organization_uuid)

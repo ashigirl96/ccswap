@@ -16,12 +16,20 @@ use crate::secret_store::{SecretStore, looks_like_api_key};
 use crate::store::{self, Identity, JsonObject};
 use crate::usage_store::UsageStore;
 
+mod manage;
+mod token;
+pub use token::{AddTokenOptions, TokenInput, getpass};
+
 /// Where account operations print and ask. The CLI writes to the terminal;
 /// the TUI and menu bar collect lines and confirm on their own.
 pub trait Console {
     fn line(&mut self, text: &str);
     /// Shows `question` and returns the reply, `None` on end of input.
     fn prompt(&mut self, question: &str) -> Option<String>;
+    /// Like `prompt`, without echoing the reply.
+    fn secret(&mut self, question: &str) -> Option<String> {
+        self.prompt(question)
+    }
 }
 
 pub struct Accounts<'a> {
@@ -56,6 +64,9 @@ struct CommitLocks {
     _credentials: locks::ClaudeCredentialsLock,
     _store: StoreLock,
 }
+
+mod renumber;
+pub use renumber::MoveOutcome;
 
 impl Accounts<'_> {
     pub fn add_account(&self, options: &AddOptions, console: &mut dyn Console) -> Result<()> {
@@ -490,7 +501,7 @@ impl Accounts<'_> {
 
     /// Inside a `run` session profile the "live store" is the profile, not
     /// the default login.
-    fn refuse_session_shell(&self) -> Result<()> {
+    pub(crate) fn refuse_session_shell(&self) -> Result<()> {
         let Some(dir) = self.env.non_empty("CLAUDE_CONFIG_DIR") else {
             return Ok(());
         };

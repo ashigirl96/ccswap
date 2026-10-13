@@ -48,7 +48,7 @@ pub fn list(
     if !paths.sequence_file().exists() {
         return Ok(ListReport::NoStore);
     }
-    let data = store::read_sequence(paths)?.unwrap_or_default();
+    let data = store::read_sequence_migrated(paths)?.unwrap_or_default();
     let (infos, active) = build_accounts_info(paths, secrets, &data);
     let mut entries =
         UsageCollector::new(paths, env, secrets, client).collect(&infos, active.as_ref());

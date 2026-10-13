@@ -51,6 +51,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
+    crate::cli::run_store_migrations(env, &paths);
     match execute(&args, &Settings::new(&paths), &style) {
         Ok(()) => 0,
         Err(error) => {
@@ -329,14 +330,14 @@ fn parse_sub(
     Ok(())
 }
 
-fn split_explicit(arg: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_explicit(arg: &str) -> (&str, Option<&str>) {
     match arg.split_once('=') {
         Some((name, value)) if arg.starts_with("--") => (name, Some(value)),
         _ => (arg, None),
     }
 }
 
-fn lookup(name: &str, opts: &[&'static str]) -> Option<&'static str> {
+pub(crate) fn lookup(name: &str, opts: &[&'static str]) -> Option<&'static str> {
     if let Some(opt) = opts.iter().find(|o| **o == name) {
         return Some(opt);
     }
@@ -352,7 +353,7 @@ fn lookup(name: &str, opts: &[&'static str]) -> Option<&'static str> {
 
 /// argparse's classification: known options first, then `-`, negative
 /// numbers and anything containing a space are positionals.
-fn looks_like_option(arg: &str, opts: &[&'static str]) -> bool {
+pub(crate) fn looks_like_option(arg: &str, opts: &[&'static str]) -> bool {
     if !arg.starts_with('-') || arg == "-" {
         return false;
     }

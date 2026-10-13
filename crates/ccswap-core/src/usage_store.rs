@@ -428,6 +428,28 @@ impl UsageStore {
         })
     }
 
+    /// Pulls a just-activated slot's plan to the active floor, anchored on
+    /// its last measurement; only ever earlier. Best-effort: the switch it
+    /// follows has already committed.
+    pub fn replan_new_active(&self, num: &str, identity: &Identity) {
+        let identities = [(num.to_string(), identity.clone())];
+        let now = self.now();
+        let Some(entry) = self.entries(&identities, &[]).remove(num) else {
+            return;
+        };
+        let Some(fetched_at) = entry.fetched_at else {
+            return;
+        };
+        let next = now.max(fetched_at + crate::poll_policy::MIN_INTERVAL_S);
+        if entry.next_poll_at.is_some_and(|n| n <= next) {
+            return;
+        }
+        let _ = self.set_poll_plan(
+            &[(num.to_string(), (next, crate::poll_policy::MIN_INTERVAL_S))],
+            &identities,
+        );
+    }
+
     /// Lift the dead-token quarantine after a slot's credential was replaced.
     pub fn clear_dead_token(&self, slots: &[(String, Identity)]) -> Result<()> {
         let nums: Vec<String> = slots.iter().map(|(n, _)| n.clone()).collect();
@@ -440,6 +462,26 @@ impl UsageStore {
             row.insert("lastError".into(), Value::Null);
             row.insert("backoffUntil".into(), Value::Null);
         })
+    }
+
+    /// The slot's dead-token verdict as stored; blank when the row is missing
+    /// or belongs to another identity.
+    pub fn dead_token_strike(&self, num: &str, identity: &Identity) -> DeadTokenStrike {
+        let rows = self.read_rows();
+        let Some(row) = rows
+            .get(num)
+            .and_then(Value::as_object)
+            .filter(|r| matches(r, identity))
+        else {
+            return DeadTokenStrike::default();
+        };
+        DeadTokenStrike {
+            strikes: py_int(row.get("authDeadStrikes")),
+            fingerprint: row
+                .get("struckFingerprint")
+                .filter(|v| !v.is_null())
+                .cloned(),
+        }
     }
 
     fn mutate_nums(
@@ -488,6 +530,28 @@ impl UsageStore {
                 }
             }
             _ => Map::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DeadTokenStrike {
+    pub strikes: i64,
+    /// The condemned generation's fingerprint; `None` for rows struck before
+    /// fingerprints were recorded, which bind unconditionally.
+    pub fingerprint: Option<Value>,
+}
+
+impl DeadTokenStrike {
+    /// A strike condemns the generation that was POSTed: a different stored
+    /// fingerprint means the credential was replaced since and the strike is healed.
+    pub fn token_dead(&self, stored_fp: Option<&str>) -> bool {
+        if self.strikes < AUTH_DEAD_STRIKES {
+            return false;
+        }
+        match (stored_fp, &self.fingerprint) {
+            (Some(stored), Some(struck)) => struck.as_str() == Some(stored),
+            _ => true,
         }
     }
 }
@@ -1085,6 +1149,30 @@ mod tests {
         assert!(f.reserve(&["1"]).is_empty());
         f.advance(5.0);
         assert_eq!(f.reserve(&["1"]), ["1"]);
+    }
+
+    #[test]
+    fn replanning_a_new_active_only_pulls_the_plan_earlier() {
+        let f = Fixture::new();
+        f.store.replan_new_active("1", &ident()[0].1);
+        assert!(
+            !f.store.path.exists(),
+            "never-measured slots stay plan-less"
+        );
+        f.ok("1", u(1.0));
+        f.store
+            .set_poll_plan(&[("1".into(), (START + 600.0, 600.0))], &ident())
+            .unwrap();
+        f.advance(10.0);
+        f.store.replan_new_active("1", &ident()[0].1);
+        let e = f.entry("1");
+        assert_eq!(
+            (e.next_poll_at, e.poll_interval_s),
+            (Some(START + 180.0), Some(180.0))
+        );
+        f.advance(1000.0);
+        f.store.replan_new_active("1", &ident()[0].1);
+        assert_eq!(f.entry("1").next_poll_at, Some(START + 180.0));
     }
 
     #[test]

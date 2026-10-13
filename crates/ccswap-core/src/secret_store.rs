@@ -14,6 +14,9 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 use crate::paths::Paths;
 
+mod active_write;
+pub use active_write::ActiveBackend;
+
 pub const ACTIVE_OAUTH_SERVICE: &str = "Claude Code-credentials";
 pub const MANAGED_KEY_SERVICE: &str = "Claude Code";
 pub const BACKUP_SERVICE: &str = "claude-swap";
@@ -121,14 +124,34 @@ impl Keychain {
         service: &str,
         account: &str,
     ) -> std::result::Result<(), KeychainError> {
+        self.delete_if_present(service, account).map(|_| ())
+    }
+
+    /// Like [`Keychain::delete_password`], telling whether an item was there.
+    pub fn delete_if_present(
+        &self,
+        service: &str,
+        account: &str,
+    ) -> std::result::Result<bool, KeychainError> {
         let out = self.run(
             &["delete-generic-password", "-a", account, "-s", service],
             None,
         )?;
         match out.code {
-            Some(0) | Some(NOT_FOUND_RC) => Ok(()),
+            Some(0) => Ok(true),
+            Some(NOT_FOUND_RC) => Ok(false),
             code => Err(failed("delete-generic-password", code, &out.stderr)),
         }
+    }
+
+    /// Attribute-only lookup: never decrypts, so it cannot prompt. Any
+    /// failure reads as "not there".
+    pub fn item_exists(&self, service: &str, account: &str) -> bool {
+        self.run(
+            &["find-generic-password", "-a", account, "-s", service],
+            None,
+        )
+        .is_ok_and(|out| out.code == Some(0))
     }
 
     fn run(
@@ -269,6 +292,38 @@ impl SecretStore {
                 .map(|v| v.to_string_lossy().into_owned()),
             capability: RefCell::default(),
             warnings: RefCell::default(),
+        }
+    }
+
+    pub fn keychain(&self) -> &Keychain {
+        &self.keychain
+    }
+
+    /// A slot backup from the Keychain only (no `.enc`), `""` when absent.
+    pub fn read_backup_keychain(
+        &self,
+        num: &str,
+        email: &str,
+    ) -> std::result::Result<String, KeychainError> {
+        let account = Self::backup_account_name(num, email);
+        self.kc(|k| k.get_password(BACKUP_SERVICE, &account))
+            .map(Option::unwrap_or_default)
+    }
+
+    pub fn write_backup_keychain(
+        &self,
+        num: &str,
+        email: &str,
+        credentials: &str,
+    ) -> std::result::Result<(), KeychainError> {
+        let account = Self::backup_account_name(num, email);
+        self.kc(|k| k.set_password(BACKUP_SERVICE, &account, credentials))
+    }
+
+    pub fn delete_backup_keychain_quiet(&self, num: &str, email: &str) {
+        let account = Self::backup_account_name(num, email);
+        if let Err(e) = self.kc(|k| k.delete_password(BACKUP_SERVICE, &account)) {
+            self.warn(format!("Failed to delete credentials from Keychain: {e}"));
         }
     }
 
@@ -694,6 +749,36 @@ impl SecretStore {
             }
             self.delete_previous_backup(n, email);
         }
+    }
+
+    /// A pre-commit clear that fails closed: backend errors and a key that
+    /// still reads non-empty or unreadable are a `CredentialError`, since a
+    /// destination that should be empty but may still serve material is the
+    /// wrong-credential state a renumber must never commit.
+    pub fn delete_backup_strict(&self, num: &str, email: &str) -> Result<()> {
+        self.delete_backup(num, email);
+        let failed = |detail: String| {
+            Error::new(
+                ErrorKind::CredentialError,
+                format!(
+                    "Could not clear stored credentials for slot {num} ({email}) — aborting before commit{detail}"
+                ),
+            )
+        };
+        match std::fs::remove_file(self.backup_enc_path(num, email)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(failed(format!(": {e}")));
+            }
+            _ => {}
+        }
+        let account = Self::backup_account_name(num, email);
+        self.kc(|k| k.delete_password(BACKUP_SERVICE, &account))
+            .map_err(|e| failed(format!(": {e}")))?;
+        let after = self.read_backup(num, email);
+        if !after.value.is_empty() || after.unreadable {
+            return Err(failed(String::new()));
+        }
+        Ok(())
     }
 
     pub fn delete_previous_backup(&self, num: &str, email: &str) {
