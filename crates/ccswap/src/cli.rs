@@ -1,10 +1,11 @@
 use std::io::{IsTerminal, Write};
 
-use ccswap_core::accounts::{Accounts, AddOptions, Console};
+use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, Console, TokenInput};
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
+use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
@@ -172,16 +173,22 @@ impl Cli {
         let paths = Paths::new(&self.env);
         let style = Style::detect(&self.env, &paths);
         let json = parsed.flag("--json");
-        let result = if is_root() {
+        if is_root() {
             eprintln!(
                 "{}",
                 style.red("Error: Do not run this script as root (unless running in a container)")
             );
             return 1;
-        } else if parsed.flag("--status") {
+        }
+        if !parsed.flag("--upgrade") {
+            run_store_migrations(&self.env, &paths);
+        }
+        let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
+        } else if let Some(token) = parsed.value("--add-token") {
+            self.add_token(&paths, &style, token, &parsed)
         } else if parsed.flag("--switch") || nonempty(&parsed, "--switch-to") {
             self.switch(&paths, &style, &parsed)
         } else {
@@ -280,6 +287,37 @@ impl Cli {
         Ok(())
     }
 
+    fn add_token(
+        &mut self,
+        paths: &Paths,
+        style: &Style,
+        token: &str,
+        parsed: &Parsed,
+    ) -> Result<(), Error> {
+        let endpoints = Endpoints::new(&self.env);
+        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
+        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
+        let client = AnthropicClient::new(endpoints);
+        let accounts = Accounts {
+            paths,
+            env: &self.env,
+            secrets: &secrets,
+            client: &client,
+            style,
+        };
+        let input = match token {
+            "-" => TokenInput::Stdin,
+            "" => TokenInput::Prompt,
+            value => TokenInput::Value(value.to_string()),
+        };
+        let options = AddTokenOptions {
+            email: parsed.value("--email").map(str::to_string),
+            slot: parsed.value("--slot").and_then(|s| s.trim().parse().ok()),
+            assume_yes: false,
+        };
+        accounts.add_token(input, &options, &mut TerminalConsole)
+    }
+
     /// Flag-combination checks, in upstream's order.
     fn validate(&self, p: &Parsed) -> Result<(), String> {
         let has = |name: &str| p.flag(name) || p.value(name).is_some();
@@ -362,6 +400,17 @@ impl Cli {
     }
 }
 
+/// Upstream runs these wherever it builds its switcher: every command but
+/// `upgrade`, before the root check (ccswap runs them after it so root never
+/// writes into the user's store).
+pub fn run_store_migrations(env: &Environment, paths: &Paths) {
+    let keychain = Keychain::new(Endpoints::new(env).security, env);
+    let secrets = SecretStore::new(keychain, paths.clone(), env);
+    for line in migrations::run_migrations(paths, &secrets).stderr {
+        eprintln!("{line}");
+    }
+}
+
 /// Prints as it goes, so output already shown survives a later error the
 /// way Python's `print` does.
 struct TerminalConsole;
@@ -384,6 +433,10 @@ impl Console for TerminalConsole {
             Ok(0) | Err(_) => None,
             Ok(_) => Some(answer.trim_end_matches(['\n', '\r']).to_string()),
         }
+    }
+
+    fn secret(&mut self, question: &str) -> Option<String> {
+        accounts::getpass(question)
     }
 }
 

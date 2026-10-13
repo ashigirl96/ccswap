@@ -35,7 +35,8 @@
 //! - `env.http().respond_with(method, path, |req| ...)` runs code when the
 //!   request arrives (e.g. a `/login` landing mid-request);
 //!   `env.security().fail_command("add-generic-password", 51)` fails one
-//!   `security` command only.
+//!   `security` command only; `fail_command_for_service` /
+//!   `fail_command_for_item` narrow it to one service / item.
 //! - `env.cmd(..).using(Impl::Ccswap | Impl::Upstream)` pins one
 //!   implementation for cswap/ccswap round trips (Upstream needs
 //!   `CCSWAP_TEST_UPSTREAM`).
@@ -610,6 +611,25 @@ impl FakeSecurity {
     /// including when it arrives through `security -i`.
     pub fn fail_command(&self, command: &str, rc: i32) {
         std::fs::write(self.state.join(format!("fail_{command}")), rc.to_string()).unwrap();
+    }
+
+    /// Like [`Self::fail_command`], only for items of `service`.
+    pub fn fail_command_for_service(&self, command: &str, service: &str, rc: i32) {
+        std::fs::write(
+            self.state.join(format!("fail_{command}@{service}")),
+            rc.to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Like [`Self::fail_command`], only for one `(service, account)` item.
+    pub fn fail_command_for_item(&self, command: &str, service: &str, account: &str, rc: i32) {
+        std::fs::write(
+            self.state
+                .join(format!("fail_{command}@{service}@{account}")),
+            rc.to_string(),
+        )
+        .unwrap();
     }
 
     /// Record, on every later call, whether each of `paths` exists (e.g. a lock).

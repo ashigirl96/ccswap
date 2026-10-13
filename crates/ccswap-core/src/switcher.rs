@@ -28,6 +28,9 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
     "pluginSecrets",
 ];
 
+/// Prints the account list after a human-mode switch.
+pub type Listing = dyn Fn(&mut dyn Console) -> Result<()>;
+
 pub struct Switcher<'a> {
     pub paths: &'a Paths,
     pub env: &'a Environment,
@@ -36,7 +39,7 @@ pub struct Switcher<'a> {
     pub style: &'a Style,
     /// Prints the account list after a human-mode switch; an error becomes
     /// a one-line notice instead of failing the switch.
-    pub listing: Option<&'a dyn Fn(&mut dyn Console) -> Result<()>>,
+    pub listing: Option<&'a Listing>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,7 +264,7 @@ impl Switcher<'_> {
             return Err(Error::config("No accounts are managed yet"));
         }
         let identity = store::current_identity(self.paths);
-        store::migrate_org_fields(self.paths)?;
+        store::read_sequence_migrated(self.paths)?;
 
         let Some(identity) = identity else {
             return Err(not_yet(
@@ -412,7 +415,7 @@ impl Switcher<'_> {
         if !self.paths.sequence_file().exists() {
             return Err(Error::config("No accounts are managed yet"));
         }
-        store::migrate_org_fields(self.paths)?;
+        store::read_sequence_migrated(self.paths)?;
         if force {
             return Err(not_yet("switch --force"));
         }
