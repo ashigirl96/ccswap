@@ -2,6 +2,7 @@ mod argparse;
 mod cli;
 mod config_cmd;
 mod manage_cmd;
+mod renumber_cmd;
 
 use ccswap_core::env::Environment;
 
