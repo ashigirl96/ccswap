@@ -8,6 +8,7 @@ STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 ITEMS = os.path.join(STATE_DIR, "items.json")
 CALLS = os.path.join(STATE_DIR, "calls.jsonl")
 FAIL_RC = os.path.join(STATE_DIR, "fail_rc")
+OBSERVE = os.path.join(STATE_DIR, "observe.json")
 
 NOT_FOUND = 44
 DUPLICATE = 45
@@ -115,8 +116,12 @@ def run(argv, out):
 
 def main():
     stdin = sys.stdin.read() if sys.argv[1:2] == ["-i"] else None
+    record = {"argv": sys.argv[1:], "stdin": stdin}
+    if os.path.exists(OBSERVE):
+        with open(OBSERVE) as f:
+            record["observed"] = {p: os.path.exists(p) for p in json.load(f)}
     with open(CALLS, "a") as f:
-        f.write(json.dumps({"argv": sys.argv[1:], "stdin": stdin}) + "\n")
+        f.write(json.dumps(record) + "\n")
     out = {"out": [], "err": []}
     if os.path.exists(FAIL_RC):
         with open(FAIL_RC) as f:

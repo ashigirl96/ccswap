@@ -13,6 +13,7 @@ pub mod secret_store;
 pub mod settings;
 pub mod status;
 pub mod store;
+pub mod switcher;
 pub mod usage;
 pub mod usage_store;
 

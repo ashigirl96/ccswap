@@ -490,7 +490,7 @@ impl Accounts<'_> {
 
     /// Inside a `run` session profile the "live store" is the profile, not
     /// the default login.
-    fn refuse_session_shell(&self) -> Result<()> {
+    pub(crate) fn refuse_session_shell(&self) -> Result<()> {
         let Some(dir) = self.env.non_empty("CLAUDE_CONFIG_DIR") else {
             return Ok(());
         };

@@ -11,6 +11,7 @@ use ccswap_core::pyjson;
 use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
 use ccswap_core::status;
+use ccswap_core::switcher::Switcher;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 
@@ -181,6 +182,8 @@ impl Cli {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
+        } else if parsed.flag("--switch") || nonempty(&parsed, "--switch-to") {
+            self.switch(&paths, &style, &parsed)
         } else {
             let command = COMMAND_FLAGS
                 .iter()
@@ -245,6 +248,36 @@ impl Cli {
             assume_yes: false,
         };
         accounts.add_account(&options, &mut TerminalConsole)
+    }
+
+    fn switch(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
+        if parsed.value("--strategy").is_some() {
+            return Err(not_implemented_error("switch --strategy"));
+        }
+        let endpoints = Endpoints::new(&self.env);
+        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
+        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
+        let client = AnthropicClient::new(endpoints);
+        let switcher = Switcher {
+            paths,
+            env: &self.env,
+            secrets: &secrets,
+            client: &client,
+            style,
+            listing: None,
+        };
+        let json = parsed.flag("--json");
+        let report = match parsed.value("--switch-to") {
+            Some(target) => {
+                switcher.switch_to(target, json, parsed.flag("--force"), &mut TerminalConsole)?
+            }
+            None => switcher.switch_next(json, &mut TerminalConsole)?,
+        };
+        if let Some(report) = report.filter(|_| json) {
+            self.stdout
+                .push(pyjson::to_string_pretty(&report.to_json()));
+        }
+        Ok(())
     }
 
     /// Flag-combination checks, in upstream's order.
