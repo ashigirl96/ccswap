@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::accounts::{Accounts, Console};
 use crate::anthropic_client::{AnthropicClient, RefreshOutcome};
+use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::error::Result;
 use crate::paths::Paths;
@@ -181,13 +182,14 @@ impl EngineHost for SwitcherHost<'_> {
         crate::session_profile::live_session_pids(self.paths, num, email)
     }
 
-    /// The consume gate does not exist yet: every refresh is declined as
-    /// busy, so nothing is consumed.
-    fn consume_backup_grant(&self, _num: &str, _email: &str, _snapshot: &str) -> RefreshOutcome {
-        RefreshOutcome {
-            error: Some("consume-busy".into()),
-            ..Default::default()
+    fn consume_backup_grant(&self, num: &str, email: &str, snapshot: &str) -> RefreshOutcome {
+        ConsumeGate {
+            paths: self.paths,
+            env: self.env,
+            secrets: self.secrets,
+            client: self.client,
         }
+        .consume_backup_grant(num, email, snapshot)
     }
 
     fn account_identity(&self, num: &str) -> SlotIdentity {

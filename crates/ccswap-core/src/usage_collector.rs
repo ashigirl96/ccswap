@@ -9,18 +9,21 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::anthropic_client::{
-    AnthropicClient, RefreshOutcome, UsageOutcome, credential_fingerprint, extract_oauth_data,
+    AnthropicClient, UsageOutcome, credential_fingerprint, extract_oauth_data,
     is_oauth_token_expired,
 };
+use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::paths::Paths;
 use crate::poll_policy::{PlanInputs, plan_after_fetch};
-use crate::secret_store::{ActiveCredentials, Keychain, SecretStore};
+use crate::secret_store::{ActiveCredentials, SecretStore};
 use crate::session_profile;
 use crate::settings::{SettingValue, Settings};
 use crate::store::{self, JsonObject};
 use crate::usage::{Sentinel, static_sentinel, truthy};
 use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
+
+mod active;
 
 /// Delay between request starts so N accounts never hit the endpoint at once.
 const FETCH_STAGGER: Duration = Duration::from_millis(250);
@@ -109,16 +112,6 @@ pub fn build_accounts_info(
         })
         .collect();
     (infos, active_read)
-}
-
-/// The refresh gate inactive slots go through. Until the consume gate
-/// exists, every refresh is declined as `consume-busy`: the expired token
-/// is not sent and nothing is consumed.
-fn decline_refresh(_num: &str, _email: &str, _snapshot: &str) -> RefreshOutcome {
-    RefreshOutcome {
-        error: Some("consume-busy".into()),
-        ..Default::default()
-    }
 }
 
 pub struct UsageCollector<'a> {
@@ -278,17 +271,23 @@ impl<'a> UsageCollector<'a> {
         claims: &[(String, String)],
         active: Option<&ActiveCredentials>,
     ) -> Vec<(String, FetchRecord)> {
-        let degraded = active.is_some_and(|a| a.degraded);
-        let unmirrored = self
-            .env
-            .non_empty("CLAUDE_SECURESTORAGE_CONFIG_DIR")
-            .is_some();
-        let client = self.client;
-        let sessions = SessionSource {
+        let fetcher = Fetcher {
             paths: &self.paths,
-            keychain: self.secrets.keychain(),
+            secrets: self.secrets,
+            client: self.client,
+            gate: ConsumeGate {
+                paths: &self.paths,
+                env: self.env,
+                secrets: self.secrets,
+                client: self.client,
+            },
+            degraded: active.is_some_and(|a| a.degraded),
+            unmirrored: self
+                .env
+                .non_empty("CLAUDE_SECURESTORAGE_CONFIG_DIR")
+                .is_some(),
         };
-        let sessions = &sessions;
+        let fetcher = &fetcher;
         std::thread::scope(|scope| {
             let handles: Vec<_> = claims
                 .iter()
@@ -299,10 +298,7 @@ impl<'a> UsageCollector<'a> {
                         if idx > 0 {
                             std::thread::sleep(FETCH_STAGGER * idx as u32);
                         }
-                        (
-                            num.clone(),
-                            fetch_account(client, info, degraded, unmirrored, sessions),
-                        )
+                        (num.clone(), fetcher.fetch_account(info))
                     })
                 })
                 .collect();
@@ -356,94 +352,66 @@ fn record_of(outcome: UsageOutcome) -> FetchRecord {
     }
 }
 
-/// Where an inactive slot's session profile lives.
-struct SessionSource<'s> {
-    paths: &'s Paths,
-    keychain: &'s Keychain,
-}
-
-/// One network fetch for one slot. Never fails: problems become records.
-fn fetch_account(
-    client: &AnthropicClient,
-    info: &AccountInfo,
+/// What one pass's fetches share across threads.
+struct Fetcher<'f> {
+    paths: &'f Paths,
+    secrets: &'f SecretStore,
+    client: &'f AnthropicClient,
+    gate: ConsumeGate<'f>,
+    /// The active read fell back past an unreadable Keychain.
     degraded: bool,
     unmirrored: bool,
-    sessions: &SessionSource<'_>,
-) -> FetchRecord {
-    if info.is_active {
-        return fetch_active(client, info, degraded, unmirrored);
-    }
-    let dir = session_profile::session_dir_for(sessions.paths, &info.num, &info.email);
-    let mut live =
-        !session_profile::live_session_pids(sessions.paths, &info.num, &info.email).is_empty();
-    // Once a session has run, the profile holds the account's newest token
-    // family; it is read strictly read-only so the next `run` stays logged in.
-    let mut session_creds =
-        session_profile::read_credentials(sessions.keychain, &dir).filter(|c| !c.is_empty());
-    if session_creds.is_some()
-        && session_profile::identity_drifted(&dir, &info.email, &info.org_uuid)
-    {
-        session_creds = None;
-        live = false;
-    }
-    if let Some(session_creds) = session_creds
-        && let Some(oauth) =
-            extract_oauth_data(&session_creds).filter(|o| o.get("accessToken").is_some_and(truthy))
-    {
-        if !is_oauth_token_expired(oauth.get("expiresAt")) {
-            return record_of(client.try_fetch_usage_for_account(
-                &info.num,
-                &info.email,
-                &session_creds,
-                true,
-                None,
-            ));
-        }
-        if live {
-            return FetchRecord::sentinel(Sentinel::TokenExpired);
-        }
-    }
-    record_of(client.try_fetch_usage_for_account(
-        &info.num,
-        &info.email,
-        &info.creds,
-        live,
-        if live { None } else { Some(&decline_refresh) },
-    ))
 }
 
-/// The active slot is fetched as-is. Recovering an expired or
-/// server-rejected token under Claude Code's lock protocol is not done
-/// here; such a pass defers with the 401 or "token expired".
-fn fetch_active(
-    client: &AnthropicClient,
-    info: &AccountInfo,
-    degraded: bool,
-    unmirrored: bool,
-) -> FetchRecord {
-    let Some(oauth) =
-        extract_oauth_data(&info.creds).filter(|o| o.get("accessToken").is_some_and(truthy))
-    else {
-        return FetchRecord::sentinel(Sentinel::NoCredentials);
-    };
-    let mut rejected = None;
-    if !is_oauth_token_expired(oauth.get("expiresAt")) {
-        let outcome =
-            client.try_fetch_usage_for_account(&info.num, &info.email, &info.creds, true, None);
-        if outcome.error.as_deref() != Some("http-401") {
-            return record_of(outcome);
+impl Fetcher<'_> {
+    /// One network fetch for one slot. Never fails: problems become records.
+    fn fetch_account(&self, info: &AccountInfo) -> FetchRecord {
+        if info.is_active {
+            return self.fetch_active(info);
         }
-        rejected = Some(FetchRecord::error("http-401", outcome.retry_after_s));
+        let client = self.client;
+        let dir = session_profile::session_dir_for(self.paths, &info.num, &info.email);
+        let mut live =
+            !session_profile::live_session_pids(self.paths, &info.num, &info.email).is_empty();
+        // Once a session has run, the profile holds the account's newest token
+        // family; it is read strictly read-only so the next `run` stays logged in.
+        let mut session_creds = session_profile::read_credentials(self.secrets.keychain(), &dir)
+            .filter(|c| !c.is_empty());
+        if session_creds.is_some()
+            && session_profile::identity_drifted(&dir, &info.email, &info.org_uuid)
+        {
+            session_creds = None;
+            live = false;
+        }
+        if let Some(session_creds) = session_creds
+            && let Some(oauth) = extract_oauth_data(&session_creds)
+                .filter(|o| o.get("accessToken").is_some_and(truthy))
+        {
+            if !is_oauth_token_expired(oauth.get("expiresAt")) {
+                return record_of(client.try_fetch_usage_for_account(
+                    &info.num,
+                    &info.email,
+                    &session_creds,
+                    true,
+                    None,
+                ));
+            }
+            if live {
+                return FetchRecord::sentinel(Sentinel::TokenExpired);
+            }
+        }
+        let gate = |num: &str, email: &str, snapshot: &str| {
+            self.gate.consume_backup_grant(num, email, snapshot)
+        };
+        record_of(client.try_fetch_usage_for_account(
+            &info.num,
+            &info.email,
+            &info.creds,
+            live,
+            if live { None } else { Some(&gate) },
+        ))
     }
-    if degraded {
-        return rejected.unwrap_or(FetchRecord::sentinel(Sentinel::KeychainUnavailable));
-    }
-    if unmirrored {
-        return FetchRecord::error("store-unmirrored", None);
-    }
-    rejected.unwrap_or(FetchRecord::sentinel(Sentinel::TokenExpired))
 }
-
 /// `autoswitch.threshold` and the `autoswitch.model` names, as upstream's
 /// `_poll_policy_inputs` reads them from settings.json.
 pub fn poll_policy_inputs(paths: &Paths) -> (f64, Vec<String>) {

@@ -1,7 +1,7 @@
-use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -278,7 +278,7 @@ pub struct SecretStore {
     keychain: Keychain,
     paths: Paths,
     securestorage_dir: Option<String>,
-    capability: RefCell<Capability>,
+    capability: Mutex<Capability>,
 }
 
 impl SecretStore {
@@ -289,8 +289,12 @@ impl SecretStore {
             securestorage_dir: env
                 .get("CLAUDE_SECURESTORAGE_CONFIG_DIR")
                 .map(|v| v.to_string_lossy().into_owned()),
-            capability: RefCell::default(),
+            capability: Mutex::default(),
         }
+    }
+
+    fn capability(&self) -> std::sync::MutexGuard<'_, Capability> {
+        self.capability.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn keychain(&self) -> &Keychain {
@@ -335,7 +339,7 @@ impl SecretStore {
         op: impl FnOnce(&Keychain) -> std::result::Result<T, KeychainError>,
     ) -> std::result::Result<T, KeychainError> {
         let result = op(&self.keychain);
-        let mut cap = self.capability.borrow_mut();
+        let mut cap = self.capability();
         match &result {
             Ok(_) => {
                 cap.op_failed = false;
@@ -354,7 +358,7 @@ impl SecretStore {
 
     /// Whether backup writes should target the Keychain right now.
     pub fn use_keychain(&self) -> bool {
-        let mut cap = self.capability.borrow_mut();
+        let mut cap = self.capability();
         if cap.usable == Some(false) && cap.reprobe_at.is_some_and(|t| Instant::now() >= t) {
             cap.usable = None;
             cap.reprobe_at = None;
