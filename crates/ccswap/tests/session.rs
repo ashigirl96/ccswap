@@ -763,6 +763,14 @@ fn remove_deletes_the_session_profile_and_its_keychain_item() {
     assert!(!dir.exists());
     assert!(!stale_marker(&env, 2).exists());
     assert_eq!(env.security().item(&service, KEYCHAIN_ACCOUNT), None);
+    let log = std::fs::read_to_string(env.store_dir().join("claude-swap.log")).unwrap();
+    assert!(
+        log.contains(&format!(
+            "INFO - Removed session profile for account 2 at {}",
+            dir.display()
+        )),
+        "{log}"
+    );
 }
 
 #[test]
