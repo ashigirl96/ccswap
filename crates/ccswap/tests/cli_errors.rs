@@ -47,6 +47,11 @@ fn argparse_errors_match_upstream() {
         (vec!["--slot"], "argument --slot: expected one argument".into()),
         (vec!["--status=1"], "argument --status: ignored explicit argument '1'".into()),
         (
+            vec!["switch", "--switch-to"],
+            "argument --switch-to: expected one argument".into(),
+        ),
+        (vec!["status", "--list=1"], "argument --list: ignored explicit argument '1'".into()),
+        (
             vec!["status", "--token-status"],
             "--token-status can only be used with 'list'".into(),
         ),

@@ -159,17 +159,6 @@ impl Parser<'_> {
                 extras.push(arg.clone());
                 continue;
             };
-            if opt.exclusive {
-                match exclusive_seen {
-                    Some(prev) if prev != opt.name => {
-                        return Err(ParseError(format!(
-                            "argument {}: not allowed with argument {prev}",
-                            opt.name
-                        )));
-                    }
-                    _ => exclusive_seen = Some(opt.name),
-                }
-            }
             let value = match opt.arity {
                 Arity::Flag => {
                     if let Some(v) = explicit {
@@ -204,6 +193,17 @@ impl Parser<'_> {
             };
             if let Value::Text(text) = &value {
                 check_value(opt, text)?;
+            }
+            if opt.exclusive {
+                match exclusive_seen {
+                    Some(prev) if prev != opt.name => {
+                        return Err(ParseError(format!(
+                            "argument {}: not allowed with argument {prev}",
+                            opt.name
+                        )));
+                    }
+                    _ => exclusive_seen = Some(opt.name),
+                }
             }
             match opt.action {
                 Action::Help => return Ok((Outcome::Help, parsed)),
