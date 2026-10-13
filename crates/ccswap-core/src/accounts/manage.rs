@@ -5,11 +5,9 @@ use serde_json::Value;
 use super::{Accounts, Console, accounts_mut, display_tag, sequence_mut};
 use crate::error::{Error, ErrorKind, Result};
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
+use crate::migrations::LEGACY_KEYRING_SERVICE;
 use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
 use crate::store::{self, JsonObject};
-
-/// The service the pre-`security` keyring backend stored backups under.
-const LEGACY_KEYRING_SERVICE: &str = "claude-code";
 
 impl Accounts<'_> {
     /// Deletes a slot's backups and record after confirmation (skipped with
@@ -24,7 +22,7 @@ impl Accounts<'_> {
         if !self.paths.sequence_file().exists() {
             return Err(Error::config("No accounts are managed yet"));
         }
-        store::migrate_org_fields(self.paths)?;
+        store::read_sequence_migrated(self.paths)?;
         let style = self.style;
 
         let mut identifier = identifier.to_string();
@@ -75,8 +73,9 @@ impl Accounts<'_> {
             )));
         }
         if !assume_yes {
-            let question =
-                format!("Are you sure you want to permanently remove Account-{num} ({email})? [y/N] ");
+            let question = format!(
+                "Are you sure you want to permanently remove Account-{num} ({email})? [y/N] "
+            );
             match console.prompt(&question) {
                 Some(answer) if answer.to_lowercase() == "y" => {}
                 Some(_) => {
@@ -136,9 +135,7 @@ impl Accounts<'_> {
                 ));
             };
             if store::is_truthy(record.get("disabled")) == disabled {
-                console.line(&style.dimmed(&format!(
-                    "Account-{num} ({email}) is already {verb}."
-                )));
+                console.line(&style.dimmed(&format!("Account-{num} ({email}) is already {verb}.")));
                 return Ok(());
             }
             if disabled {
@@ -246,7 +243,7 @@ impl Accounts<'_> {
 
     /// Every set alias as `(slot, alias, email)`, by slot number.
     pub fn list_aliases(&self) -> Result<Vec<(String, String, String)>> {
-        store::migrate_org_fields(self.paths)?;
+        store::read_sequence_migrated(self.paths)?;
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         let mut rows: Vec<(String, String, String)> = store::accounts(&data)
             .map(|accounts| {
@@ -286,18 +283,14 @@ impl Accounts<'_> {
             })
             .unwrap_or_default();
 
-        console.line(&style.yellowed(
-            "This will remove ALL claude-swap data from your system:",
-        ));
+        console.line(&style.yellowed("This will remove ALL claude-swap data from your system:"));
         console.line(&format!("  - Backup directory: {}", backup_root.display()));
         console.line("  - All stored account credentials (macOS Keychain and/or files)");
         if !session_dirs.is_empty() {
             console.line("  - All session profiles and their Keychain entries");
         }
         console.line("");
-        console.line(&style.dimmed(
-            "Note: This does NOT affect your current Claude Code login.",
-        ));
+        console.line(&style.dimmed("Note: This does NOT affect your current Claude Code login."));
         console.line("");
         match console.prompt("Are you sure you want to purge all data? [y/N] ") {
             Some(answer) if answer.to_lowercase() == "y" => {}
@@ -354,7 +347,12 @@ impl Accounts<'_> {
             }
             let names: Vec<String> = session_dirs
                 .iter()
-                .map(|d| d.file_name().unwrap_or_default().to_string_lossy().into_owned())
+                .map(|d| {
+                    d.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                })
                 .collect();
             removed.push(format!("Session profiles: {}", names.join(", ")));
         }
@@ -384,7 +382,7 @@ impl Accounts<'_> {
     /// `(slot, email, organizationUuid)` for a number, alias or email; an
     /// ambiguous email is an error, never a prompt.
     pub fn resolve_account(&self, identifier: &str) -> Result<(String, String, String)> {
-        store::migrate_org_fields(self.paths)?;
+        store::read_sequence_migrated(self.paths)?;
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         let num = resolve_existing(&data, identifier)?;
         let email = text_field(&data, &num, "email");

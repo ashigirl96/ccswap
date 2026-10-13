@@ -62,13 +62,17 @@ def run(argv, out):
     if not argv:
         return 1
     cmd, rest = argv[0], argv[1:]
-    fail_path = os.path.join(STATE_DIR, f"fail_{cmd}")
-    if os.path.exists(fail_path):
-        with open(fail_path) as f:
-            rc = int(f.read().strip())
-        out["err"].append("security: SecKeychainItemModifyContent: User interaction is not allowed.")
-        return rc
     opts, flags = parse(cmd, rest)
+    for fail_path in (
+        os.path.join(STATE_DIR, f"fail_{cmd}"),
+        os.path.join(STATE_DIR, f"fail_{cmd}@{opts.get('-s')}"),
+        os.path.join(STATE_DIR, f"fail_{cmd}@{opts.get('-s')}@{opts.get('-a')}"),
+    ):
+        if os.path.exists(fail_path):
+            with open(fail_path) as f:
+                rc = int(f.read().strip())
+            out["err"].append("security: SecKeychainItemModifyContent: User interaction is not allowed.")
+            return rc
     items = load()
     service, account = opts.get("-s"), opts.get("-a")
     if cmd == "find-generic-password":

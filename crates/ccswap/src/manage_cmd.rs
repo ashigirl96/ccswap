@@ -123,6 +123,7 @@ pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
+    crate::cli::run_store_migrations(env, &paths);
     let endpoints = Endpoints::new(env);
     let keychain = Keychain::new(endpoints.security.clone(), env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);
@@ -148,12 +149,14 @@ pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         (Some(account), None) => accounts.unset_alias(account).map(|num| {
             println!("{} for Account {num}", style.accent("Removed alias"));
         }),
-        (Some(account), Some(name)) => accounts.set_alias(account, name).map(|(num, normalized)| {
-            println!(
-                "{} '{normalized}' for Account {num}",
-                style.accent("Set alias")
-            );
-        }),
+        (Some(account), Some(name)) => {
+            accounts.set_alias(account, name).map(|(num, normalized)| {
+                println!(
+                    "{} '{normalized}' for Account {num}",
+                    style.accent("Set alias")
+                );
+            })
+        }
     };
     match result {
         Ok(()) => 0,

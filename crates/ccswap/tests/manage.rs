@@ -52,7 +52,11 @@ fn seed_three(env: &TestEnv) {
             "3": record("c@example.com", "", ""),
         }
     }));
-    for (num, email) in [(1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")] {
+    for (num, email) in [
+        (1, "a@example.com"),
+        (2, "b@example.com"),
+        (3, "c@example.com"),
+    ] {
         store_creds(env, num, email);
     }
 }
@@ -77,7 +81,8 @@ fn err_line(out: &Output) -> &str {
 fn remove_by_number_deletes_backups_and_record_after_confirming() {
     let env = TestEnv::new();
     seed_three(&env);
-    env.security().set_item(BACKUP_SERVICE, "account-2-b@example.com.prev", "old");
+    env.security()
+        .set_item(BACKUP_SERVICE, "account-2-b@example.com.prev", "old");
 
     let out = env.cmd(["remove", "2"]).stdin("y\n").run();
 
@@ -90,10 +95,22 @@ fn remove_by_number_deletes_backups_and_record_after_confirming() {
     assert_eq!(data["sequence"], json!([1, 3]));
     assert!(data["accounts"].get("2").is_none());
     assert_eq!(data["activeAccountNumber"], json!(1));
-    assert_eq!(env.security().item(BACKUP_SERVICE, "account-2-b@example.com"), None);
-    assert_eq!(env.security().item(BACKUP_SERVICE, "account-2-b@example.com.prev"), None);
+    assert_eq!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-2-b@example.com"),
+        None
+    );
+    assert_eq!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-2-b@example.com.prev"),
+        None
+    );
     assert!(!env.home().join(config_path(2, "b@example.com")).exists());
-    assert!(env.security().item(BACKUP_SERVICE, "account-1-a@example.com").is_some());
+    assert!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-1-a@example.com")
+            .is_some()
+    );
 }
 
 #[test]
@@ -122,7 +139,11 @@ fn remove_is_cancelled_by_anything_but_y() {
         assert!(out.stdout.ends_with("[y/N] Cancelled\n"), "{}", out.stdout);
     }
     assert_eq!(sequence(&env), before);
-    assert!(env.security().item(BACKUP_SERVICE, "account-2-b@example.com").is_some());
+    assert!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-2-b@example.com")
+            .is_some()
+    );
 
     env.cmd(["remove", "2"]).stdin("Y\n").run().assert_code(0);
     assert!(sequence(&env)["accounts"].get("2").is_none());
@@ -133,7 +154,10 @@ fn removing_the_active_account_warns_and_leaves_active_number() {
     let env = TestEnv::new();
     seed_three(&env);
 
-    let out = env.cmd(["--remove-account", "a@example.com"]).stdin("y\n").run();
+    let out = env
+        .cmd(["--remove-account", "a@example.com"])
+        .stdin("y\n")
+        .run();
 
     out.assert_code(0);
     assert!(
@@ -169,8 +193,14 @@ fn remove_reports_unresolvable_identifiers() {
 
     seed_three(&env);
     let cases = [
-        ("not an email or alias!", "Error: Invalid account identifier: not an email or alias!"),
-        ("nobody@example.com", "Error: No account found with identifier: nobody@example.com"),
+        (
+            "not an email or alias!",
+            "Error: Invalid account identifier: not an email or alias!",
+        ),
+        (
+            "nobody@example.com",
+            "Error: No account found with identifier: nobody@example.com",
+        ),
         ("99", "Error: Account-99 does not exist"),
         ("dev", "Error: Invalid account identifier: dev"),
     ];
@@ -197,7 +227,10 @@ fn remove_asks_which_slot_when_an_email_is_in_two_orgs() {
 
     let out = env.cmd(["remove", "u@example.com"]).stdin("7\n").run();
     out.assert_code(0);
-    assert!(out.stdout.ends_with("Enter account number to remove: Cancelled\n"));
+    assert!(
+        out.stdout
+            .ends_with("Enter account number to remove: Cancelled\n")
+    );
 
     let out = env.cmd(["remove", "u@example.com"]).stdin("2\ny\n").run();
 
@@ -225,14 +258,19 @@ fn remove_prunes_the_accounts_directory_mappings() {
 
     out.assert_code(0);
     assert!(
-        out.stdout
-            .ends_with("Removed Account-2 (b@example.com)\nRemoved 1 directory mapping(s) for this account\n"),
+        out.stdout.ends_with(
+            "Removed Account-2 (b@example.com)\nRemoved 1 directory mapping(s) for this account\n"
+        ),
         "{}",
         out.stdout
     );
     let mappings = env.read_json(env.store_dir().join("mappings.json"));
     assert_eq!(
-        mappings["mappings"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        mappings["mappings"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
         ["/w/a"]
     );
 }
@@ -265,11 +303,20 @@ fn disable_sets_the_flag_and_keeps_the_slot_explicitly_reachable() {
     let data = sequence(&env);
     assert_eq!(data["accounts"]["2"]["disabled"], json!(true));
     assert_eq!(
-        data["accounts"]["2"].as_object().unwrap().keys().last().unwrap(),
+        data["accounts"]["2"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .next_back()
+            .unwrap(),
         "disabled"
     );
     assert_eq!(data["sequence"], json!([1, 2, 3]));
-    assert!(env.security().item(BACKUP_SERVICE, "account-2-b@example.com").is_some());
+    assert!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-2-b@example.com")
+            .is_some()
+    );
     assert!(env.home().join(config_path(2, "b@example.com")).exists());
 }
 
@@ -317,13 +364,19 @@ fn repeating_disable_or_enable_is_a_noop() {
 
     let out = env.run(["enable", "1"]);
     out.assert_code(0);
-    assert_eq!(out.stdout, "Account-1 (a@example.com) is already enabled.\n");
+    assert_eq!(
+        out.stdout,
+        "Account-1 (a@example.com) is already enabled.\n"
+    );
 
     env.run(["disable", "2"]).assert_code(0);
     let before = sequence(&env);
     let out = env.run(["disable", "2"]);
     out.assert_code(0);
-    assert_eq!(out.stdout, "Account-2 (b@example.com) is already disabled.\n");
+    assert_eq!(
+        out.stdout,
+        "Account-2 (b@example.com) is already disabled.\n"
+    );
     assert_eq!(sequence(&env), before);
 }
 
@@ -380,7 +433,10 @@ fn disable_reports_unresolvable_identifiers() {
     let cases = [
         ("99", "Error: Account-99 does not exist"),
         ("01", "Error: Account-01 does not exist"),
-        ("x@example.com", "Error: No account found with identifier: x@example.com"),
+        (
+            "x@example.com",
+            "Error: No account found with identifier: x@example.com",
+        ),
         (
             "u@example.com",
             "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
@@ -429,7 +485,10 @@ fn alias_renames_through_the_existing_alias() {
 
     let out = env.run(["alias", "dev", "again"]);
     out.assert_code(1);
-    assert_eq!(err_line(&out), "Error: No account found with identifier: dev");
+    assert_eq!(
+        err_line(&out),
+        "Error: No account found with identifier: dev"
+    );
 }
 
 #[test]
@@ -440,11 +499,26 @@ fn alias_rejects_invalid_and_duplicate_names() {
     let before = sequence(&env);
 
     let cases: [(&[&str], &str); 5] = [
-        (&["2", "123"], "Error: alias '123' cannot be purely numeric (reserved for slot numbers)"),
-        (&["2", "dev@work"], "Error: alias 'dev@work' may only contain letters, digits, '-', '_', and '.'"),
-        (&["2", "dev work"], "Error: alias 'dev work' may only contain letters, digits, '-', '_', and '.'"),
-        (&["2", "--", "-dev"], "Error: alias '-dev' cannot start with '-' (would be read as a command flag)"),
-        (&["2", "DEV"], "Error: Alias 'dev' is already used by account 1"),
+        (
+            &["2", "123"],
+            "Error: alias '123' cannot be purely numeric (reserved for slot numbers)",
+        ),
+        (
+            &["2", "dev@work"],
+            "Error: alias 'dev@work' may only contain letters, digits, '-', '_', and '.'",
+        ),
+        (
+            &["2", "dev work"],
+            "Error: alias 'dev work' may only contain letters, digits, '-', '_', and '.'",
+        ),
+        (
+            &["2", "--", "-dev"],
+            "Error: alias '-dev' cannot start with '-' (would be read as a command flag)",
+        ),
+        (
+            &["2", "DEV"],
+            "Error: Alias 'dev' is already used by account 1",
+        ),
     ];
     for (args, expected) in cases {
         let out = env.run(std::iter::once("alias").chain(args.iter().copied()));
@@ -515,11 +589,20 @@ fn alias_argument_errors_exit_2() {
     seed_three(&env);
     let p = prog();
     let cases: [(&[&str], &str); 5] = [
-        (&["2"], "NAME is required (or pass --unset to remove the alias)"),
+        (
+            &["2"],
+            "NAME is required (or pass --unset to remove the alias)",
+        ),
         (&["--unset"], "NUM|EMAIL is required with --unset"),
-        (&["2", "dev", "--unset"], "--unset does not take a NAME argument"),
+        (
+            &["2", "dev", "--unset"],
+            "--unset does not take a NAME argument",
+        ),
         (&["2", "dev", "extra"], "unrecognized arguments: extra"),
-        (&["--unset=x", "2"], "argument --unset: ignored explicit argument 'x'"),
+        (
+            &["--unset=x", "2"],
+            "argument --unset: ignored explicit argument 'x'",
+        ),
     ];
     for (args, msg) in cases {
         let out = env.run(std::iter::once("alias").chain(args.iter().copied()));
@@ -569,7 +652,11 @@ fn purge_keeps_everything_unless_confirmed() {
     out.assert_code(0);
     assert_eq!(out.stdout, format!("{}Cancelled\n", purge_banner(&env)));
     assert!(env.store_dir().join("sequence.json").exists());
-    assert!(env.security().item(BACKUP_SERVICE, "account-1-a@example.com").is_some());
+    assert!(
+        env.security()
+            .item(BACKUP_SERVICE, "account-1-a@example.com")
+            .is_some()
+    );
 }
 
 #[test]
@@ -588,7 +675,8 @@ fn purge_removes_every_backup_and_the_store() {
     env.security()
         .set_item(BACKUP_SERVICE, "account-None-a@example.com", "legacy");
     env.write_file(
-        env.store_dir().join("credentials/.creds-2-b@example.com.enc"),
+        env.store_dir()
+            .join("credentials/.creds-2-b@example.com.enc"),
         "e30=",
     );
 
@@ -624,12 +712,22 @@ fn purge_deletes_session_profile_keychain_entries() {
     let out = env.cmd(["purge"]).stdin("y\n").run();
 
     out.assert_code(0);
-    assert!(out.stdout.contains("  - All session profiles and their Keychain entries\n"));
-    assert!(out.stdout.contains("  - Session profiles: 1-a@example.com\n"));
+    assert!(
+        out.stdout
+            .contains("  - All session profiles and their Keychain entries\n")
+    );
+    assert!(
+        out.stdout
+            .contains("  - Session profiles: 1-a@example.com\n")
+    );
     let deleted_profile_entry = env.security().calls().iter().any(|c| {
-        c.argv.first().is_some_and(|a| a == "delete-generic-password")
+        c.argv
+            .first()
+            .is_some_and(|a| a == "delete-generic-password")
             && c.argv.iter().any(|a| a == KEYCHAIN_ACCOUNT)
-            && c.argv.iter().any(|a| a.starts_with("Claude Code-credentials-"))
+            && c.argv
+                .iter()
+                .any(|a| a.starts_with("Claude Code-credentials-"))
     });
     assert!(deleted_profile_entry);
 }
@@ -653,5 +751,9 @@ fn purge_sweeps_legacy_keyring_items() {
         out.stdout
             .contains("  - Legacy keyring credential: account-2-b@example.com\n")
     );
-    assert_eq!(env.security().item("claude-code", "account-2-b@example.com"), None);
+    assert_eq!(
+        env.security()
+            .item("claude-code", "account-2-b@example.com"),
+        None
+    );
 }
