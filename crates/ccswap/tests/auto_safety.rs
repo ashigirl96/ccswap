@@ -568,3 +568,76 @@ fn cached_foreign_verdict_survives_a_failed_switch_time_probe() {
     assert_eq!(rows[0]["reason"], "known-foreign");
     assert_eq!(rows[0]["configSlot"], "1");
 }
+
+fn usage_requests(env: &TestEnv) -> usize {
+    env.http()
+        .requests()
+        .iter()
+        .filter(|r| r.path() == "/api/oauth/usage")
+        .count()
+}
+
+/// Upstream TestAdaptiveScheduler::test_idle_hold_skips_candidate_polling:
+/// a failed locked refresh of the expired active token backs the row off,
+/// and the next pass idles without spending a candidate poll.
+#[test]
+fn adaptive_scheduler_test_idle_hold_skips_candidate_polling() {
+    let env = TestEnv::new();
+    seed(&env, &[1, 2, 3], 1);
+    env.security().set_item(
+        ACTIVE_OAUTH_SERVICE,
+        KEYCHAIN_ACCOUNT,
+        &creds_expiring(1, 1000),
+    );
+    set_backup(&env, 1, &creds_expiring(1, 1000));
+    stub_usage(&env, &[("at-2", 10.0), ("at-3", 20.0)]);
+    token_response(&env, 503, json!({}));
+
+    auto(&env).assert_code(2);
+    assert_eq!(token_posts(&env).len(), 1);
+    let polled = usage_requests(&env);
+
+    let out = auto(&env);
+
+    out.assert_code(2);
+    assert_eq!(usage_requests(&env), polled, "{}", out.stdout);
+    assert_eq!(token_posts(&env).len(), 1);
+    let events = events(&out);
+    assert_eq!(
+        of_kind(&events, "no-switch").last().unwrap()["reason"],
+        "active-idle"
+    );
+}
+
+/// Upstream TestAdaptiveScheduler::
+/// test_expired_active_enters_idle_hold_even_during_backoff.
+#[test]
+fn adaptive_scheduler_test_expired_active_enters_idle_hold_even_during_backoff() {
+    let env = TestEnv::new();
+    seed(&env, &[1, 2, 3], 1);
+    env.http().respond_with("GET", "/api/oauth/usage", |req| {
+        match req.header("Authorization").unwrap_or_default() {
+            "Bearer at-1" => StubResponse::json(429, "{}").header("Retry-After", "600"),
+            "Bearer at-2" => StubResponse::json(200, &five_hour(10.0).to_string()),
+            _ => StubResponse::json(200, &five_hour(20.0).to_string()),
+        }
+    });
+    auto(&env).assert_code(2);
+    env.security().set_item(
+        ACTIVE_OAUTH_SERVICE,
+        KEYCHAIN_ACCOUNT,
+        &creds_expiring(1, 1000),
+    );
+    token_response(&env, 200, rotated(None));
+
+    let out = auto(&env);
+
+    out.assert_code(2);
+    let events = events(&out);
+    let reasons: Vec<&Value> = of_kind(&events, "no-switch")
+        .iter()
+        .map(|e| &e["reason"])
+        .collect();
+    assert_eq!(reasons, [&json!("active-idle")], "{}", out.stdout);
+    assert!(token_posts(&env).is_empty());
+}
