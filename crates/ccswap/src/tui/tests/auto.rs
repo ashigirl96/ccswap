@@ -91,12 +91,15 @@ fn declining_go_live_keeps_the_dry_run_engine() {
 fn back_stops_engine_and_restores_fetching() {
     let mut h = two();
     open(&mut h);
+    // Workers record their lane when they run, so passes still in flight would land in any order.
+    h.settle();
+    let before = h.fetch_sets().len();
     h.press(&["escape"]);
     h.settle();
     assert!(matches!(h.app.screen(), Screen::Dashboard(_)));
     assert!(engine(&h, 0, |e| e.stopped));
     assert!(!h.app.store_only());
-    assert_eq!(h.fake.fetch_sets.lock().unwrap().last(), Some(&None));
+    assert_eq!(h.fetch_sets()[before..], [None]);
 }
 
 #[test]
