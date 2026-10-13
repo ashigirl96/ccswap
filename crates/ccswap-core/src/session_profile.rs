@@ -80,6 +80,52 @@ pub fn delete_profile(keychain: &Keychain, session_dir: &Path) {
     clear_stale(session_dir);
 }
 
+/// Best-effort read of the profile's current credential: its hashed
+/// Keychain item (which shadows the seed once Claude writes it), else the
+/// plaintext `.credentials.json`. Read-only.
+pub fn read_credentials(keychain: &Keychain, session_dir: &Path) -> Option<String> {
+    if !session_dir.is_dir() {
+        return None;
+    }
+    let service = profile_service_name(&session_dir.display().to_string());
+    if let Ok(Some(creds)) = keychain.get_password(&service, keychain.account())
+        && !creds.is_empty()
+    {
+        return Some(creds);
+    }
+    std::fs::read_to_string(session_dir.join(".credentials.json")).ok()
+}
+
+/// `(email, organization uuid)` the profile is logged in as, from its
+/// `.claude.json`.
+pub fn read_identity(session_dir: &Path) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(session_dir.join(".claude.json")).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let account = match config.as_object()?.get("oauthAccount") {
+        None | Some(serde_json::Value::Null) => return None,
+        Some(v) => v.as_object()?,
+    };
+    let field = |key: &str| {
+        account
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let email = field("emailAddress");
+    (!email.is_empty()).then(|| (email, field("organizationUuid")))
+}
+
+/// An in-session `/login` can re-point a profile at another account; an
+/// unreadable identity is trusted, not drift.
+pub fn identity_drifted(session_dir: &Path, email: &str, org_uuid: &str) -> bool {
+    let Some((profile_email, profile_org)) = read_identity(session_dir) else {
+        return false;
+    };
+    profile_email != email
+        || (!profile_org.is_empty() && !org_uuid.is_empty() && profile_org != org_uuid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

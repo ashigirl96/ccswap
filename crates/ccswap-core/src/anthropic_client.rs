@@ -347,12 +347,63 @@ pub fn is_oauth_token_expired(expires_at: Option<&Value>) -> bool {
     now_ms + OAUTH_EXPIRY_BUFFER_MS >= expires_at as i64
 }
 
+/// `oauth: fresh, refresh token yes, expires 20:39 in 1h 30m`; `None`
+/// for a non-OAuth credential.
+pub fn build_token_status(credentials: &str) -> Option<String> {
+    let oauth = extract_oauth_data(credentials).filter(|d| !d.is_empty())?;
+    let refresh = if oauth.get("refreshToken").is_some_and(truthy) {
+        "yes"
+    } else {
+        "no"
+    };
+    let expires_at = oauth.get("expiresAt").filter(|v| v.is_number());
+    let Some(expires_ms) = expires_at.and_then(Value::as_f64) else {
+        return Some(format!("oauth: unknown expiry, refresh token {refresh}"));
+    };
+    let expires = chrono::DateTime::from_timestamp_micros((expires_ms * 1000.0) as i64)?;
+    let iso = expires.format("%Y-%m-%dT%H:%M:%S%.6f+00:00").to_string();
+    let (countdown, clock) = crate::usage::format_reset(&Value::String(iso)).ok()?;
+    let state = if is_oauth_token_expired(expires_at) {
+        "expired"
+    } else {
+        "fresh"
+    };
+    Some(format!(
+        "oauth: {state}, refresh token {refresh}, expires {clock} in {countdown}"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from upstream tests/test_oauth.py (TestFetchOauthProfile,
-    //! TestCredentialFingerprint).
+    //! TestCredentialFingerprint, TestBuildTokenStatus).
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn token_status_reports_state_refresh_and_expiry() {
+        let in_90m = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 90 * 60
+            + 30;
+        let creds = json!({"claudeAiOauth": {"accessToken": "a", "refreshToken": "r",
+                                             "expiresAt": in_90m * 1000}})
+        .to_string();
+        let status = build_token_status(&creds).unwrap();
+        assert!(
+            status.starts_with("oauth: fresh, refresh token yes, expires "),
+            "{status}"
+        );
+        assert!(status.ends_with(" in 1h 30m"), "{status}");
+        let unknown = json!({"claudeAiOauth": {"accessToken": "a", "refreshToken": "r"}});
+        assert_eq!(
+            build_token_status(&unknown.to_string()).as_deref(),
+            Some("oauth: unknown expiry, refresh token yes")
+        );
+        assert_eq!(build_token_status("sk-ant-api03-x"), None);
+    }
 
     #[test]
     fn retry_after_takes_only_the_seconds_form() {
