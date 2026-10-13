@@ -3,26 +3,35 @@
 //! two lanes, the single-flight actions, and every screen's key handling.
 //! Blocking work runs on worker threads that report back over a channel.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use ccswap_core::accounts::Console;
 use ccswap_core::actions::{ActionResult, Actions, run_action};
+use ccswap_core::autoswitch::{AutoSwitchSettings, pct_label};
 use ccswap_core::error::Result as CoreResult;
 use ccswap_core::ranking::Strategy;
-use ccswap_core::settings::{SettingValue, Settings};
+use ccswap_core::settings::{Kind, SettingValue, Settings, setting_spec};
 use ccswap_core::snapshot::{AccountsSnapshot, SnapshotSource, account_identity};
 use ccswap_core::switcher::SwitchStrategy;
 use ccswap_core::usage::now_secs;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::Value;
 
+use super::autoview::{LogLine, clock_stamp, event_line};
 use super::data::format_duration;
+use super::engine::{EngineControl, EngineFactory, EngineReport, EngineStart, idle_factory};
 use super::theme::{Palette, ThemeName};
 
 pub const POLL_INTERVAL_S: f64 = 3.0;
 pub const SNAPSHOT_AGE_NOTE_S: f64 = 60.0;
+/// How long a row whose usage was just re-measured stays highlighted.
+pub const FLASH_S: f64 = 1.5;
+pub const WATCH_TITLE: &str = "watching all accounts";
+pub const WATCH_SELECT_TITLE: &str = "switch to which account? · enter confirm · esc cancel";
+const GO_LIVE_MESSAGE: &str = "Go live? claude-swap will switch your active account automatically when the threshold is reached.\n\n(Same behavior as running `cswap auto` in a terminal.)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
@@ -34,6 +43,7 @@ pub enum Lane {
 pub enum Severity {
     Information,
     Warning,
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,11 +94,106 @@ impl Dashboard {
     }
 }
 
+/// A live list of full account cards (the Switch and Watch screens).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SwitchScreen {
     pub numbers: Vec<String>,
     pub index: Option<usize>,
+    /// Each slot's `fetched_at` as of the previous snapshot; empty until
+    /// the first one, which never flashes.
+    stamps: HashMap<String, Option<f64>>,
+    flash_until: HashMap<String, Instant>,
 }
+
+impl SwitchScreen {
+    fn new(snap: Option<&AccountsSnapshot>, cursor: bool) -> Self {
+        let mut list = SwitchScreen::default();
+        if let Some(snap) = snap {
+            list.apply(snap, cursor);
+        }
+        list
+    }
+
+    /// Rebuilds when the slot list changed (cursor on the active account
+    /// the first time, else kept in range), then flashes the rows whose
+    /// stored measurement advanced.
+    fn apply(&mut self, snap: &AccountsSnapshot, cursor: bool) {
+        let numbers: Vec<String> = snap.accounts.iter().map(|a| a.number.clone()).collect();
+        if numbers != self.numbers {
+            let first_build = self.numbers.is_empty();
+            self.index = if numbers.is_empty() || !cursor {
+                None
+            } else if first_build {
+                Some(active_index(snap))
+            } else {
+                Some(self.index.unwrap_or(0).min(numbers.len() - 1))
+            };
+            self.numbers = numbers;
+        }
+        let stamps: HashMap<String, Option<f64>> = snap
+            .accounts
+            .iter()
+            .map(|a| (a.number.clone(), a.usage.fetched_at))
+            .collect();
+        if !self.stamps.is_empty() {
+            let until = Instant::now() + Duration::from_secs_f64(FLASH_S);
+            for (number, stamp) in &stamps {
+                if stamp.is_some() && self.stamps.get(number) != Some(stamp) {
+                    self.flash_until.entry(number.clone()).or_insert(until);
+                }
+            }
+        }
+        self.stamps = stamps;
+    }
+
+    pub fn is_flashing(&self, number: &str, now: Instant) -> bool {
+        self.flash_until
+            .get(number)
+            .is_some_and(|until| *until > now)
+    }
+
+    fn expire_flashes(&mut self, now: Instant) {
+        self.flash_until.retain(|_, until| *until > now);
+    }
+
+    fn cursor_down(&mut self) {
+        if let Some(i) = self.index {
+            self.index = Some((i + 1).min(self.numbers.len().saturating_sub(1)));
+        }
+    }
+
+    fn cursor_up(&mut self) {
+        if let Some(i) = self.index {
+            self.index = Some(i.saturating_sub(1));
+        }
+    }
+
+    fn selected(&self) -> Option<String> {
+        self.index.and_then(|i| self.numbers.get(i)).cloned()
+    }
+}
+
+/// Every account's full card, hands-off until `s` arms a cursor.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WatchScreen {
+    pub list: SwitchScreen,
+    pub selecting: bool,
+    pub scroll: u16,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutoScreen {
+    /// The engine's settings, including a session-only threshold.
+    pub settings: AutoSwitchSettings,
+    /// settings.json's threshold when the screen opened.
+    pub configured_threshold: f64,
+    entry_threshold: f64,
+    pub adjusting: bool,
+    pub dry_run: bool,
+    pub log: Vec<LogLine>,
+}
+
+const LOG_LINES_KEPT: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenForm {
@@ -102,6 +207,7 @@ pub enum ConfirmPurpose {
     Remove(String),
     AddCurrent,
     Overwrite(TokenForm),
+    GoLive,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +243,8 @@ pub struct OutputModal {
 pub enum Screen {
     Dashboard(Dashboard),
     Switch(SwitchScreen),
+    Watch(WatchScreen),
+    Auto(AutoScreen),
     Confirm(Confirm),
     AddToken(AddTokenModal),
     Output(OutputModal),
@@ -164,6 +272,7 @@ enum Message {
         result: ActionResult,
         show_output: bool,
     },
+    Engine(EngineReport),
 }
 
 /// What the app reads from settings.json at startup.
@@ -218,6 +327,8 @@ pub struct App {
     pub screens: Vec<Screen>,
     pub notifications: Vec<Notification>,
     pub should_quit: bool,
+    engine_factory: EngineFactory,
+    engine: Option<Box<dyn EngineControl>>,
 }
 
 impl App {
@@ -250,6 +361,20 @@ impl App {
             screens: vec![Screen::Dashboard(dashboard)],
             notifications: Vec::new(),
             should_quit: false,
+            engine_factory: idle_factory(),
+            engine: None,
+        }
+    }
+
+    pub fn with_engine_factory(mut self, factory: EngineFactory) -> Self {
+        self.engine_factory = factory;
+        self
+    }
+
+    /// Stops a running auto-switch engine before the process leaves.
+    pub fn shutdown(&mut self) {
+        if let Some(engine) = self.engine.take() {
+            engine.stop();
         }
     }
 
@@ -370,24 +495,25 @@ impl App {
     }
 
     fn on_snapshot(&mut self, snap: AccountsSnapshot) {
-        let numbers: Vec<String> = snap.accounts.iter().map(|a| a.number.clone()).collect();
-        let active = active_index(&snap);
         for screen in &mut self.screens {
-            if let Screen::Switch(s) = screen
-                && s.numbers != numbers
-            {
-                let first_build = s.numbers.is_empty();
-                s.index = if numbers.is_empty() {
-                    None
-                } else if first_build {
-                    Some(active)
-                } else {
-                    Some(s.index.unwrap_or(0).min(numbers.len() - 1))
-                };
-                s.numbers = numbers.clone();
+            match screen {
+                Screen::Switch(s) => s.apply(&snap, true),
+                Screen::Watch(w) => w.list.apply(&snap, w.selecting),
+                _ => {}
             }
         }
         self.snapshot = Some(snap);
+    }
+
+    /// Auto screen: the engine is the only fetcher, the poller reads the store.
+    pub fn set_store_only(&mut self, value: bool) {
+        self.store_only = value;
+        self.request_refresh(false);
+    }
+
+    #[cfg(test)]
+    pub fn store_only(&self) -> bool {
+        self.store_only
     }
 
     pub fn update_refresh_status(&mut self) {
@@ -433,9 +559,31 @@ impl App {
         }
     }
 
+    #[cfg(test)]
+    pub fn pretend_normal_refresh_running_for(&mut self, seconds: f64) {
+        self.normal_refreshing = true;
+        self.normal_started_at = Some(now_secs() - seconds);
+    }
+
+    /// Handles messages until `done` holds.
+    #[cfg(test)]
+    pub fn wait_until(&mut self, done: impl Fn(&App) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done(self) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.rx.recv_timeout(left) {
+                Ok(message) => self.handle_message(message),
+                Err(_) => panic!("the condition never held"),
+            }
+        }
+    }
+
     fn handle_message(&mut self, message: Message) {
-        self.in_flight -= 1;
+        if !matches!(message, Message::Engine(_)) {
+            self.in_flight -= 1;
+        }
         match message {
+            Message::Engine(report) => self.on_engine_report(report),
             Message::Snapshot {
                 generation,
                 lane,
@@ -477,6 +625,13 @@ impl App {
 
     pub fn expire_notifications(&mut self, now: Instant) {
         self.notifications.retain(|n| n.expires_at > now);
+        for screen in &mut self.screens {
+            match screen {
+                Screen::Switch(s) => s.expire_flashes(now),
+                Screen::Watch(w) => w.list.expire_flashes(now),
+                _ => {}
+            }
+        }
     }
 
     // -- actions (single-flight, captured, off-thread) ----------------------
@@ -644,6 +799,7 @@ impl App {
                 true,
             ),
             ConfirmPurpose::Overwrite(form) => self.run_add_token(form),
+            ConfirmPurpose::GoLive => self.restart_engine(false),
         }
     }
 
@@ -691,22 +847,222 @@ impl App {
 
     fn open_switch(&mut self) {
         if !matches!(self.screen(), Screen::Switch(_)) {
-            let mut screen = SwitchScreen::default();
-            if let Some(snap) = &self.snapshot {
-                screen.numbers = snap.accounts.iter().map(|a| a.number.clone()).collect();
-                screen.index = (!screen.numbers.is_empty()).then(|| active_index(snap));
-            }
+            let screen = SwitchScreen::new(self.snapshot.as_ref(), true);
             self.push(Screen::Switch(screen));
         }
     }
 
-    fn not_yet(&mut self, view: &str) {
-        self.notify_for(
-            format!("{view} is not available yet in ccswap"),
-            None,
-            Severity::Warning,
-            5.0,
-        );
+    pub fn open_watch(&mut self) {
+        if !matches!(self.screen(), Screen::Watch(_)) {
+            self.push(Screen::Watch(WatchScreen {
+                list: SwitchScreen::new(self.snapshot.as_ref(), false),
+                ..WatchScreen::default()
+            }));
+        }
+    }
+
+    pub fn watch_title(&self, watch: &WatchScreen) -> String {
+        if watch.selecting {
+            WATCH_SELECT_TITLE.into()
+        } else if self.refresh_status.is_empty() {
+            WATCH_TITLE.into()
+        } else {
+            format!("{WATCH_TITLE} · {}", self.refresh_status)
+        }
+    }
+
+    fn watch_mut(&mut self) -> Option<&mut WatchScreen> {
+        match self.screens.last_mut() {
+            Some(Screen::Watch(w)) => Some(w),
+            _ => None,
+        }
+    }
+
+    fn set_selecting(&mut self, on: bool) {
+        let active = self.snapshot.as_ref().map(active_index);
+        let Some(watch) = self.watch_mut() else {
+            return;
+        };
+        watch.selecting = on;
+        watch.list.index = match active {
+            Some(i) if on && !watch.list.numbers.is_empty() => Some(i),
+            _ => None,
+        };
+    }
+
+    // -- auto screen (the engine, visualized) ---------------------------------
+
+    /// Opens on a dry-run engine: going live is a separate, confirmed step.
+    pub fn open_auto(&mut self) {
+        if self.screens.iter().any(|s| matches!(s, Screen::Auto(_))) {
+            return;
+        }
+        let settings =
+            AutoSwitchSettings::from_settings(&Settings::in_dir(&self.actions.backup_dir()));
+        // Bars and engine agree on the file's current value.
+        self.threshold_pct = Some(settings.threshold);
+        self.push(Screen::Auto(AutoScreen {
+            configured_threshold: settings.threshold,
+            entry_threshold: settings.threshold,
+            settings,
+            adjusting: false,
+            dry_run: true,
+            log: Vec::new(),
+        }));
+        self.set_store_only(true);
+        self.start_engine(true);
+    }
+
+    pub fn auto_screen(&self) -> Option<&AutoScreen> {
+        self.screens.iter().rev().find_map(|s| match s {
+            Screen::Auto(a) => Some(a),
+            _ => None,
+        })
+    }
+
+    fn auto_mut(&mut self) -> Option<&mut AutoScreen> {
+        self.screens.iter_mut().rev().find_map(|s| match s {
+            Screen::Auto(a) => Some(a),
+            _ => None,
+        })
+    }
+
+    fn log(&mut self, line: LogLine) {
+        if let Some(auto) = self.auto_mut() {
+            auto.log.push(line);
+            let excess = auto.log.len().saturating_sub(LOG_LINES_KEPT);
+            auto.log.drain(..excess);
+        }
+    }
+
+    fn start_engine(&mut self, dry_run: bool) {
+        let Some(settings) = self.auto_screen().map(|a| a.settings.clone()) else {
+            return;
+        };
+        let tx = self.tx.clone();
+        let control = (self.engine_factory)(EngineStart {
+            settings,
+            dry_run,
+            sink: Arc::new(move |report| {
+                let _ = tx.send(Message::Engine(report));
+            }),
+        });
+        self.engine = Some(control);
+        if let Some(auto) = self.auto_mut() {
+            auto.dry_run = dry_run;
+        }
+        let mode = if dry_run {
+            "DRY-RUN (watching only)"
+        } else {
+            "LIVE (will switch accounts)"
+        };
+        self.log(LogLine::note(format!("— engine started: {mode} —")));
+    }
+
+    fn restart_engine(&mut self, dry_run: bool) {
+        if let Some(engine) = self.engine.take() {
+            engine.stop();
+        }
+        self.start_engine(dry_run);
+    }
+
+    fn on_engine_report(&mut self, report: EngineReport) {
+        if self.auto_screen().is_none() {
+            return;
+        }
+        match report {
+            EngineReport::Event(event) => {
+                self.log(event_line(&event, clock_stamp()));
+                if event.name() == "switch" {
+                    self.request_refresh(false);
+                }
+            }
+            EngineReport::Crashed(message) => self.notify_for(
+                format!("Auto-switch engine stopped: {message}"),
+                None,
+                Severity::Error,
+                10.0,
+            ),
+        }
+    }
+
+    /// A session threshold must not outlive the engine it steered.
+    fn close_auto(&mut self, auto: &AutoScreen) {
+        self.shutdown();
+        self.actions.clear_poll_policy_inputs();
+        self.threshold_pct = Some(auto.configured_threshold);
+        self.set_store_only(false);
+    }
+
+    fn toggle_live(&mut self) {
+        let Some(dry_run) = self.auto_screen().map(|a| a.dry_run) else {
+            return;
+        };
+        if dry_run {
+            self.push(Screen::Confirm(Confirm {
+                title: "Go live".into(),
+                message: GO_LIVE_MESSAGE.into(),
+                yes_label: "Go live".into(),
+                focus_yes: true,
+                purpose: ConfirmPurpose::GoLive,
+            }));
+        } else {
+            self.restart_engine(true);
+        }
+    }
+
+    fn toggle_adjust(&mut self) {
+        let Some(auto) = self.auto_mut() else {
+            return;
+        };
+        if auto.adjusting {
+            self.end_adjust();
+        } else {
+            auto.adjusting = true;
+            auto.entry_threshold = auto.settings.threshold;
+        }
+    }
+
+    fn end_adjust(&mut self) {
+        let Some(auto) = self.auto_mut() else {
+            return;
+        };
+        auto.adjusting = false;
+        let threshold = auto.settings.threshold;
+        if threshold == auto.entry_threshold {
+            return;
+        }
+        if let Some(engine) = &self.engine {
+            engine.wake();
+        }
+        self.log(LogLine::note(format!(
+            "— threshold set to {}% for this session —",
+            pct_label(threshold)
+        )));
+    }
+
+    /// Session-only: settings.json is never written.
+    pub fn threshold_step(&mut self, delta: f64) {
+        let Some(auto) = self.auto_screen().filter(|a| a.adjusting) else {
+            return;
+        };
+        let (lo, hi) = match setting_spec("autoswitch.threshold").map(|s| s.kind) {
+            Ok(Kind::Float { lo, hi }) => (lo, hi),
+            _ => (f64::MIN, f64::MAX),
+        };
+        let value = (auto.settings.threshold + delta).max(lo).min(hi);
+        if value == auto.settings.threshold {
+            return;
+        }
+        let models = auto.settings.models();
+        if let Some(auto) = self.auto_mut() {
+            auto.settings.threshold = value;
+        }
+        if let Some(engine) = &self.engine {
+            engine.apply_threshold(value);
+        }
+        self.actions.set_poll_policy_inputs(value, models);
+        self.threshold_pct = Some(value);
     }
 
     // -- theme ----------------------------------------------------------------
@@ -737,9 +1093,13 @@ impl App {
     }
 
     fn pop(&mut self) -> Option<Screen> {
-        (self.screens.len() > 1)
+        let screen = (self.screens.len() > 1)
             .then(|| self.screens.pop())
-            .flatten()
+            .flatten();
+        if let Some(Screen::Auto(auto)) = &screen {
+            self.close_auto(auto);
+        }
+        screen
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -756,6 +1116,8 @@ impl App {
             0 => self.dashboard_key(key),
             _ => match self.screen().clone() {
                 Screen::Switch(_) => self.switch_key(key),
+                Screen::Watch(_) => self.watch_key(key),
+                Screen::Auto(_) => self.auto_key(key),
                 Screen::Confirm(c) => self.confirm_key(key, c),
                 Screen::AddToken(_) => self.token_key(key),
                 Screen::Output(_) => self.output_key(key),
@@ -767,8 +1129,8 @@ impl App {
     fn dashboard_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('s') => self.open_switch(),
-            KeyCode::Char('w') => self.not_yet("The watch view"),
-            KeyCode::Char('g') => self.not_yet("The auto-switch view"),
+            KeyCode::Char('w') => self.open_watch(),
+            KeyCode::Char('g') => self.open_auto(),
             KeyCode::Esc | KeyCode::Left => self.pop_menu(),
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('f') => self.refresh_full(),
@@ -809,8 +1171,8 @@ impl App {
         match action_id {
             "back" => self.pop_menu(),
             "switch" => self.open_switch(),
-            "watch" => self.not_yet("The watch view"),
-            "auto" => self.not_yet("The auto-switch view"),
+            "watch" => self.open_watch(),
+            "auto" => self.open_auto(),
             "add-login" => self.add_current(),
             "add-token" => self.add_token(),
             "quit" => self.should_quit = true,
@@ -859,10 +1221,7 @@ impl App {
     fn switch_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Enter => {
-                let selected = match self.screen() {
-                    Screen::Switch(s) => s.index.and_then(|i| s.numbers.get(i)).cloned(),
-                    _ => None,
-                };
+                let selected = self.switch_screen_mut().and_then(|s| s.selected());
                 if let Some(number) = selected {
                     self.do_switch(&number);
                     self.pop();
@@ -873,17 +1232,77 @@ impl App {
                 self.pop();
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(s) = self.switch_screen_mut()
-                    && let Some(i) = s.index
-                {
-                    s.index = Some((i + 1).min(s.numbers.len().saturating_sub(1)));
+                if let Some(s) = self.switch_screen_mut() {
+                    s.cursor_down();
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(s) = self.switch_screen_mut()
-                    && let Some(i) = s.index
-                {
-                    s.index = Some(i.saturating_sub(1));
+                if let Some(s) = self.switch_screen_mut() {
+                    s.cursor_up();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Enter switches and stays here; Esc disarms selection before leaving.
+    fn watch_key(&mut self, key: KeyEvent) {
+        let Some(selecting) = self.watch_mut().map(|w| w.selecting) else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char('s') => self.set_selecting(!selecting),
+            KeyCode::Enter if selecting => {
+                if let Some(number) = self.watch_mut().and_then(|w| w.list.selected()) {
+                    self.do_switch(&number);
+                    self.set_selecting(false);
+                }
+            }
+            KeyCode::Char('f') => self.refresh_full(),
+            KeyCode::Esc | KeyCode::Char('q') => {
+                if selecting {
+                    self.set_selecting(false);
+                } else {
+                    self.pop();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(w) = self.watch_mut() {
+                    if selecting {
+                        w.list.cursor_down();
+                    } else {
+                        w.scroll = w.scroll.saturating_add(1);
+                    }
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(w) = self.watch_mut() {
+                    if selecting {
+                        w.list.cursor_up();
+                    } else {
+                        w.scroll = w.scroll.saturating_sub(1);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Arrows and Enter are inert until `t` arms threshold adjusting; Esc
+    /// leaves adjusting before the screen.
+    fn auto_key(&mut self, key: KeyEvent) {
+        let adjusting = self.auto_screen().is_some_and(|a| a.adjusting);
+        match key.code {
+            KeyCode::Char('l') => self.toggle_live(),
+            KeyCode::Char('t') => self.toggle_adjust(),
+            KeyCode::Left if adjusting => self.threshold_step(-1.0),
+            KeyCode::Right if adjusting => self.threshold_step(1.0),
+            KeyCode::Enter if adjusting => self.end_adjust(),
+            KeyCode::Esc | KeyCode::Char('q') => {
+                if adjusting {
+                    self.end_adjust();
+                } else {
+                    self.pop();
                 }
             }
             _ => {}

@@ -146,6 +146,7 @@ impl Cli {
         for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
             eprintln!("{warning}");
         }
+        presentation::probe_cli_background(&self.env, &Paths::new(&self.env), &args);
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }
@@ -215,8 +216,14 @@ impl Cli {
             return 1;
         }
         run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
-        if parsed.flag("--tui") {
-            return crate::tui::run(Arc::new(LiveActions::new(self.env.clone())));
+        for (flag, start) in [
+            ("--tui", crate::tui::Start::Dashboard),
+            ("--watch", crate::tui::Start::Watch),
+        ] {
+            if parsed.flag(flag) {
+                let actions = Arc::new(LiveActions::new(self.env.clone()));
+                return crate::tui::run(actions, &self.env, start);
+            }
         }
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)

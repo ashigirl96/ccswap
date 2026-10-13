@@ -1,6 +1,9 @@
 //! App-level tests over the fake surface, rendered with `TestBackend`
 //! (ported from upstream tests/test_tui.py::TestDashboard).
 
+mod auto;
+mod watch;
+
 use ccswap_core::snapshot::AccountsSnapshot;
 use ccswap_core::usage::now_secs;
 use serde_json::json;
