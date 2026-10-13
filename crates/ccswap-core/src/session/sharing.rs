@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use super::{RunOptions, Sessions, set_mode};
 use crate::accounts::Console;
 use crate::locks::{DirLock, DirLockOptions};
+use crate::log;
 use crate::pyjson;
 use crate::session_profile::profile_is_quiescent;
 use crate::settings::atomic_write_json;
@@ -119,7 +120,8 @@ impl Sessions<'_> {
             if dest.exists() {
                 remove_managed(&dest);
             }
-            if std::os::unix::fs::symlink(&link_target, &dest).is_err() {
+            if let Err(e) = std::os::unix::fs::symlink(&link_target, &dest) {
+                log::warning(format!("Failed to share {name} into session: {e}"));
                 continue;
             }
             new_managed.push(name.to_string());
@@ -142,13 +144,23 @@ impl Sessions<'_> {
         } else {
             return;
         };
-        if !config_path.exists() || !is_regular_file(&config_path) {
+        if !config_path.exists() {
+            return;
+        }
+        if !is_regular_file(&config_path) {
+            log::warning(format!(
+                "Not syncing MCP servers: {} is not a regular file.",
+                config_path.display()
+            ));
             return;
         }
         let Some(existing) = load_json_object(&config_path) else {
             return;
         };
         let Some(target) = mcp_of(&existing) else {
+            log::warning(format!(
+                "Not syncing MCP servers: the profile's {MCP_KEY} is not an object."
+            ));
             return;
         };
         if target == source && (!share || marker.exists()) {
@@ -156,8 +168,14 @@ impl Sessions<'_> {
         }
 
         let lock_dir = dir.join(".claude.json.lock");
-        let Ok(_lock) = DirLock::acquire(&lock_dir, DirLockOptions::config()) else {
-            return;
+        let _lock = match DirLock::acquire(&lock_dir, DirLockOptions::config()) {
+            Ok(lock) => lock,
+            Err(e) => {
+                log::warning(format!(
+                    "Could not sync MCP servers ({e}) — skipping this launch."
+                ));
+                return;
+            }
         };
         let source = if share {
             match self.read_mcp_source() {
@@ -197,7 +215,8 @@ impl Sessions<'_> {
         } else {
             existing.insert(MCP_KEY.into(), Value::Object(source));
         }
-        if atomic_write_json(&config_path, &Value::Object(existing)).is_err() {
+        if let Err(e) = atomic_write_json(&config_path, &Value::Object(existing)) {
+            log::warning(format!("Could not sync MCP servers: {e}"));
             return;
         }
         if share {
@@ -221,9 +240,19 @@ impl Sessions<'_> {
     ) -> bool {
         let stash = dir.join(MCP_DISPLACED_STASH);
         if stash.is_symlink() || stash.exists() {
-            return is_valid_stash(&stash);
+            if is_valid_stash(&stash) {
+                return true;
+            }
+            log::warning(format!(
+                "{MCP_DISPLACED_STASH} exists but is not a valid stash; leaving the profile's MCP servers in place."
+            ));
+            return false;
         }
-        if atomic_write_json(&stash, &json!({"schemaVersion": 1, MCP_KEY: displaced})).is_err() {
+        if let Err(e) = atomic_write_json(&stash, &json!({"schemaVersion": 1, MCP_KEY: displaced}))
+        {
+            log::warning(format!(
+                "Could not stash the profile's MCP servers ({e}); leaving them in place."
+            ));
             return false;
         }
         console.line(&self.style.dimmed(&format!(
@@ -256,7 +285,11 @@ fn prepare_history_share(
             )));
             return false;
         }
-        if merge_history_into_source(src, dest).is_err() {
+        if let Err(e) = merge_history_into_source(src, dest) {
+            log::warning(format!(
+                "Could not merge {name} into {}: {e}",
+                src.display()
+            ));
             console.line(&style.dimmed(&format!(
                 "Not sharing {name}: merging the profile's existing history failed (see log)."
             )));
@@ -275,7 +308,8 @@ fn prepare_history_share(
         } else {
             mkdir_private(src)
         };
-        if created.is_err() {
+        if let Err(e) = created {
+            log::warning(format!("Could not create {}: {e}", src.display()));
             return false;
         }
     }
@@ -474,8 +508,11 @@ fn mcp_of(config: &Map<String, Value>) -> Option<Map<String, Value>> {
 }
 
 fn ensure_marker(marker: &Path) {
-    if !marker.exists() {
-        let _ = std::fs::File::create(marker);
+    if !marker.exists()
+        && let Err(e) = std::fs::File::create(marker)
+    {
+        let name = marker.file_name().unwrap_or_default().to_string_lossy();
+        log::warning(format!("Could not write {name}: {e}"));
     }
 }
 

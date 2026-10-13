@@ -230,7 +230,12 @@ impl Sessions<'_> {
 
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), BOOTSTRAP_LOCK_TIMEOUT)?;
         if session_profile::is_stale(dir) && profile_is_quiescent(dir) {
-            session_profile::invalidate_credentials(self.secrets.keychain(), dir);
+            session_profile::invalidate_slot_credentials(
+                self.secrets.keychain(),
+                self.paths,
+                &target.num,
+                &target.email,
+            );
             session_profile::clear_stale(dir);
         }
         if self.is_session_valid(target) {
@@ -332,6 +337,10 @@ impl Sessions<'_> {
         )
         .map_err(io)?;
         set_mode(&config_path, 0o600).map_err(io)?;
+        crate::log::info(format!(
+            "Bootstrapped session profile for account {num} at {}",
+            dir.display()
+        ));
         Ok(())
     }
 

@@ -500,10 +500,7 @@ impl Accounts<'_> {
         session_profile::ensure_no_live_session(self.paths, num, email, "the operation")?;
         self.secrets.delete_backup(num, email);
         store::delete_account_config(self.paths, num, email);
-        session_profile::delete_profile(
-            self.secrets.keychain(),
-            &session_profile::session_dir_for(self.paths, num, email),
-        );
+        session_profile::delete_slot_profile(self.secrets.keychain(), self.paths, num, email);
         Ok(())
     }
 

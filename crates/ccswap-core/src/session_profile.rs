@@ -8,6 +8,7 @@ use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::{Error, ErrorKind, Result};
+use crate::log;
 use crate::paths::Paths;
 use crate::process_detection::{self, ClaudeSession};
 use crate::secret_store::{Keychain, profile_service_name};
@@ -158,14 +159,55 @@ pub fn ensure_no_live_session(paths: &Paths, num: &str, email: &str, action: &st
 pub fn after_backup_write(keychain: &Keychain, paths: &Paths, num: &str, email: &str) {
     let session_dir = session_dir_for(paths, num, email);
     if !live_session_pids(paths, num, email).is_empty() {
-        mark_stale(&session_dir);
+        if !mark_stale(&session_dir) {
+            log::error(format!(
+                "Account {num}'s backup credentials changed but its live session profile could not be marked stale; it may keep serving the superseded generation once it exits."
+            ));
+        }
         return;
     }
-    let credentials = session_dir.join(".credentials.json");
-    invalidate_credentials(keychain, &session_dir);
-    if credentials.exists() {
-        mark_stale(&session_dir);
+    invalidate_slot_credentials(keychain, paths, num, email);
+    if session_dir.join(".credentials.json").exists() {
+        if mark_stale(&session_dir) {
+            log::warning(format!(
+                "Stored account {num}'s credential but could not invalidate its session profile; marked it stale so the next run re-bootstraps."
+            ));
+        } else {
+            log::error(format!(
+                "Stored account {num}'s credential but could NOT invalidate its session profile OR mark it stale; the profile may keep serving the superseded generation until its token expires."
+            ));
+        }
     }
+}
+
+/// `invalidate_credentials` for a slot's profile, logged.
+pub fn invalidate_slot_credentials(keychain: &Keychain, paths: &Paths, num: &str, email: &str) {
+    let session_dir = session_dir_for(paths, num, email);
+    if !session_dir.exists() {
+        return;
+    }
+    invalidate_credentials(keychain, &session_dir);
+    log::info(format!("Invalidated session credentials for account {num}"));
+}
+
+/// `delete_profile` for a slot's profile, logged; a survivor is reported,
+/// not claimed removed.
+pub fn delete_slot_profile(keychain: &Keychain, paths: &Paths, num: &str, email: &str) {
+    let session_dir = session_dir_for(paths, num, email);
+    delete_profile(keychain, &session_dir);
+    let marker_left =
+        stale_marker_for(&session_dir).exists() || session_dir.join(STALE_MARKER).exists();
+    if session_dir.exists() || marker_left {
+        log::warning(format!(
+            "Could not fully remove account {num}'s session profile at {}; credentials are gone but the profile dir and/or its stale marker survive (check permissions on it and its parent).",
+            session_dir.display()
+        ));
+        return;
+    }
+    log::info(format!(
+        "Removed session profile for account {num} at {}",
+        session_dir.display()
+    ));
 }
 
 /// The profile's current credential: its hashed Keychain item (Claude

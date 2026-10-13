@@ -328,9 +328,11 @@ impl Renumber<'_, '_> {
     fn delete_account_files(&self, num: &str, email: &str) {
         self.acc.secrets.delete_backup(num, email);
         let _ = delete_config_strict(self.acc.paths, num, email);
-        session_profile::delete_profile(
+        session_profile::delete_slot_profile(
             self.acc.secrets.keychain(),
-            &session_profile::session_dir_for(self.acc.paths, num, email),
+            self.acc.paths,
+            num,
+            email,
         );
     }
 

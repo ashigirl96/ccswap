@@ -37,6 +37,7 @@ const USAGE_WIDTH: usize = 78;
 
 struct Args {
     account: Option<String>,
+    debug: bool,
     options: RunOptions,
 }
 
@@ -80,7 +81,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, args.debug);
     let endpoints = Endpoints::new(env);
     let secrets = SecretStore::new(
         Keychain::new(endpoints.security.clone(), env),
@@ -131,6 +132,7 @@ fn exec(launch: &Launch, style: &Style) -> i32 {
 fn parse(argv: &[String]) -> Result<Args, Exit> {
     let mut args = Args {
         account: None,
+        debug: false,
         options: RunOptions::default(),
     };
     let mut extras: Vec<String> = Vec::new();
@@ -172,6 +174,7 @@ fn parse(argv: &[String]) -> Result<Args, Exit> {
             "--share-history" => args.options.share_history = true,
             "--no-share-history" => args.options.share_history = false,
             "--require-session" => args.options.require_session = true,
+            "--debug" => args.debug = true,
             _ => {}
         }
     }
