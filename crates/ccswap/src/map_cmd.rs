@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use ccswap_core::accounts::Accounts;
+use ccswap_core::accounts::{Accounts, ResolvedAccount};
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
@@ -142,7 +142,11 @@ fn map(ctx: &Context, account: &str, path: Option<&String>) -> Result<()> {
         client: &client,
         style: &ctx.style,
     };
-    let (num, email, org) = accounts.resolve_account(account)?;
+    let ResolvedAccount {
+        number: num,
+        email,
+        organization_uuid: org,
+    } = accounts.resolve_account(account)?;
     let target = target(path);
     if !Path::new(&target).is_dir() {
         println!(

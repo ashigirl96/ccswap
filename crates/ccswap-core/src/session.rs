@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 
-use crate::accounts::{Accounts, Console};
+use crate::accounts::{Accounts, Console, ResolvedAccount};
 use crate::anthropic_client::{AnthropicClient, credential_fingerprint};
 use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
@@ -103,7 +103,11 @@ impl Sessions<'_> {
         console: &mut dyn Console,
     ) -> Result<Launch> {
         let claude = self.claude_bin()?;
-        let (num, email, org) = self.accounts().resolve_account(identifier)?;
+        let ResolvedAccount {
+            number: num,
+            email,
+            organization_uuid: org,
+        } = self.accounts().resolve_account(identifier)?;
         self.ensure_not_api_key(&num, &email)?;
 
         if let Some(preset) = self.env.non_empty("CLAUDE_CONFIG_DIR") {

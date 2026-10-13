@@ -10,6 +10,13 @@ use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
 use crate::session_profile::{self, join_pids, scan_live_sessions};
 use crate::store::{self, JsonObject};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedAccount {
+    pub number: String,
+    pub email: String,
+    pub organization_uuid: String,
+}
+
 impl Accounts<'_> {
     /// Deletes a slot's backups and record after confirmation (skipped with
     /// `assume_yes`). `activeAccountNumber` is left as it was.
@@ -121,7 +128,9 @@ impl Accounts<'_> {
         if !self.paths.sequence_file().exists() {
             return Err(Error::config("No accounts are managed yet"));
         }
-        let (num, email, _) = self.resolve_account(identifier)?;
+        let ResolvedAccount {
+            number: num, email, ..
+        } = self.resolve_account(identifier)?;
         let style = self.style;
         let verb = if disabled { "disabled" } else { "enabled" };
         let data = {
@@ -204,7 +213,7 @@ impl Accounts<'_> {
     pub fn set_alias(&self, identifier: &str, alias: &str) -> Result<(String, String)> {
         self.refuse_session_shell()?;
         let normalized = store::normalize_alias(alias)?;
-        let (num, _, _) = self.resolve_account(identifier)?;
+        let num = self.resolve_account(identifier)?.number;
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
         let mut data = store::read_sequence(self.paths)?.unwrap_or_default();
         resolve_existing(&data, &num)?;
@@ -229,7 +238,7 @@ impl Accounts<'_> {
     /// Clears a slot's alias (a no-op when it has none); returns the slot.
     pub fn unset_alias(&self, identifier: &str) -> Result<String> {
         self.refuse_session_shell()?;
-        let (num, _, _) = self.resolve_account(identifier)?;
+        let num = self.resolve_account(identifier)?.number;
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
         let mut data = store::read_sequence(self.paths)?.unwrap_or_default();
         resolve_existing(&data, &num)?;
@@ -384,15 +393,16 @@ impl Accounts<'_> {
         Ok(())
     }
 
-    /// `(slot, email, organizationUuid)` for a number, alias or email; an
-    /// ambiguous email is an error, never a prompt.
-    pub fn resolve_account(&self, identifier: &str) -> Result<(String, String, String)> {
+    /// An ambiguous email is an error, never a prompt.
+    pub fn resolve_account(&self, identifier: &str) -> Result<ResolvedAccount> {
         store::read_sequence_migrated(self.paths)?;
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
-        let num = resolve_existing(&data, identifier)?;
-        let email = text_field(&data, &num, "email");
-        let org = text_field(&data, &num, "organizationUuid");
-        Ok((num, email, org))
+        let number = resolve_existing(&data, identifier)?;
+        Ok(ResolvedAccount {
+            email: text_field(&data, &number, "email"),
+            organization_uuid: text_field(&data, &number, "organizationUuid"),
+            number,
+        })
     }
 }
 
