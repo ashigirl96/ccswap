@@ -1,6 +1,8 @@
 //! Drawing: the dashboard, the switch list, modals, footer and toasts
 //! (the layout of upstream `cswap.tcss`).
 
+use std::time::Instant;
+
 use ccswap_core::usage::now_secs;
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -9,8 +11,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
 use super::app::{
-    AddTokenModal, App, Confirm, OutputModal, Screen, Severity, SwitchScreen, TOKEN_FIELD_COUNT,
+    AddTokenModal, App, AutoScreen, Confirm, OutputModal, Screen, Severity, SwitchScreen,
+    TOKEN_FIELD_COUNT,
 };
+use super::autoview::{candidate_lines, summary_spans};
 use super::theme::Palette;
 use super::widgets::{account_card, accounts_panel, wrap};
 
@@ -47,7 +51,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .rposition(|s| !s.is_modal())
         .expect("the dashboard is never modal");
     match &app.screens[base] {
-        Screen::Switch(s) => draw_switch(frame, app, s, body, &palette),
+        Screen::Switch(s) => {
+            draw_account_list(frame, app, "switch to which account?", s, 0, body, &palette)
+        }
+        Screen::Watch(w) => draw_account_list(
+            frame,
+            app,
+            &app.watch_title(w),
+            &w.list,
+            w.scroll,
+            body,
+            &palette,
+        ),
+        Screen::Auto(a) => draw_auto(frame, app, a, body, &palette),
         _ => draw_dashboard(frame, app, body, &palette),
     }
     draw_footer(frame, &app.screens[base], footer, &palette);
@@ -173,18 +189,21 @@ fn draw_list_row(
     );
 }
 
-fn draw_switch(
+/// The Switch and Watch screens: a title and every account's full card.
+fn draw_account_list(
     frame: &mut Frame,
     app: &App,
+    title: &str,
     screen: &SwitchScreen,
+    scroll: u16,
     mut area: Rect,
     palette: &Palette,
 ) {
     take_top(&mut area, 1);
-    let title = take_top(&mut area, 1);
+    let title_row = take_top(&mut area, 1);
     frame.render_widget(
-        Paragraph::new("switch to which account?").style(fg(palette.muted)),
-        inset(title, 0, 3, 0, 3),
+        Paragraph::new(title.to_string()).style(fg(palette.muted)),
+        inset(title_row, 0, 3, 0, 3),
     );
     let list = inset(area, 1, 2, 0, 1);
     let Some(snap) = &app.snapshot else {
@@ -192,17 +211,21 @@ fn draw_switch(
     };
     let card_width = list.width.saturating_sub(3) as usize;
     let now = now_secs();
+    let instant = Instant::now();
     let cards: Vec<Vec<Line<'static>>> = snap
         .accounts
         .iter()
         .map(|acc| account_card(acc, card_width, None, now, palette))
         .collect();
     let heights: Vec<u16> = cards.iter().map(|c| c.len() as u16 + 1).collect();
-    let mut offset = 0u16;
-    if let Some(index) = screen.index {
-        let bottom: u16 = heights.iter().take(index + 1).sum();
-        offset = bottom.saturating_sub(list.height);
-    }
+    let total: u16 = heights.iter().sum();
+    let offset = match screen.index {
+        Some(index) => {
+            let bottom: u16 = heights.iter().take(index + 1).sum();
+            bottom.saturating_sub(list.height)
+        }
+        None => scroll.min(total.saturating_sub(list.height)),
+    };
     let mut y = 0u16;
     for (i, card) in cards.into_iter().enumerate() {
         let height = heights[i] - 1;
@@ -212,23 +235,119 @@ fn draw_switch(
             continue;
         }
         let visible = height.min(list.height - (top - offset));
-        draw_list_row(
-            frame,
-            Rect {
-                y: list.y + top - offset,
-                height: visible,
-                ..list
-            },
-            screen.index == Some(i),
-            card,
-            palette,
-        );
+        let row = Rect {
+            y: list.y + top - offset,
+            height: visible,
+            ..list
+        };
+        let highlighted = screen.index == Some(i);
+        if !highlighted && screen.is_flashing(&snap.accounts[i].number, instant) {
+            draw_flash_row(frame, row, card, palette);
+        } else {
+            draw_list_row(frame, row, highlighted, card, palette);
+        }
     }
+}
+
+fn draw_flash_row(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, palette: &Palette) {
+    let style = Style::default().bg(palette.panel);
+    frame.render_widget(Block::default().style(style), area);
+    frame.render_widget(Paragraph::new(lines).style(style), inset(area, 0, 1, 0, 2));
+}
+
+fn draw_auto(frame: &mut Frame, app: &App, auto: &AutoScreen, mut area: Rect, palette: &Palette) {
+    let content_width = area.width.saturating_sub(6) as usize;
+    let panel_lines = accounts_panel(
+        app.snapshot.as_ref(),
+        content_width,
+        app.threshold_pct,
+        false,
+        now_secs(),
+        palette,
+    );
+    let panel = take_top(&mut area, panel_lines.len() as u16 + 1);
+    frame.render_widget(Paragraph::new(panel_lines), inset(panel, 1, 3, 0, 3));
+
+    let mut top = vec![Line::default()];
+    let badge = if auto.dry_run {
+        Span::styled(
+            " DRY-RUN ",
+            fg(palette.sev_warn)
+                .bg(palette.panel)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(
+            " LIVE ",
+            fg(palette.background)
+                .bg(palette.accent)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    let mut title = vec![badge, Span::raw("  ")];
+    title.extend(summary_spans(
+        &auto.settings,
+        auto.configured_threshold,
+        auto.adjusting,
+        palette,
+    ));
+    top.push(Line::from(title));
+    top.push(Line::default());
+    if let Some(snap) = &app.snapshot {
+        top.extend(candidate_lines(snap, &auto.settings.models(), palette));
+    }
+    top.push(Line::default());
+    let block = take_top(&mut area, top.len() as u16);
+    frame.render_widget(Paragraph::new(top), inset(block, 0, 2, 0, 2));
+
+    let rule = take_top(&mut area, 1);
+    frame.render_widget(
+        Paragraph::new("─".repeat(rule.width as usize)).style(fg(palette.panel)),
+        rule,
+    );
+    let log_area = inset(area, 0, 1, 0, 1);
+    let width = log_area.width.max(1) as usize;
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    for entry in &auto.log {
+        let line = entry.line(palette);
+        if line.width() <= width {
+            rows.push(line);
+        } else {
+            let style = fg(entry.role.color(palette));
+            rows.extend(
+                wrap(&entry.plain(), width)
+                    .into_iter()
+                    .map(|l| Line::styled(l, style)),
+            );
+        }
+    }
+    let skip = rows.len().saturating_sub(log_area.height as usize);
+    frame.render_widget(
+        Paragraph::new(rows.into_iter().skip(skip).collect::<Vec<_>>()),
+        log_area,
+    );
 }
 
 fn draw_footer(frame: &mut Frame, base: &Screen, area: Rect, palette: &Palette) {
     let keys: &[(&str, &str)] = match base {
         Screen::Switch(_) => &[("enter", "Switch"), ("b", "Best pick"), ("esc", "Back")],
+        Screen::Watch(w) if w.selecting => {
+            &[("s", "Switch"), ("enter", "Confirm"), ("esc", "Back")]
+        }
+        Screen::Watch(_) => &[("s", "Switch"), ("esc", "Back")],
+        Screen::Auto(a) if a.adjusting => &[
+            ("l", "Go live / dry-run"),
+            ("t", "Threshold"),
+            ("←", "-1%"),
+            ("→", "+1%"),
+            ("enter", "Done"),
+            ("esc", "Back"),
+        ],
+        Screen::Auto(_) => &[
+            ("l", "Go live / dry-run"),
+            ("t", "Threshold"),
+            ("esc", "Back"),
+        ],
         _ => &[("s", "Switch accounts"), ("w", "Watch"), ("q", "Quit")],
     };
     let mut spans = Vec::new();
@@ -432,6 +551,7 @@ fn draw_notifications(frame: &mut Frame, app: &App, area: Rect, palette: &Palett
         let colour = match n.severity {
             Severity::Information => palette.accent,
             Severity::Warning => palette.sev_warn,
+            Severity::Error => palette.sev_crit,
         };
         let mut lines = Vec::new();
         if let Some(title) = &n.title {

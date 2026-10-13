@@ -88,9 +88,13 @@ impl AutoSwitchSettings {
     /// The effective `autoswitch` section; missing or corrupt values fall
     /// back to defaults, numbers are clamped into range.
     pub fn load(paths: &Paths) -> Self {
+        Self::from_settings(&Settings::new(paths))
+    }
+
+    pub fn from_settings(settings: &Settings) -> Self {
         let defaults = AutoSwitchSettings::default();
         let mut out = defaults.clone();
-        for row in Settings::new(paths).effective() {
+        for row in settings.effective() {
             if row.spec.section != "autoswitch" {
                 continue;
             }

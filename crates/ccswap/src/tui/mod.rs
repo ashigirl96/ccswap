@@ -1,8 +1,10 @@
-//! `ccswap tui` (and bare `ccswap` on a terminal): the interactive
-//! dashboard over the Snapshot / Actions surface.
+//! `ccswap tui` / `ccswap watch` (and bare `ccswap` on a terminal): the
+//! interactive dashboard over the Snapshot / Actions surface.
 
 mod app;
+mod autoview;
 mod data;
+mod engine;
 mod theme;
 mod view;
 mod widgets;
@@ -17,6 +19,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ccswap_core::actions::Actions;
+use ccswap_core::appearance::{self, Background};
+use ccswap_core::env::Environment;
 use ccswap_core::settings::Settings;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
@@ -24,12 +28,28 @@ pub use app::{App, AppConfig};
 
 const FRAME: Duration = Duration::from_millis(50);
 
-/// Runs the dashboard until the user quits; returns the exit code.
-pub fn run(actions: Arc<dyn Actions>) -> i32 {
-    let config = AppConfig::load(&Settings::in_dir(&actions.backup_dir()));
-    let mut app = App::new(actions, config);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    Dashboard,
+    /// `ccswap watch`: the watch page stacked over the dashboard.
+    Watch,
+}
+
+/// Runs the TUI until the user quits; returns the exit code.
+pub fn run(actions: Arc<dyn Actions>, env: &Environment, start: Start) -> i32 {
+    // Probed even for an explicit theme so cycling to `auto` works; the
+    // terminal must still be in cooked mode here.
+    let detected = appearance::detect_terminal_background(env);
+    let mut config = AppConfig::load(&Settings::in_dir(&actions.backup_dir()));
+    config.detected_light = detected.map(|b| b == Background::Light);
+    appearance::drain_stdin();
+    let mut app = App::new(actions, config).with_engine_factory(engine::live_factory(env.clone()));
+    if start == Start::Watch {
+        app.open_watch();
+    }
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &mut app);
+    app.shutdown();
     ratatui::restore();
     match result {
         Ok(()) => 0,

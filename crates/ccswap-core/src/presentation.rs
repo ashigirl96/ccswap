@@ -2,6 +2,7 @@ use std::io::IsTerminal;
 
 use serde_json::{Map, Value, json};
 
+use crate::appearance::{self, Background};
 use crate::env::Environment;
 use crate::error::Error;
 use crate::paths::Paths;
@@ -118,15 +119,34 @@ impl Style {
     }
 }
 
-/// `ui.theme` from settings.json; `auto` resolves to dark until terminal
-/// background detection exists.
-fn cli_theme(paths: &Paths) -> Theme {
+/// The `ui.theme` setting; anything but `dark`/`light` reads as `auto`.
+fn ui_theme(paths: &Paths) -> &'static str {
     let theme = read_json_lenient(&paths.settings_file())
         .and_then(|s| s.get("ui")?.get("theme")?.as_str().map(str::to_string));
     match theme.as_deref() {
-        Some("light") => Theme::Light,
-        _ => Theme::Dark,
+        Some("dark") => "dark",
+        Some("light") => "light",
+        _ => "auto",
     }
+}
+
+/// `auto` follows the background [`probe_cli_background`] found, if any.
+fn cli_theme(paths: &Paths) -> Theme {
+    match appearance::resolve_theme(ui_theme(paths), appearance::detected_background) {
+        Background::Light => Theme::Light,
+        Background::Dark => Theme::Dark,
+    }
+}
+
+/// Senses the terminal background once, before dispatch, when `ui.theme`
+/// is `auto` and coloured human output is coming.
+pub fn probe_cli_background(env: &Environment, paths: &Paths, argv: &[String]) {
+    let probe = appearance::cli_should_probe(argv, Style::detect(env, paths).enabled());
+    appearance::cli_theme(
+        ui_theme(paths),
+        || appearance::detect_terminal_background(env),
+        probe,
+    );
 }
 
 /// `{schemaVersion, error: {type, message}}`.

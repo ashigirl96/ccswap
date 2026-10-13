@@ -119,6 +119,80 @@ mod tests {
         assert_eq!(DARK.severity(Some(90.0)), DARK.sev_crit);
     }
 
+    /// upstream test_theme.py: the palettes are the published hex values.
+    #[test]
+    fn palettes_match_upstream_hex_values() {
+        let hexes = |p: Palette| {
+            [
+                p.accent,
+                p.foreground,
+                p.muted,
+                p.background,
+                p.surface,
+                p.panel,
+                p.sev_ok,
+                p.sev_warn,
+                p.sev_crit,
+                p.track,
+            ]
+            .map(|c| match c {
+                Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+                other => panic!("{other:?}"),
+            })
+        };
+        assert_eq!(
+            hexes(DARK),
+            [
+                "#d7875f", "#e8e4de", "#8a8a8a", "#141414", "#1e1e1e", "#262626", "#87af87",
+                "#d7af5f", "#d75f5f", "#3a3a3a"
+            ]
+        );
+        assert_eq!(
+            hexes(LIGHT),
+            [
+                "#954c2a", "#2b2723", "#635d55", "#faf7f2", "#efeae1", "#e2dbcf", "#3d6b3d",
+                "#795911", "#ad3128", "#cec7ba"
+            ]
+        );
+    }
+
+    fn luminance(c: Color) -> f64 {
+        let Color::Rgb(r, g, b) = c else {
+            panic!("rgb expected")
+        };
+        let f = |v: u8| {
+            let c = f64::from(v) / 255.0;
+            if c <= 0.03928 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    }
+
+    fn contrast(a: Color, b: Color) -> f64 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn light_text_meets_aa_on_all_backgrounds() {
+        let p = LIGHT;
+        for color in [
+            p.foreground,
+            p.muted,
+            p.accent,
+            p.sev_ok,
+            p.sev_warn,
+            p.sev_crit,
+        ] {
+            for bg in [p.background, p.surface, p.panel] {
+                assert!(contrast(color, bg) >= 4.5, "{color:?} on {bg:?}");
+            }
+        }
+    }
+
     #[test]
     fn theme_cycle_and_resolution() {
         assert_eq!(ThemeName::Dark.next(), ThemeName::Light);
