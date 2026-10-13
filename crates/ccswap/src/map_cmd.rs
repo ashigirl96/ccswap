@@ -183,7 +183,7 @@ fn list(ctx: &Context) -> Result<()> {
         println!("{}", style.dimmed("No directory mappings yet."));
         println!(
             "{}",
-            style.muted("Map one with: cswap map <NUM|EMAIL> [PATH]")
+            style.muted("Map one with: ccswap map <NUM|EMAIL> [PATH]")
         );
         return Ok(());
     }

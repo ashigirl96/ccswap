@@ -12,6 +12,8 @@
 
 mod support;
 
+use support::hint;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -246,9 +248,9 @@ fn another_slots_credential_is_stashed_and_never_written_into_a_slot() {
     assert_eq!(backup(&env, 2), Some(creds("2")));
     assert_eq!(
         warnings(&report),
-        vec![
+        vec![hint(
             "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-1. If Account-2 later cannot authenticate, log in as it and run: cswap add --slot 2"
-        ]
+        )]
     );
     let (id, row) = only_stash_entry(&env, &foreign);
     let keys: Vec<&str> = row
@@ -347,7 +349,7 @@ fn an_unmanaged_accounts_credential_is_stashed_with_a_human_warning() {
 
     assert!(
         out.stdout.starts_with(
-            "The live login does not match a managed account. It was preserved and not written into Account-1. If you need that account, log in as it and run: cswap add\nSwitched to Account-2 (b@example.com)\n"
+            &hint("The live login does not match a managed account. It was preserved and not written into Account-1. If you need that account, log in as it and run: cswap add\nSwitched to Account-2 (b@example.com)\n")
         ),
         "{}",
         out.stdout
@@ -892,7 +894,7 @@ fn a_fresh_machine_skips_a_broken_recorded_slot() {
     out.assert_code(0);
     assert!(
         out.stdout.starts_with(
-            "Skipping Account-2 (no stored credentials/config, re-add with cswap --add-account --slot 2)\nActivated Account-3 (c@example.com)\n"
+            &hint("Skipping Account-2 (no stored credentials/config, re-add with cswap --add-account --slot 2)\nActivated Account-3 (c@example.com)\n")
         ),
         "{}",
         out.stdout
@@ -922,7 +924,7 @@ fn a_fresh_machine_with_no_usable_slot_fails() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"],
-        json!({"type": "ConfigError", "message": "No accounts remain in rotation. Re-enable one with: cswap enable <num|email>"})
+        json!({"type": "ConfigError", "message": hint("No accounts remain in rotation. Re-enable one with: cswap enable <num|email>")})
     );
 
     env.security()
@@ -931,7 +933,9 @@ fn a_fresh_machine_with_no_usable_slot_fails() {
     out.assert_code(1);
     assert_eq!(
         out.json()["error"]["message"],
-        "No managed accounts have valid stored credentials/config. Re-add a slot with: cswap --add-account --slot <number>"
+        hint(
+            "No managed accounts have valid stored credentials/config. Re-add a slot with: cswap --add-account --slot <number>"
+        )
     );
 }
 
@@ -1058,7 +1062,7 @@ fn unclaimed_parses_its_own_arguments() {
     assert_eq!(
         out.stdout,
         format!(
-            "usage: {prog} unclaimed [-h] [--purge ID] [--debug]\n\nList stashed credential entries, or purge one by id. Purging deletes the bytes\n— recovery is /login + `cswap add`.\n\noptions:\n  -h, --help  show this help message and exit\n  --purge ID  Delete this entry's bytes and manifest row\n  --debug     Enable debug logging\n"
+            "usage: {prog} unclaimed [-h] [--purge ID] [--debug]\n\nList stashed credential entries, or purge one by id. Purging deletes the bytes\n— recovery is /login + `{prog} add`.\n\noptions:\n  -h, --help  show this help message and exit\n  --purge ID  Delete this entry's bytes and manifest row\n  --debug     Enable debug logging\n"
         )
     );
 

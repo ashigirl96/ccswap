@@ -12,6 +12,8 @@
 
 mod support;
 
+use support::hint;
+
 use serde_json::{Value, json};
 use support::{KEYCHAIN_ACCOUNT, Output, TestEnv, is_upstream, prog};
 
@@ -403,7 +405,7 @@ fn disabling_the_last_switchable_slot_warns() {
     out.assert_code(0);
     assert!(
         out.stdout.ends_with(
-            "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.\n"
+            &hint("  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.\n")
         ),
         "{}",
         out.stdout
@@ -435,7 +437,9 @@ fn disable_reports_unresolvable_identifiers() {
         ),
         (
             "u@example.com",
-            "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
+            &hint(
+                "Error: Email 'u@example.com' is ambiguous — matches accounts: 1 [personal], 2 [Acme]. Use account number instead (e.g., cswap --switch-to 1).",
+            ),
         ),
     ];
     for (identifier, expected) in cases {

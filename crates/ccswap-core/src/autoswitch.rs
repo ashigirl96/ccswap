@@ -55,7 +55,7 @@ pub const IDLE_HOLD_MAX_S: f64 = 30.0 * 60.0;
 const SYSTEMIC: [(&str, &str); 4] = [
     (
         "store-unmirrored",
-        "CLAUDE_SECURESTORAGE_CONFIG_DIR is set — unset it or run cswap from a normal shell",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR is set — unset it or run ccswap from a normal shell",
     ),
     (
         "invalid_client",
@@ -63,7 +63,7 @@ const SYSTEMIC: [(&str, &str); 4] = [
     ),
     (
         "stash-unreadable",
-        "a stashed successor is unreadable — unlock the keychain or fix the file, then retry; `cswap unclaimed` inspects it",
+        "a stashed successor is unreadable — unlock the keychain or fix the file, then retry; `ccswap unclaimed` inspects it",
     ),
     (
         "consume-busy",
@@ -447,12 +447,12 @@ impl<'a> AutoSwitchEngine<'a> {
             if self.host.has_live_login() {
                 self.no_switch(
                     "unmanaged-active-account",
-                    "run 'cswap --add-account' to include it in rotation",
+                    "run 'ccswap --add-account' to include it in rotation",
                 );
             } else {
                 self.no_switch(
                     "no-active-account",
-                    "log in and run 'cswap --add-account' first",
+                    "log in and run 'ccswap --add-account' first",
                 );
             }
             return Ok(TickOutcome::NoAction);

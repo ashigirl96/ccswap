@@ -10,6 +10,8 @@
 
 mod support;
 
+use support::hint;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -534,7 +536,9 @@ fn a_live_api_key_login_is_refused() {
     out.assert_code(1);
     assert_eq!(
         out.stderr,
-        "Error: Active login is an API-key account. Add it with 'cswap --add-token sk-ant-api...' instead of --add-account.\n"
+        hint(
+            "Error: Active login is an API-key account. Add it with 'cswap --add-token sk-ant-api...' instead of --add-account.\n"
+        )
     );
 }
 

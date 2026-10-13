@@ -11,6 +11,8 @@
 
 mod support;
 
+use support::hint;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -518,7 +520,7 @@ fn export_unknown_account_or_empty_roster_fails() {
     out.assert_code(1);
     assert_eq!(
         out.stderr,
-        "Error: no accounts to export — run cswap --add-account first\n"
+        hint("Error: no accounts to export — run cswap --add-account first\n")
     );
 
     seed(&env, Seed::new(1, "a@example.com"));
@@ -605,7 +607,7 @@ fn import_over_live_login_hints_force_activation() {
     out.assert_code(0);
     assert!(
         out.stderr.ends_with(
-            "Note: alice@example.com is your current live login — activate the imported credentials with: cswap --switch-to 1 --force\n"
+            &hint("Note: alice@example.com is your current live login — activate the imported credentials with: cswap --switch-to 1 --force\n")
         ),
         "{}",
         out.stderr
@@ -718,7 +720,9 @@ fn envelope_checks_rejected() {
     env["encrypted"] = true.into();
     assert_import_rejected(
         &env,
-        "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+        &hint(
+            "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+        ),
     );
 
     let mut env = sample_envelope("user@example.com".into(), 1.into());
@@ -1140,10 +1144,10 @@ fn all_accounts_skips_missing_credentials_with_stderr_warning() {
     out.assert_code(0);
     assert_eq!(
         out.stderr,
-        format!(
+        hint(&format!(
             "Skipping Account-1 (alice@example.com): no stored credentials/config — re-add with: cswap --add-account --slot 1\nExported 1 account(s) to {}\n",
             file.display()
-        )
+        ))
     );
     let envelope: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(emails(&envelope), ["bob@example.com"]);
@@ -1206,7 +1210,7 @@ fn all_slots_broken_raises() {
     let out = env.run(["export", "-"]);
     out.assert_code(1);
     assert!(out.stderr.ends_with(
-        "Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>\n"
+        &hint("Error: no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>\n")
     ), "{}", out.stderr);
 }
 

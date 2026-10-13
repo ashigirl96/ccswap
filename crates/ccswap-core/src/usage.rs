@@ -61,7 +61,7 @@ pub fn error_note(kind: &str) -> Option<&'static str> {
         "invalid_client" => "cswap's OAuth client was rejected — systemic, not this account",
         "consume-busy" => "another cswap surface holds the slot — retries next pass",
         "stash-unreadable" => {
-            "this slot's stashed successor is unreadable — unlock the keychain or fix the file, then retry; `cswap unclaimed` inspects it"
+            "this slot's stashed successor is unreadable — unlock the keychain or fix the file, then retry; `ccswap unclaimed` inspects it"
         }
         _ => return None,
     })

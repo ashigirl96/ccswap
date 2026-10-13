@@ -89,6 +89,30 @@ pub fn prog() -> &'static str {
     if is_upstream() { "cswap" } else { "ccswap" }
 }
 
+/// `text` with each command hint (`cswap add`, `cswap --switch-to 1`, ...)
+/// naming the binary under test; ccswap's hints say `ccswap`.
+pub fn hint(text: &str) -> String {
+    if is_upstream() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("cswap ") {
+        let boundary = rest[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || "_.-/".contains(c)));
+        out.push_str(&rest[..at]);
+        if boundary && !rest[at..].starts_with("cswap run session") {
+            out.push('c');
+        }
+        out.push_str("cswap ");
+        rest = &rest[at + "cswap ".len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn sudo_available() -> bool {
     Command::new("sudo")
         .args(["-n", "true"])

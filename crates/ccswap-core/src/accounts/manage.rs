@@ -180,7 +180,7 @@ impl Accounts<'_> {
         }
         if self.switchable_account_numbers()?.is_empty() {
             console.line(&style.yellowed(
-                "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with cswap enable <num|email>.",
+                "  No accounts remain in rotation — auto-switch and bare switch have nothing to pick. Re-enable one with ccswap enable <num|email>.",
             ));
         }
         Ok(())

@@ -260,7 +260,7 @@ impl AutoSwitchEvent {
                 email,
                 reason,
             } => format!(
-                "Account-{number} ({email}) quarantined: {reason}. Log in with it and run 'cswap --add-account --slot {number}' to recover."
+                "Account-{number} ({email}) quarantined: {reason}. Log in with it and run 'ccswap --add-account --slot {number}' to recover."
             ),
             EventKind::Unquarantined {
                 number,

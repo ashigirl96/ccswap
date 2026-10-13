@@ -373,7 +373,7 @@ impl ConsumeGate<'_> {
                 Err(e) => {
                     stashed_reason = Some("consume-gate-unpersisted");
                     log::error(format!(
-                        "Account {num}'s consumed successor could not be persisted or stashed — it survives only for this pass. Fix the storage failure, then re-login and `cswap add` if the slot strikes. ({e})"
+                        "Account {num}'s consumed successor could not be persisted or stashed — it survives only for this pass. Fix the storage failure, then re-login and `ccswap add` if the slot strikes. ({e})"
                     ));
                 }
             }
@@ -400,7 +400,7 @@ enum Adopt {
 fn retire(stash: &UnclaimedStash<'_>, id: &str, num: &str) {
     if let Err(e) = stash.remove(id) {
         log::warning(format!(
-            "Could not retire account {num}'s stash entry {id}; leaving it for the next pass (`cswap unclaimed --purge` drops it by hand). ({e})"
+            "Could not retire account {num}'s stash entry {id}; leaving it for the next pass (`ccswap unclaimed --purge` drops it by hand). ({e})"
         ));
     }
 }

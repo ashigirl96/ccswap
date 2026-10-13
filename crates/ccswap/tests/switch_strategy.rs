@@ -9,6 +9,8 @@
 
 mod support;
 
+use support::hint;
+
 use serde_json::{Value, json};
 use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv, prog};
 
@@ -210,7 +212,7 @@ fn best_noop_reasons_and_messages() {
 
         let out = env.run(["switch", "--strategy", "best"]);
         out.assert_code(0);
-        assert_eq!(out.stdout, human, "{name}");
+        assert_eq!(out.stdout, hint(human), "{name}");
         assert_eq!(active(&env), 1, "{name}");
         assert_eq!(live_token(&env), "at-1", "{name}");
     }

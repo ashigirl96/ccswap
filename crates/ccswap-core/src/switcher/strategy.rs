@@ -160,14 +160,14 @@ impl Switcher<'_> {
                     let m = format!(
                         "Current account usage is unavailable — staying on Account-{current}."
                     );
-                    let h = style.dimmed(&format!("{m} Run cswap --switch to rotate."));
+                    let h = style.dimmed(&format!("{m} Run ccswap --switch to rotate."));
                     ("usage-unavailable", m, h)
                 }
                 BestPick::NoComparison => {
                     let m = format!(
                         "No other account has usage data to compare — staying on Account-{current}."
                     );
-                    let h = style.dimmed(&format!("{m} Run cswap --switch to rotate."));
+                    let h = style.dimmed(&format!("{m} Run ccswap --switch to rotate."));
                     ("usage-unavailable", m, h)
                 }
                 BestPick::IncompleteComparison => {

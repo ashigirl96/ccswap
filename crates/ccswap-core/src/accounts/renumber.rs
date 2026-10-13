@@ -386,7 +386,7 @@ impl Renumber<'_, '_> {
                 if path.exists() {
                     self.discard_staging(&staged);
                     return Err(Error::config(format!(
-                        "Found leftover staging from an interrupted swap: {}. It holds that slot's pre-swap credentials and may be the only surviving copy. Verify both accounts still work (`cswap list`), then delete the file and retry.",
+                        "Found leftover staging from an interrupted swap: {}. It holds that slot's pre-swap credentials and may be the only surviving copy. Verify both accounts still work (`ccswap list`), then delete the file and retry.",
                         path.display()
                     )));
                 }

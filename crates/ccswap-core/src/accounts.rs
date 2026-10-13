@@ -345,7 +345,7 @@ impl Accounts<'_> {
         if looks_like_api_key(&creds) {
             return Err(Error::new(
                 ErrorKind::ValidationError,
-                "Active login is an API-key account. Add it with 'cswap --add-token sk-ant-api...' instead of --add-account.",
+                "Active login is an API-key account. Add it with 'ccswap --add-token sk-ant-api...' instead of --add-account.",
             ));
         }
         self.reject_foreign_credential(&creds, identity, console)?;

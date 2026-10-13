@@ -63,7 +63,7 @@ impl Transfer<'_> {
         let accounts = store::accounts(&data)
             .filter(|a| !a.is_empty())
             .ok_or_else(|| {
-                transfer_error("no accounts to export — run cswap --add-account first")
+                transfer_error("no accounts to export — run ccswap --add-account first")
             })?;
 
         let targets: Vec<String> = match account {
@@ -119,7 +119,7 @@ impl Transfer<'_> {
                         )));
                     }
                     notice(&format!(
-                        "Skipping Account-{num} ({email}): no stored credentials/config — re-add with: cswap --add-account --slot {num}"
+                        "Skipping Account-{num} ({email}): no stored credentials/config — re-add with: ccswap --add-account --slot {num}"
                     ));
                     continue;
                 }
@@ -175,7 +175,7 @@ impl Transfer<'_> {
 
         if entries.is_empty() {
             return Err(transfer_error(
-                "no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: cswap --add-account --slot <number>",
+                "no exportable accounts — all managed slots are missing stored credentials/config. Re-add with: ccswap --add-account --slot <number>",
             ));
         }
 
@@ -270,7 +270,7 @@ impl Transfer<'_> {
         }
         if envelope.get("encrypted") == Some(&Value::Bool(true)) {
             return Err(transfer_error(
-                "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | cswap --import -)",
+                "encrypted exports are not supported in this version — decrypt before piping (e.g. gpg -d backup.gpg | ccswap --import -)",
             ));
         }
         let raw_accounts = match envelope.get("accounts") {
@@ -325,7 +325,7 @@ impl Transfer<'_> {
                         session_profile::live_session_pids(self.paths, &existing, &entry.email);
                     if !live.is_empty() {
                         notice(&format!(
-                            "Warning: {} (slot {existing}) has a live session-mode instance (PID {}); its session profile keeps the pre-import credentials until it is restarted via 'cswap run'.",
+                            "Warning: {} (slot {existing}) has a live session-mode instance (PID {}); its session profile keeps the pre-import credentials until it is restarted via 'ccswap run'.",
                             entry.email,
                             session_profile::join_pids(&live)
                         ));
@@ -438,7 +438,7 @@ impl Transfer<'_> {
             && written.contains(&live_slot)
         {
             notice(&format!(
-                "Note: {} is your current live login — activate the imported credentials with: cswap --switch-to {live_slot} --force",
+                "Note: {} is your current live login — activate the imported credentials with: ccswap --switch-to {live_slot} --force",
                 identity.email
             ));
         }

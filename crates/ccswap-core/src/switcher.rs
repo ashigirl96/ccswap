@@ -345,7 +345,7 @@ impl Switcher<'_> {
                     label,
                     "unmanaged-account",
                     unmanaged,
-                    "Active account is not managed; run cswap --add-account".into(),
+                    "Active account is not managed; run ccswap --add-account".into(),
                     warnings,
                 )));
             }
@@ -441,7 +441,7 @@ impl Switcher<'_> {
                     ));
                 } else {
                     console.line(&format!(
-                        "{} Account-{candidate} (no stored credentials/config, re-add with cswap --add-account --slot {candidate})",
+                        "{} Account-{candidate} (no stored credentials/config, re-add with ccswap --add-account --slot {candidate})",
                         style.accent("Skipping")
                     ));
                 }
@@ -492,7 +492,7 @@ impl Switcher<'_> {
                 )));
             }
             console.line(&style.dimmed(
-                "No other accounts have valid stored credentials/config.\nRe-add a skipped slot with: cswap --add-account --slot <number>",
+                "No other accounts have valid stored credentials/config.\nRe-add a skipped slot with: ccswap --add-account --slot <number>",
             ));
             return Ok(None);
         };
@@ -561,7 +561,7 @@ impl Switcher<'_> {
             (
                 "(no stored credentials/config)".to_string(),
                 format!(
-                    "(no stored credentials/config, re-add with cswap --add-account --slot {preferred})"
+                    "(no stored credentials/config, re-add with ccswap --add-account --slot {preferred})"
                 ),
             )
         };
@@ -580,11 +580,11 @@ impl Switcher<'_> {
         }
         if sequence.iter().any(|num| self.is_switchable(&data, num)) {
             return Err(Error::config(
-                "No accounts remain in rotation. Re-enable one with: cswap enable <num|email>",
+                "No accounts remain in rotation. Re-enable one with: ccswap enable <num|email>",
             ));
         }
         Err(Error::config(
-            "No managed accounts have valid stored credentials/config. Re-add a slot with: cswap --add-account --slot <number>",
+            "No managed accounts have valid stored credentials/config. Re-add a slot with: ccswap --add-account --slot <number>",
         ))
     }
 
@@ -658,7 +658,7 @@ impl Switcher<'_> {
                     self.style.accent("Already on")
                 ));
                 console.line(&self.style.dimmed(&format!(
-                    "To rewrite the live login from the stored backup (e.g. after --import), run: cswap --switch-to {target} --force"
+                    "To rewrite the live login from the stored backup (e.g. after --import), run: ccswap --switch-to {target} --force"
                 )));
                 return Ok(None);
             }
@@ -825,7 +825,7 @@ impl Switcher<'_> {
                 console.line(
                     &self
                         .style
-                        .dimmed("  (usage display unavailable — run `cswap --list` to retry)"),
+                        .dimmed("  (usage display unavailable — run `ccswap --list` to retry)"),
                 );
             }
             console.line("");
@@ -950,7 +950,7 @@ impl Switcher<'_> {
                 config_backup(self)?;
                 self.warn(
                     format!(
-                        "The live credential's tokens were wiped (Claude Code clears them when a refresh is rejected). Account-{current_account}'s stored backup was kept. If the account cannot authenticate after switching back, log in with Claude Code and run: cswap add"
+                        "The live credential's tokens were wiped (Claude Code clears them when a refresh is rejected). Account-{current_account}'s stored backup was kept. If the account cannot authenticate after switching back, log in with Claude Code and run: ccswap add"
                     ),
                     emit,
                     warnings,
@@ -980,7 +980,7 @@ impl Switcher<'_> {
             }
             Outgoing::Alien => self.warn(
                 format!(
-                    "The live login does not match a managed account. It was preserved and not written into Account-{current_account}. If you need that account, log in as it and run: cswap add"
+                    "The live login does not match a managed account. It was preserved and not written into Account-{current_account}. If you need that account, log in as it and run: ccswap add"
                 ),
                 emit,
                 warnings,
@@ -988,7 +988,7 @@ impl Switcher<'_> {
             ),
             Outgoing::KnownForeign => self.warn(
                 format!(
-                    "The live credential was previously identified as another account's. It was preserved and not written into Account-{current_account}. If the owning account later cannot authenticate, log in as it and run: cswap add"
+                    "The live credential was previously identified as another account's. It was preserved and not written into Account-{current_account}. If the owning account later cannot authenticate, log in as it and run: ccswap add"
                 ),
                 emit,
                 warnings,
@@ -996,7 +996,7 @@ impl Switcher<'_> {
             ),
             Outgoing::Foreign(slot) => self.warn(
                 format!(
-                    "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-{current_account}. If Account-{slot} later cannot authenticate, log in as it and run: cswap add --slot {slot}"
+                    "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-{current_account}. If Account-{slot} later cannot authenticate, log in as it and run: ccswap add --slot {slot}"
                 ),
                 emit,
                 warnings,
@@ -1396,7 +1396,7 @@ impl Switcher<'_> {
             )
         } else {
             format!(
-                "Account-{num} has no stored credentials. Re-add with: cswap --add-account --slot {num}"
+                "Account-{num} has no stored credentials. Re-add with: ccswap --add-account --slot {num}"
             )
         };
         Err(Error::new(ErrorKind::SwitchError, message))
@@ -1477,7 +1477,7 @@ impl Switcher<'_> {
         let pids = crate::session_profile::live_session_pids(self.paths, target, email);
         if !pids.is_empty() {
             let message = format!(
-                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'cswap run {target}'.",
+                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'ccswap run {target}'.",
                 crate::session_profile::join_pids(&pids)
             );
             self.warn(message, emit, warnings, console);
@@ -1611,7 +1611,7 @@ fn no_config_backup(num: &str) -> Error {
     Error::new(
         ErrorKind::SwitchError,
         format!(
-            "Account-{num} has no stored config backup. Re-add with: cswap --add-account --slot {num}"
+            "Account-{num} has no stored config backup. Re-add with: ccswap --add-account --slot {num}"
         ),
     )
 }

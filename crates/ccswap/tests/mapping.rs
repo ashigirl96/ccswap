@@ -8,6 +8,8 @@
 
 mod support;
 
+use support::hint;
+
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -243,7 +245,7 @@ fn map_without_arguments_and_no_mappings_shows_how_to_add_one() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        "No directory mappings yet.\nMap one with: cswap map <NUM|EMAIL> [PATH]\n"
+        hint("No directory mappings yet.\nMap one with: cswap map <NUM|EMAIL> [PATH]\n")
     );
 }
 

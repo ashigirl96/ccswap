@@ -11,6 +11,8 @@
 
 mod support;
 
+use support::hint;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -154,8 +156,10 @@ fn slots_holding_the_same_credential_or_identity_are_flagged() {
         .set_item("claude-swap", "account-3-c@example.com", &oauth("tok-c"));
     stub_usage(&env, vec![]);
 
-    let dup_fp = "Account-1 and Account-2 hold the same credential (b@example.com) — one slot's \
-                  backup was overwritten. Log in with the missing account and re-add it: cswap add --slot N";
+    let dup_fp = &hint(
+        "Account-1 and Account-2 hold the same credential (b@example.com) — one slot's \
+                  backup was overwritten. Log in with the missing account and re-add it: cswap add --slot N",
+    );
     let dup_id = "Account-2 and Account-3 both authenticate as c@example.com — remove or re-login one of them.";
     let out = env.run(["list"]);
     out.assert_code(0);
@@ -198,9 +202,11 @@ fn slots_reporting_identical_usage_and_resets_are_flagged_as_lockstep() {
     });
     stub_usage(&env, vec![("tok-a", same.clone()), ("tok-b", same)]);
 
-    let msg = "Account-1 and Account-2 report identical usage and reset times — they may be the \
+    let msg = &hint(
+        "Account-1 and Account-2 report identical usage and reset times — they may be the \
                same account (issue #117). If it persists, log in with the missing account and \
-               re-add it: cswap add --slot N";
+               re-add it: cswap add --slot N",
+    );
     let out = env.run(["list"]);
     out.assert_code(0);
     assert!(

@@ -310,7 +310,7 @@ pub fn resolve_account_identifier(
                 })
                 .collect();
             Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
+                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., ccswap --switch-to 1).",
                 details.join(", ")
             )))
         }
