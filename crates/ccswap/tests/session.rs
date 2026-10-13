@@ -20,7 +20,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, ClaudeCall, KEYCHAIN_ACCOUNT, Output, TestEnv, is_upstream};
+use support::{
+    ACTIVE_OAUTH_SERVICE, ClaudeCall, KEYCHAIN_ACCOUNT, Output, StubResponse, TestEnv, is_upstream,
+};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -914,6 +916,114 @@ fn import_force_warns_about_a_live_session_and_marks_it_stale() {
         out.stderr
     );
     assert!(stale_marker(&env, 2).exists());
+}
+
+// -- usage of session-owned slots ------------------------------------------------
+
+/// Records which bearer tokens hit the usage endpoint.
+fn usage_bearers(env: &TestEnv) -> Vec<String> {
+    env.http()
+        .requests()
+        .iter()
+        .filter(|r| r.path() == "/api/oauth/usage")
+        .filter_map(|r| r.header("Authorization").map(str::to_string))
+        .collect()
+}
+
+fn profile_with_token(env: &TestEnv, num: u32, access: &str, expires_at: i64) -> PathBuf {
+    let dir = session_dir(env, num);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(".credentials.json"),
+        json!({"claudeAiOauth": {"accessToken": access, "refreshToken": "rt-s", "expiresAt": expires_at}})
+            .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join(".claude.json"),
+        json!({"oauthAccount": oauth_account(num)}).to_string(),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn list_fetches_a_session_owned_slot_with_the_profiles_token() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    profile_with_token(&env, 2, "at-session", 9_999_999_999_000);
+    env.http().respond(
+        "GET",
+        "/api/oauth/usage",
+        StubResponse::json(200, r#"{"five_hour": {"utilization": 10.0}}"#),
+    );
+
+    env.run(["list", "--json"]).assert_code(0);
+
+    let bearers = usage_bearers(&env);
+    assert!(
+        bearers.contains(&"Bearer at-session".to_string()),
+        "{bearers:?}"
+    );
+    assert!(
+        !bearers.contains(&"Bearer sk-ant-oat01-2".to_string()),
+        "{bearers:?}"
+    );
+}
+
+#[test]
+fn list_ignores_a_profile_logged_in_as_another_account() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    let dir = profile_with_token(&env, 2, "at-session", 9_999_999_999_000);
+    std::fs::write(
+        dir.join(".claude.json"),
+        json!({"oauthAccount": oauth_account(3)}).to_string(),
+    )
+    .unwrap();
+    env.http().respond(
+        "GET",
+        "/api/oauth/usage",
+        StubResponse::json(200, r#"{"five_hour": {"utilization": 10.0}}"#),
+    );
+
+    env.run(["list", "--json"]).assert_code(0);
+
+    let bearers = usage_bearers(&env);
+    assert!(
+        !bearers.contains(&"Bearer at-session".to_string()),
+        "{bearers:?}"
+    );
+    assert!(
+        bearers.contains(&"Bearer sk-ant-oat01-2".to_string()),
+        "{bearers:?}"
+    );
+}
+
+#[test]
+fn list_does_not_request_an_expired_live_session_token() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    let dir = profile_with_token(&env, 2, "at-session", 1_000);
+    make_live(&dir);
+    env.http().respond(
+        "GET",
+        "/api/oauth/usage",
+        StubResponse::json(200, r#"{"five_hour": {"utilization": 10.0}}"#),
+    );
+
+    let out = env.run(["list", "--json"]);
+
+    out.assert_code(0);
+    let bearers = usage_bearers(&env);
+    assert!(
+        !bearers.contains(&"Bearer at-session".to_string()),
+        "{bearers:?}"
+    );
+    assert!(
+        !bearers.contains(&"Bearer sk-ant-oat01-2".to_string()),
+        "{bearers:?}"
+    );
 }
 
 // -- CLI surface ---------------------------------------------------------------

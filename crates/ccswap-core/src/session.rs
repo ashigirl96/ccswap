@@ -338,7 +338,8 @@ impl Sessions<'_> {
     /// Same credential generation as the backup; unknowable reads as a match
     /// so a read error never throws a working profile away.
     fn profile_matches_backup(&self, target: &Target) -> bool {
-        let profile = self.read_session_credentials(&target.dir);
+        let profile =
+            session_profile::read_session_credentials(self.secrets.keychain(), &target.dir);
         let backup = self.secrets.read_backup(&target.num, &target.email).value;
         match profile {
             Some(profile) if !profile.is_empty() && !backup.is_empty() => {
@@ -346,23 +347,6 @@ impl Sessions<'_> {
             }
             _ => true,
         }
-    }
-
-    /// The profile's current credential: its hashed Keychain item, else the
-    /// plaintext seed.
-    fn read_session_credentials(&self, dir: &Path) -> Option<String> {
-        if !dir.is_dir() {
-            return None;
-        }
-        let keychain = self.secrets.keychain();
-        if let Ok(Some(creds)) = keychain.get_password(
-            &profile_service_name(&dir.display().to_string()),
-            keychain.account(),
-        ) && !creds.is_empty()
-        {
-            return Some(creds);
-        }
-        std::fs::read_to_string(dir.join(".credentials.json")).ok()
     }
 
     /// Reuse view of the probe: an unanswered probe falls back to what the
@@ -377,7 +361,7 @@ impl Sessions<'_> {
 
     fn artifacts_say_usable(&self, target: &Target) -> bool {
         self.may_have_credential_material(&target.dir)
-            && !session_identity_drifted(&target.dir, &target.email, &target.org)
+            && !session_profile::session_identity_drifted(&target.dir, &target.email, &target.org)
     }
 
     /// False only when every store is positively empty; an unreadable
@@ -468,36 +452,6 @@ fn judge_auth_status(report: &Map<String, Value>, email: &str, org: &str) -> Ver
     Verdict::Valid
 }
 
-/// `(email, org)` the profile's `.claude.json` says it is logged in as.
-fn read_session_identity(dir: &Path) -> Option<(String, String)> {
-    let text = std::fs::read_to_string(dir.join(".claude.json")).ok()?;
-    let config: Value = serde_json::from_str(&text).ok()?;
-    let account = config.as_object()?.get("oauthAccount");
-    let account = match account {
-        Some(v) if store::is_truthy(Some(v)) => v.as_object()?,
-        _ => return None,
-    };
-    let text = |key: &str| {
-        account
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
-    };
-    let email = text("emailAddress");
-    (!email.is_empty()).then(|| (email, text("organizationUuid")))
-}
-
-/// An in-session `/login` can re-point the profile at another account. An
-/// unreadable identity is not drift.
-fn session_identity_drifted(dir: &Path, email: &str, org: &str) -> bool {
-    match read_session_identity(dir) {
-        None => false,
-        Some((profile_email, _)) if profile_email != email => true,
-        Some((_, profile_org)) => !profile_org.is_empty() && !org.is_empty() && profile_org != org,
-    }
-}
-
 /// `shutil.which`: the first executable regular file named `name` on `PATH`.
 pub fn which(env: &Environment, name: &str) -> Option<PathBuf> {
     let path = env.get("PATH")?.clone();
@@ -553,21 +507,5 @@ mod tests {
         assert_eq!(verdict(no_org, "a@x.com", "o"), Verdict::Valid);
         let logged_out = json!({"loggedIn": false, "authMethod": "claude.ai", "email": "a@x.com"});
         assert_eq!(verdict(logged_out, "a@x.com", "o"), Verdict::Invalid);
-    }
-
-    #[test]
-    fn identity_drift() {
-        let dir = tempfile::tempdir().unwrap();
-        let write = |v: &str| std::fs::write(dir.path().join(".claude.json"), v).unwrap();
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
-        write(r#"{"oauthAccount": {"emailAddress": "b@x.com"}}"#);
-        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
-        write(r#"{"oauthAccount": {"emailAddress": "a@x.com", "organizationUuid": "p"}}"#);
-        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", ""));
-        write(r#"{"oauthAccount": {"emailAddress": "a@x.com"}}"#);
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
-        write("not json");
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
     }
 }

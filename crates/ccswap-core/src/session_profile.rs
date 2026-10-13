@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::{Error, ErrorKind, Result};
@@ -167,6 +168,51 @@ pub fn after_backup_write(keychain: &Keychain, paths: &Paths, num: &str, email: 
     }
 }
 
+/// The profile's current credential: its hashed Keychain item (Claude
+/// rotates the token family there), else the plaintext seed. Read-only.
+pub fn read_session_credentials(keychain: &Keychain, session_dir: &Path) -> Option<String> {
+    if !session_dir.is_dir() {
+        return None;
+    }
+    let service = profile_service_name(&session_dir.display().to_string());
+    if let Ok(Some(creds)) = keychain.get_password(&service, keychain.account())
+        && !creds.is_empty()
+    {
+        return Some(creds);
+    }
+    std::fs::read_to_string(session_dir.join(".credentials.json")).ok()
+}
+
+/// `(email, org)` the profile's `.claude.json` says it is logged in as.
+pub fn read_session_identity(dir: &Path) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(dir.join(".claude.json")).ok()?;
+    let config: Value = serde_json::from_str(&text).ok()?;
+    let account = config.as_object()?.get("oauthAccount");
+    let account = match account {
+        Some(v) if crate::store::is_truthy(Some(v)) => v.as_object()?,
+        _ => return None,
+    };
+    let text = |key: &str| {
+        account
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let email = text("emailAddress");
+    (!email.is_empty()).then(|| (email, text("organizationUuid")))
+}
+
+/// An in-session `/login` can re-point the profile at another account. An
+/// unreadable identity is not drift.
+pub fn session_identity_drifted(dir: &Path, email: &str, org: &str) -> bool {
+    match read_session_identity(dir) {
+        None => false,
+        Some((profile_email, _)) if profile_email != email => true,
+        Some((_, profile_org)) => !profile_org.is_empty() && !org.is_empty() && profile_org != org,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +229,20 @@ mod tests {
             stale_marker_for(Path::new("/b/sessions/2-a_x.com")),
             PathBuf::from("/b/sessions/.2-a_x.com.cswap-stale-credentials")
         );
+    }
+    #[test]
+    fn identity_drift() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |v: &str| std::fs::write(dir.path().join(".claude.json"), v).unwrap();
+        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
+        write(r#"{"oauthAccount": {"emailAddress": "b@x.com"}}"#);
+        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
+        write(r#"{"oauthAccount": {"emailAddress": "a@x.com", "organizationUuid": "p"}}"#);
+        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(!session_identity_drifted(dir.path(), "a@x.com", ""));
+        write(r#"{"oauthAccount": {"emailAddress": "a@x.com"}}"#);
+        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
+        write("not json");
+        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
     }
 }
