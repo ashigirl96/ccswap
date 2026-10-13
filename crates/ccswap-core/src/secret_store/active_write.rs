@@ -82,7 +82,7 @@ impl SecretStore {
     /// After a write fell back to the file, a stale Keychain item may
     /// survive; never re-probe onto it for the rest of the process.
     fn pin_file_mode(&self) {
-        let mut cap = self.capability.borrow_mut();
+        let mut cap = self.capability();
         cap.usable = Some(false);
         cap.reprobe_at = None;
     }

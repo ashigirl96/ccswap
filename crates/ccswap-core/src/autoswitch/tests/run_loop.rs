@@ -420,6 +420,12 @@ impl EngineHost for StoreHost<'_> {
     fn switchable_account_numbers(&self) -> Vec<String> {
         self.inner.switchable_account_numbers()
     }
+    fn account_identity(&self, num: &str) -> crate::store::SlotIdentity {
+        self.inner.account_identity(num)
+    }
+    fn backfill_account_uuid(&self, num: &str, uuid: &str) {
+        self.inner.backfill_account_uuid(num, uuid)
+    }
     fn usage_entries(&self, fetch: &HashSet<String>, scheduled: bool) -> Vec<(String, UsageEntry)> {
         self.fetch_sets.borrow_mut().push(fetch.clone());
         let Some(store) = &self.store else {

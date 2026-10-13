@@ -175,6 +175,9 @@ enum Outgoing {
     Unresolved,
     /// A complete identity that is no managed slot's: stash, never back up.
     Alien,
+    /// The switch-time probe failed, but this process already proved the
+    /// lineage foreign during a usage pass: stash, never back up.
+    KnownForeign,
     /// Positively another slot's, a lineage that slot does not hold: stash.
     Foreign(String),
     /// Another slot's, and that slot already holds this lineage.
@@ -185,6 +188,7 @@ impl Outgoing {
     fn stash_reason(&self) -> Option<&'static str> {
         match self {
             Outgoing::Alien => Some("alien"),
+            Outgoing::KnownForeign => Some("known-foreign"),
             Outgoing::Foreign(_) => Some("foreign"),
             _ => None,
         }
@@ -980,6 +984,14 @@ impl Switcher<'_> {
                 warnings,
                 console,
             ),
+            Outgoing::KnownForeign => self.warn(
+                format!(
+                    "The live credential was previously identified as another account's. It was preserved and not written into Account-{current_account}. If the owning account later cannot authenticate, log in as it and run: cswap add"
+                ),
+                emit,
+                warnings,
+                console,
+            ),
             Outgoing::Foreign(slot) => self.warn(
                 format!(
                     "Credential ownership mismatch detected. The live credential was preserved and was not written into Account-{current_account}. If Account-{slot} later cannot authenticate, log in as it and run: cswap add --slot {slot}"
@@ -1218,6 +1230,12 @@ impl Switcher<'_> {
             .as_ref()
             .filter(|_| provenance.live.as_deref() == Some(live))
         else {
+            let fingerprint = anthropic_client::credential_fingerprint(live).unwrap_or_default();
+            if crate::probe_verdicts::get(self.paths, current, current_email, &fingerprint)
+                == Some(false)
+            {
+                return Outgoing::KnownForeign;
+            }
             return Outgoing::Unresolved;
         };
         let r_email = resolved.email.as_deref().unwrap_or_default();
