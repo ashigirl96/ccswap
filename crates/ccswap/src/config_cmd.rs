@@ -51,6 +51,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
+    crate::cli::run_store_migrations(env, &paths);
     match execute(&args, &Settings::new(&paths), &style) {
         Ok(()) => 0,
         Err(error) => {
