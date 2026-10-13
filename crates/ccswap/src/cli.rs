@@ -171,7 +171,7 @@ impl Cli {
                 return 0;
             }
             Ok((Outcome::Version, _)) => {
-                println!("{} {}", self.prog, ccswap_core::VERSION);
+                println!("{} {}", launch_agent::PROGRAM_NAME, ccswap_core::VERSION);
                 return 0;
             }
             Ok((Outcome::Parsed, parsed)) => parsed,

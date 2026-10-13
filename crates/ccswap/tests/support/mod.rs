@@ -259,6 +259,7 @@ impl TestEnv {
             as_root: false,
             which: Impl::UnderTest,
             cwd: None,
+            arg0: None,
         }
     }
 
@@ -359,6 +360,7 @@ pub struct Cmd<'a> {
     as_root: bool,
     which: Impl,
     cwd: Option<PathBuf>,
+    arg0: Option<String>,
 }
 
 impl Cmd<'_> {
@@ -371,6 +373,12 @@ impl Cmd<'_> {
     /// Launch a specific implementation (see [`Impl`]).
     pub fn using(mut self, which: Impl) -> Self {
         self.which = which;
+        self
+    }
+
+    /// Launch with this `argv[0]` (ccswap only; the upstream shim sets its own).
+    pub fn arg0(mut self, name: &str) -> Self {
+        self.arg0 = Some(name.into());
         self
     }
 
@@ -414,6 +422,9 @@ impl Cmd<'_> {
         } else {
             let mut c = Command::new(&program);
             c.env_clear().envs(&vars);
+            if let Some(arg0) = &self.arg0 {
+                std::os::unix::process::CommandExt::arg0(&mut c, arg0);
+            }
             c
         };
         command
