@@ -78,9 +78,8 @@ impl Accounts<'_> {
         // Resolution happens under the same lock as the mutation: a number
         // resolved outside it could be renumbered by a concurrent swap.
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
-        store::migrate_org_fields(self.paths)?;
-        let data = store::read_sequence(self.paths)?;
-        let source = resolve_identifier(data.as_ref(), account)?
+        let data = store::read_sequence_migrated(self.paths)?;
+        let source = store::resolve_account_identifier(data.as_ref(), account)?
             .ok_or_else(|| not_found(format!("No account found with identifier: {account}")))?;
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         if record(&data, &source).is_none() {
@@ -89,7 +88,7 @@ impl Accounts<'_> {
         let max_slot = store::accounts(&data)
             .map(|a| {
                 a.keys()
-                    .filter(|k| is_digits(k))
+                    .filter(|k| store::is_slot_number(k))
                     .filter_map(|k| k.parse::<u64>().ok())
                     .max()
                     .unwrap_or(0)
@@ -128,11 +127,10 @@ struct Renumber<'r, 'a> {
 impl Renumber<'_, '_> {
     fn swap(&mut self, first: &str, second: &str) -> Result<(String, String)> {
         let paths = self.acc.paths;
-        store::migrate_org_fields(paths)?;
-        let data = store::read_sequence(paths)?;
-        let num_a = resolve_identifier(data.as_ref(), first)?
+        let data = store::read_sequence_migrated(paths)?;
+        let num_a = store::resolve_account_identifier(data.as_ref(), first)?
             .ok_or_else(|| not_found(format!("No account found with identifier: {first}")))?;
-        let num_b = resolve_identifier(data.as_ref(), second)?
+        let num_b = store::resolve_account_identifier(data.as_ref(), second)?
             .ok_or_else(|| not_found(format!("No account found with identifier: {second}")))?;
         if num_a == num_b {
             return Err(validation("Cannot swap an account with itself".into()));
@@ -461,52 +459,11 @@ impl Renumber<'_, '_> {
     }
 }
 
-/// `_resolve_account_identifier`: a number verbatim (unchecked), else an
-/// alias (case-insensitive), else a unique exact email.
-fn resolve_identifier(data: Option<&JsonObject>, identifier: &str) -> Result<Option<String>> {
-    if is_digits(identifier) {
-        return Ok(Some(identifier.to_string()));
-    }
-    let Some(data) = data.filter(|d| !d.is_empty()) else {
-        return Ok(None);
-    };
-    if let Some(num) = store::find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let accounts = store::accounts(data).cloned().unwrap_or_default();
-    let matches: Vec<&String> = accounts
-        .iter()
-        .filter(|(_, account)| account.get("email").and_then(Value::as_str) == Some(identifier))
-        .map(|(num, _)| num)
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some((*one).clone())),
-        many => {
-            let details: Vec<String> = many
-                .iter()
-                .map(|num| {
-                    let org = accounts[num.as_str()]
-                        .get("organizationName")
-                        .and_then(Value::as_str)
-                        .filter(|o| !o.is_empty())
-                        .unwrap_or("personal");
-                    format!("{num} [{org}]")
-                })
-                .collect();
-            Err(Error::config(format!(
-                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
-                details.join(", ")
-            )))
-        }
-    }
-}
-
 /// Positive slot number with leading zeros dropped ("05" -> "5").
 fn normalize_target(raw: &str) -> Result<String> {
     let target = raw.trim();
     let digits = target.trim_start_matches('0');
-    if !is_digits(target) || digits.is_empty() {
+    if !store::is_slot_number(target) || digits.is_empty() {
         return Err(validation(format!(
             "Target slot must be a positive slot number, got: {} (use `swap` to trade two accounts by identifier)",
             py_repr(target)
@@ -565,10 +522,6 @@ fn write_exclusive(path: &Path, content: &str) -> std::io::Result<()> {
         .mode(0o600)
         .open(path)?;
     file.write_all(content.as_bytes())
-}
-
-fn is_digits(text: &str) -> bool {
-    !text.is_empty() && text.chars().all(|c| c.is_ascii_digit())
 }
 
 fn not_found(message: String) -> Error {

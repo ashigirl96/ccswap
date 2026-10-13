@@ -67,6 +67,7 @@ pub fn run(prog: &str, env: &Environment, verb: &str, argv: &[String]) -> i32 {
         );
         return 1;
     }
+    crate::cli::run_store_migrations(env, &paths);
     let endpoints = Endpoints::new(env);
     let secrets = SecretStore::new(
         Keychain::new(endpoints.security.clone(), env),
