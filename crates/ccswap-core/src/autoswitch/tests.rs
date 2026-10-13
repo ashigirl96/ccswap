@@ -1986,3 +1986,5 @@ fn iso_utc_keeps_microseconds_only_when_present() {
     assert_eq!(iso_utc(1_783_074_600.0), "2026-07-03T10:30:00Z");
     assert_eq!(iso_utc(1_783_074_600.5), "2026-07-03T10:30:00.500000Z");
 }
+
+mod no_return;
