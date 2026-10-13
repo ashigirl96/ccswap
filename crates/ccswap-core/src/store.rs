@@ -340,7 +340,8 @@ pub fn timestamp_now() -> String {
     format_timestamp(secs)
 }
 
-fn format_timestamp(secs: i64) -> String {
+/// UTC `YYYY-MM-DDTHH:MM:SSZ` of a Unix time.
+pub fn format_timestamp(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let (y, m, d) = civil_from_days(days);
