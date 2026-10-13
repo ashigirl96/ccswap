@@ -52,9 +52,6 @@ pub const HTTP_ENVS: [(&str, &str); 3] = [
 const UPSTREAM_ENV: &str = "CCSWAP_TEST_UPSTREAM";
 const UPSTREAM_SRC_ENV: &str = "CCSWAP_UPSTREAM_SRC";
 
-const FAKE_SECURITY: &str = include_str!("fake_security.py");
-const FAKE_CLAUDE: &str = include_str!("fake_claude.py");
-const FAKE_LAUNCHCTL: &str = include_str!("fake_launchctl.py");
 const UPSTREAM_SHIM: &str = include_str!("upstream_shim.py");
 
 pub fn is_upstream() -> bool {
@@ -764,37 +761,75 @@ fn mkdir_private(dir: &Path) {
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
 
-fn install_script(dir: &Path, name: &str, template: &str) -> PathBuf {
+/// The fake picks its role from the link name and keeps its state in `<dir>/state`.
+/// A symlink, because new hard links to an executable that other tests are running occasionally get SIGKILLed on macOS.
+fn install_fake(dir: &Path, name: &str) -> PathBuf {
     let state = dir.join("state");
     std::fs::create_dir_all(&state).expect("create fake state dir");
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).expect("create fake bin dir");
     let path = bin.join(name);
-    let shared = shared_script(name, template);
-    if std::fs::hard_link(&shared, &path).is_err() {
-        std::fs::copy(&shared, &path).expect("copy fake");
-    }
+    std::os::unix::fs::symlink(fakes_binary(), &path).expect("link fake");
     path
 }
 
-/// Hard-linked from one copy per run because macOS scans each new executable on first exec (~0.3 s, serialized), pushing parallel `security` calls past their 5 s timeout.
-fn shared_script(name: &str, template: &str) -> PathBuf {
-    let digest = template.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+/// Builds `ccswap-test-fakes`, which stays out of the shipped `ccswap` package.
+fn fakes_binary() -> &'static Path {
+    static BINARY: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    BINARY
+        .get_or_init(|| {
+            let manifest =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../ccswap-test-fakes/Cargo.toml");
+            // Its own target dir, because the outer `cargo test` still holds the lock on the shared one.
+            let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fakes-target");
+            let out = Command::new(env!("CARGO"))
+                .args([
+                    "build",
+                    "--quiet",
+                    "--locked",
+                    "--offline",
+                    "--manifest-path",
+                ])
+                .arg(&manifest)
+                .arg("--target-dir")
+                .arg(&target)
+                .env_remove("CARGO_TARGET_DIR")
+                .stdin(Stdio::null())
+                .output()
+                .map_err(|e| format!("run cargo: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "building ccswap-test-fakes failed:\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
+            publish_fakes(&target.join("debug/ccswap-test-fakes"))
+        })
+        .as_deref()
+        .unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Cargo rewrites its output on every build, so tests run a stable copy per content; it is run once here because macOS scans each new executable on first exec (~0.3 s, serialized), which would push parallel `security` calls past their 5 s timeout.
+fn publish_fakes(built: &Path) -> Result<PathBuf, String> {
+    let bytes = std::fs::read(built).map_err(|e| format!("read {}: {e}", built.display()))?;
+    let digest = bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
     });
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fakes");
-    let path = dir.join(format!("{name}-{digest:016x}"));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fakes");
+    let path = dir.join(format!("ccswap-test-fakes-{digest:016x}"));
     if !path.exists() {
-        std::fs::create_dir_all(&dir).expect("create shared fakes dir");
-        // Parallel test threads share the pid, so each call needs its own temp name.
-        static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let seq = NEXT_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let temp = dir.join(format!("{name}.{}.{seq}.tmp", std::process::id()));
-        std::fs::write(&temp, template).expect("write fake");
-        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::fs::rename(&temp, &path).expect("publish fake");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let temp = dir.join(format!("ccswap-test-fakes.{}.tmp", std::process::id()));
+        std::fs::write(&temp, &bytes).map_err(|e| e.to_string())?;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+        std::fs::rename(&temp, &path).map_err(|e| e.to_string())?;
     }
-    path
+    Command::new(&path)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("run {}: {e}", path.display()))?;
+    Ok(path)
 }
 
 fn read_jsonl(path: &Path) -> Vec<Value> {
@@ -824,7 +859,7 @@ pub struct SecurityCall {
 
 impl FakeSecurity {
     fn install(dir: &Path) -> Self {
-        let path = install_script(dir, "security", FAKE_SECURITY);
+        let path = install_fake(dir, "security");
         FakeSecurity {
             path,
             state: dir.join("state"),
@@ -960,7 +995,7 @@ pub struct ClaudeCall {
 
 impl FakeClaude {
     fn install(dir: &Path) -> Self {
-        install_script(dir, "claude", FAKE_CLAUDE);
+        install_fake(dir, "claude");
         FakeClaude {
             bin_dir: dir.join("bin"),
             state: dir.join("state"),
@@ -1175,7 +1210,7 @@ pub struct LaunchctlCall {
 
 impl FakeLaunchctl {
     fn install(dir: &Path) -> Self {
-        install_script(dir, "launchctl", FAKE_LAUNCHCTL);
+        install_fake(dir, "launchctl");
         FakeLaunchctl {
             bin_dir: dir.join("bin"),
             state: dir.join("state"),
