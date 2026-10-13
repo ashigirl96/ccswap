@@ -209,6 +209,99 @@ pub fn find_account_by_alias(data: &JsonObject, alias: &str) -> Option<String> {
     })
 }
 
+/// Slot key for a number, alias or email, in that order. A number is
+/// returned verbatim and unchecked ("01", "99"); an email in several slots
+/// is an error rather than a guess.
+pub fn resolve_account_identifier(
+    data: Option<&JsonObject>,
+    identifier: &str,
+) -> Result<Option<String>> {
+    if is_slot_number(identifier) {
+        return Ok(Some(identifier.to_string()));
+    }
+    let Some(data) = data else {
+        return Ok(None);
+    };
+    if let Some(num) = find_account_by_alias(data, identifier) {
+        return Ok(Some(num));
+    }
+    let matches = slots_with_email(data, identifier);
+    match matches.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => {
+            let details: Vec<String> = many
+                .iter()
+                .map(|num| {
+                    let name = accounts(data)
+                        .and_then(|a| a.get(num))
+                        .and_then(|r| r.get("organizationName"))
+                        .and_then(Value::as_str)
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or("personal");
+                    format!("{num} [{name}]")
+                })
+                .collect();
+            Err(Error::config(format!(
+                "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., cswap --switch-to 1).",
+                details.join(", ")
+            )))
+        }
+    }
+}
+
+pub fn slots_with_email(data: &JsonObject, email: &str) -> Vec<String> {
+    accounts(data)
+        .map(|a| {
+            a.iter()
+                .filter(|(_, r)| r.get("email").and_then(Value::as_str) == Some(email))
+                .map(|(num, _)| num.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Python's `str.isdigit()` for the identifiers users type.
+pub fn is_slot_number(identifier: &str) -> bool {
+    !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit())
+}
+
+/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`
+/// (whose `$` also matches before one trailing newline).
+pub fn is_valid_email(email: &str) -> bool {
+    let email = email.strip_suffix('\n').unwrap_or(email);
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
+    let domain_chars_ok = domain
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
+    let Some((host, tld)) = domain.rsplit_once('.') else {
+        return false;
+    };
+    local_ok
+        && domain_chars_ok
+        && !host.is_empty()
+        && tld.len() >= 2
+        && tld.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// Python truthiness of a JSON value.
+pub fn is_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(Value::Object(o)) => !o.is_empty(),
+    }
+}
+
 /// Lowercase and validate a proposed alias (`[a-z0-9_.-]+`, not all digits,
 /// no leading `-`). Messages echo the raw input.
 pub fn normalize_alias(raw: &str) -> Result<String> {

@@ -121,12 +121,22 @@ impl Keychain {
         service: &str,
         account: &str,
     ) -> std::result::Result<(), KeychainError> {
+        self.delete_if_present(service, account).map(|_| ())
+    }
+
+    /// Like [`Keychain::delete_password`], telling whether an item was there.
+    pub fn delete_if_present(
+        &self,
+        service: &str,
+        account: &str,
+    ) -> std::result::Result<bool, KeychainError> {
         let out = self.run(
             &["delete-generic-password", "-a", account, "-s", service],
             None,
         )?;
         match out.code {
-            Some(0) | Some(NOT_FOUND_RC) => Ok(()),
+            Some(0) => Ok(true),
+            Some(NOT_FOUND_RC) => Ok(false),
             code => Err(failed("delete-generic-password", code, &out.stderr)),
         }
     }

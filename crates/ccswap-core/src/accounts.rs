@@ -16,6 +16,7 @@ use crate::secret_store::{SecretStore, looks_like_api_key};
 use crate::store::{self, Identity, JsonObject};
 use crate::usage_store::UsageStore;
 
+mod manage;
 mod token;
 pub use token::{AddTokenOptions, TokenInput, getpass};
 
