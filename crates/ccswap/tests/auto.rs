@@ -556,3 +556,168 @@ fn auto_help() {
     assert!(out.stdout.contains("--once"));
     assert!(out.stdout.contains("Exit codes"));
 }
+
+// --- the loop (no --once) -------------------------------------------------------
+
+const LOOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn iso_in(seconds: f64) -> String {
+    chrono::DateTime::from_timestamp((now() + seconds) as i64, 0)
+        .unwrap()
+        .format("%Y-%m-%dT%H:%M:%S+00:00")
+        .to_string()
+}
+
+/// Lets the loop reach its sleep first: upstream's SIGTERM handler deadlocks
+/// when it lands while the main thread holds the wake event's lock.
+fn signal_idle(run: &support::Running, sig: i32) {
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    run.signal(sig);
+}
+
+fn epoch(iso: &str) -> f64 {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .unwrap()
+        .timestamp() as f64
+}
+
+#[test]
+fn loop_prints_its_banner_and_sigterm_exits_zero() {
+    let env = TestEnv::new();
+    three(&env);
+    stub_five_hour(&env, &[(1, 10.0), (2, 10.0), (3, 10.0)]);
+
+    let mut run = env.cmd(["auto"]).spawn();
+    let banner = run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("Auto-switch running"));
+    assert_eq!(
+        banner.as_deref(),
+        Some("Auto-switch running: threshold 90%, every 60s — Ctrl-C to stop")
+    );
+    assert!(
+        run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("10% used"))
+            .is_some()
+    );
+    signal_idle(&run, libc::SIGTERM);
+    let out = run.finish(LOOP_TIMEOUT);
+    out.assert_code(0);
+    assert!(
+        !out.stdout.contains("Auto-switch stopped"),
+        "{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn loop_interval_flag_overrides_the_setting_and_is_clamped() {
+    let env = TestEnv::new();
+    three(&env);
+    env.write_json(
+        env.store_dir().join("settings.json"),
+        &json!({"schemaVersion": 1, "autoswitch": {"intervalSeconds": 120.0}}),
+    );
+    stub_five_hour(&env, &[(1, 10.0), (2, 10.0), (3, 10.0)]);
+
+    for (args, want) in [
+        (vec!["auto", "--dry-run"], "every 120s (dry-run) —"),
+        (vec!["auto", "--interval", "30"], "every 30s —"),
+        (vec!["auto", "--interval", "5"], "every 15s —"),
+    ] {
+        let mut run = env.cmd(&args).spawn();
+        let banner = run
+            .wait_for_line(LOOP_TIMEOUT, |l| l.contains("Auto-switch running"))
+            .unwrap_or_default();
+        assert!(banner.contains(want), "{args:?}: {banner}");
+        assert!(
+            run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("10% used"))
+                .is_some()
+        );
+        signal_idle(&run, libc::SIGTERM);
+        run.finish(LOOP_TIMEOUT).assert_code(0);
+    }
+}
+
+#[test]
+fn loop_json_all_exhausted_sleeps_until_the_capped_recheck() {
+    let env = TestEnv::new();
+    three(&env);
+    let at = |pct: f64| {
+        json!({"five_hour": {"utilization": pct, "resets_at": iso_in(1800.0)},
+               "seven_day": {"utilization": 0.0}})
+    };
+    stub(&env, vec![(1, at(100.0)), (2, at(100.0)), (3, at(100.0))]);
+
+    let mut run = env.cmd(["auto", "--json", "--interval", "15"]).spawn();
+    let sleep = run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("\"event\": \"sleep\""));
+    let seen_at = now();
+    signal_idle(&run, libc::SIGTERM);
+    let out = run.finish(LOOP_TIMEOUT);
+    out.assert_code(0);
+    assert!(sleep.is_some(), "{}\n{}", out.stdout, out.stderr);
+    let events = events(&out);
+    let names: Vec<&str> = events
+        .iter()
+        .map(|e| e["event"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["poll", "all-exhausted", "sleep"], "{}", out.stdout);
+    let sleep = &events[2];
+    assert_eq!(sleep["seconds"], json!(600.0));
+    let until = sleep["until"].as_str().unwrap();
+    assert!(until.ends_with('Z'), "{until}");
+    assert!((epoch(until) - (seen_at + 600.0)).abs() < 15.0, "{sleep}");
+    assert!(
+        out.stdout
+            .lines()
+            .last()
+            .unwrap()
+            .starts_with("{\"schemaVersion\": 1, \"event\": \"sleep\", \"ts\": \"")
+    );
+}
+
+#[test]
+fn loop_normal_cadence_emits_no_sleep_event() {
+    let env = TestEnv::new();
+    three(&env);
+    stub_five_hour(&env, &[(1, 10.0), (2, 10.0), (3, 10.0)]);
+
+    let mut run = env.cmd(["auto", "--json"]).spawn();
+    assert!(
+        run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("below-threshold"))
+            .is_some()
+    );
+    signal_idle(&run, libc::SIGTERM);
+    let out = run.finish(LOOP_TIMEOUT);
+    out.assert_code(0);
+    assert_eq!(of_kind(&events(&out), "sleep").len(), 0, "{}", out.stdout);
+}
+
+#[test]
+fn loop_ctrl_c_reports_stopped_and_exits_130() {
+    let env = TestEnv::new();
+    three(&env);
+    stub_five_hour(&env, &[(1, 10.0), (2, 10.0), (3, 10.0)]);
+
+    let mut run = env.cmd(["auto"]).spawn();
+    assert!(
+        run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("10% used"))
+            .is_some()
+    );
+    signal_idle(&run, libc::SIGINT);
+    let out = run.finish(LOOP_TIMEOUT);
+    out.assert_code(130);
+    assert!(
+        out.stdout.ends_with("\nAuto-switch stopped\n"),
+        "{:?}",
+        out.stdout
+    );
+
+    let mut run = env.cmd(["auto", "--json"]).spawn();
+    assert!(
+        run.wait_for_line(LOOP_TIMEOUT, |l| l.contains("below-threshold"))
+            .is_some()
+    );
+    signal_idle(&run, libc::SIGINT);
+    let out = run.finish(LOOP_TIMEOUT);
+    out.assert_code(130);
+    assert_eq!(out.stderr, "\nAuto-switch stopped\n");
+    events(&out);
+}
