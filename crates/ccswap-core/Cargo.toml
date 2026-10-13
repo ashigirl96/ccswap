@@ -11,3 +11,6 @@ serde_json.workspace = true
 sha2 = "0.10"
 unicode-normalization = "0.1"
 libc = "0.2"
+ureq = "3.3.0"
+base64 = "0.22.1"
+tempfile = "3"

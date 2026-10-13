@@ -69,6 +69,45 @@ impl Paths {
         self.backup_root().join("settings.json")
     }
 
+    pub fn configs_dir(&self) -> PathBuf {
+        self.backup_root().join("configs")
+    }
+
+    pub fn credentials_dir(&self) -> PathBuf {
+        self.backup_root().join("credentials")
+    }
+
+    pub fn store_lock_file(&self) -> PathBuf {
+        self.backup_root().join(".lock")
+    }
+
+    pub fn usage_cache_dir(&self) -> PathBuf {
+        self.backup_root().join("cache")
+    }
+
+    pub fn mappings_file(&self) -> PathBuf {
+        self.backup_root().join("mappings.json")
+    }
+
+    pub fn sessions_dir(&self) -> PathBuf {
+        self.backup_root().join("sessions")
+    }
+
+    /// Claude Code's primary OAuth refresh lock.
+    pub fn oauth_refresh_lock_dir(&self) -> PathBuf {
+        self.claude_config_home().join(".oauth_refresh.lock")
+    }
+
+    /// The legacy credential lock, a sibling of the config home (`~/.claude.lock`).
+    pub fn credentials_lock_dir(&self) -> PathBuf {
+        sibling_lock(&self.claude_config_home())
+    }
+
+    /// The global config's write lock (`~/.claude.json.lock`).
+    pub fn config_lock_dir(&self) -> PathBuf {
+        sibling_lock(&self.global_config_path())
+    }
+
     /// Whether the active config home is the default profile's, by resolved path.
     pub fn active_profile_is_default(&self) -> bool {
         match (
@@ -79,6 +118,11 @@ impl Paths {
             _ => false,
         }
     }
+}
+
+fn sibling_lock(path: &std::path::Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!("{name}.lock"))
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
+use ccswap_core::accounts::{Accounts, AddOptions, Console};
+use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
@@ -177,6 +179,8 @@ impl Cli {
             return 1;
         } else if parsed.flag("--status") {
             self.status(&paths, &style, json)
+        } else if parsed.flag("--add-account") {
+            self.add(&paths, &style, &parsed)
         } else {
             let command = COMMAND_FLAGS
                 .iter()
@@ -221,6 +225,26 @@ impl Cli {
                 .extend(presentation::status_lines(&report, style));
         }
         Ok(())
+    }
+
+    fn add(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
+        let endpoints = Endpoints::new(&self.env);
+        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
+        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
+        let client = AnthropicClient::new(endpoints);
+        let accounts = Accounts {
+            paths,
+            env: &self.env,
+            secrets: &secrets,
+            client: &client,
+            style,
+        };
+        let options = AddOptions {
+            slot: parsed.value("--slot").and_then(|s| s.trim().parse().ok()),
+            alias: parsed.value("--alias").map(str::to_string),
+            assume_yes: false,
+        };
+        accounts.add_account(&options, &mut TerminalConsole)
     }
 
     /// Flag-combination checks, in upstream's order.
@@ -302,6 +326,31 @@ impl Cli {
     fn not_implemented(&self, verb: &str) -> i32 {
         eprintln!("Error: {}", not_implemented_error(verb));
         1
+    }
+}
+
+/// Prints as it goes, so output already shown survives a later error the
+/// way Python's `print` does.
+struct TerminalConsole;
+
+impl Console for TerminalConsole {
+    fn line(&mut self, text: &str) {
+        let mut out = std::io::stdout().lock();
+        let _ = writeln!(out, "{text}");
+        let _ = out.flush();
+    }
+
+    fn prompt(&mut self, question: &str) -> Option<String> {
+        {
+            let mut out = std::io::stdout().lock();
+            let _ = write!(out, "{question}");
+            let _ = out.flush();
+        }
+        let mut answer = String::new();
+        match std::io::stdin().read_line(&mut answer) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(answer.trim_end_matches(['\n', '\r']).to_string()),
+        }
     }
 }
 

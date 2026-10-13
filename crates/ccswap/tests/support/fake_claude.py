@@ -3,7 +3,7 @@ import json
 import os
 import sys
 
-STATE_DIR = @STATE_DIR@
+STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state")
 CALLS = os.path.join(STATE_DIR, "calls.jsonl")
 RESPONSES = os.path.join(STATE_DIR, "responses.json")
 
