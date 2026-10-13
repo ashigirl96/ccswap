@@ -58,7 +58,7 @@ impl Transfer<'_> {
         full: bool,
         notice: &mut dyn FnMut(&str),
     ) -> Result<Option<String>> {
-        let data = self.roster_migrated()?.unwrap_or_default();
+        let data = store::read_sequence_migrated(self.paths)?.unwrap_or_default();
         let accounts = store::accounts(&data)
             .filter(|a| !a.is_empty())
             .ok_or_else(|| {
@@ -182,11 +182,14 @@ impl Transfer<'_> {
             .get("activeAccountNumber")
             .cloned()
             .unwrap_or(Value::Null);
-        let active_in_payload = entries
+        let active_in_payload = if entries
             .iter()
             .any(|e| same_number(&e["number"], &recorded_active))
-            .then_some(recorded_active)
-            .unwrap_or(Value::Null);
+        {
+            recorded_active
+        } else {
+            Value::Null
+        };
 
         let envelope = json!({
             "version": FORMAT_VERSION,
@@ -274,7 +277,7 @@ impl Transfer<'_> {
             _ => return Err(transfer_error("export file has no accounts to import")),
         };
 
-        let local = self.roster_migrated()?.unwrap_or_default();
+        let local = store::read_sequence_migrated(self.paths)?.unwrap_or_default();
         let incoming = validate_all(raw_accounts, &local, notice)?;
 
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
@@ -293,7 +296,7 @@ impl Transfer<'_> {
         for entry in &incoming {
             let is_envelope_active =
                 envelope_active.as_deref() == Some(entry.exported_num.as_str());
-            let mut data = self.roster_migrated()?.unwrap_or_else(empty_roster);
+            let mut data = store::read_sequence_migrated(self.paths)?.unwrap_or_else(empty_roster);
             let identity = (entry.email.clone(), entry.org_uuid.clone());
 
             let (target, outcome) =
@@ -421,14 +424,6 @@ impl Transfer<'_> {
             ));
         }
         Ok(())
-    }
-
-    fn roster_migrated(&self) -> Result<Option<JsonObject>> {
-        if store::read_sequence(self.paths)?.is_none() {
-            return Ok(None);
-        }
-        store::migrate_org_fields(self.paths)?;
-        store::read_sequence(self.paths)
     }
 
     /// The collectors' quarantine question for one slot: the strike holds

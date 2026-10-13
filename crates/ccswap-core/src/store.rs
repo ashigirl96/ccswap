@@ -46,6 +46,24 @@ pub fn read_sequence(paths: &Paths) -> Result<Option<JsonObject>> {
     read_json_strict(&paths.sequence_file())
 }
 
+/// [`read_sequence`] after back-filling org fields on records that lack them.
+pub fn read_sequence_migrated(paths: &Paths) -> Result<Option<JsonObject>> {
+    let data = read_sequence(paths)?;
+    let needs_migration = data
+        .as_ref()
+        .and_then(accounts)
+        .is_some_and(|a| a.values().any(|r| !has_key(r, "organizationUuid")));
+    if needs_migration {
+        migrate_org_fields(paths)?;
+        return read_sequence(paths);
+    }
+    Ok(data)
+}
+
+fn has_key(record: &Value, key: &str) -> bool {
+    record.as_object().is_some_and(|r| r.contains_key(key))
+}
+
 pub fn accounts(data: &JsonObject) -> Option<&JsonObject> {
     data.get("accounts").and_then(Value::as_object)
 }
