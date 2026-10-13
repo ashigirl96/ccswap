@@ -246,6 +246,7 @@ impl TestEnv {
             stdin: String::new(),
             as_root: false,
             which: Impl::UnderTest,
+            cwd: None,
         }
     }
 
@@ -331,9 +332,16 @@ pub struct Cmd<'a> {
     stdin: String,
     as_root: bool,
     which: Impl,
+    cwd: Option<PathBuf>,
 }
 
 impl Cmd<'_> {
+    /// Run in `dir` instead of the temp `HOME`.
+    pub fn current_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.cwd = Some(dir.as_ref().to_path_buf());
+        self
+    }
+
     /// Launch a specific implementation (see [`Impl`]).
     pub fn using(mut self, which: Impl) -> Self {
         self.which = which;
@@ -384,7 +392,7 @@ impl Cmd<'_> {
         };
         command
             .args(&args)
-            .current_dir(&self.env.home)
+            .current_dir(self.cwd.as_deref().unwrap_or(&self.env.home))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

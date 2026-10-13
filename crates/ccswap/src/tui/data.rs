@@ -1,20 +1,13 @@
-//! Display helpers (upstream `tui/data.py`) and the weekly pace marker
-//! (upstream `pace.py`).
+//! Display helpers (upstream `tui/data.py`).
 
+use ccswap_core::pace;
 use ccswap_core::poll_policy::SERVE_TTL_S;
-use ccswap_core::usage::{self, Sentinel, parse_iso};
+use ccswap_core::usage::{self, Sentinel};
 use chrono::DateTime;
 use serde_json::Value;
 
 pub fn sentinel_label(sentinel: Sentinel) -> &'static str {
     sentinel.note()
-}
-
-fn py_number(v: &Value) -> Option<f64> {
-    match v {
-        Value::Bool(b) => Some(f64::from(u8::from(*b))),
-        other => other.as_f64(),
-    }
 }
 
 fn resets_at_ts(window: Option<&Value>) -> Option<f64> {
@@ -71,38 +64,9 @@ pub fn format_age(age_s: Option<f64>) -> Option<String> {
     Some(format!("· {} ago", format_duration(age)))
 }
 
-const WEEKLY_PERIOD_S: f64 = 7.0 * 86400.0;
-const SUPPRESS_AFTER_RESET_S: f64 = 24.0 * 3600.0;
-const AHEAD_THRESHOLD_PCT: f64 = 15.0;
-
-/// Whether a weekly window has used meaningfully more than the elapsed
-/// share of its cycle, measured at `fetched_at`.
+/// Whether a weekly window is meaningfully ahead of pace at `fetched_at`.
 pub fn ahead_of_pace(window: &Value, fetched_at: Option<f64>) -> bool {
-    let (Some(window), Some(fetched_at)) = (window.as_object(), fetched_at) else {
-        return false;
-    };
-    let Some(pct) = window.get("pct").and_then(py_number) else {
-        return false;
-    };
-    let Some(next_reset) = window
-        .get("resets_at")
-        .and_then(Value::as_str)
-        .and_then(parse_iso)
-        .and_then(|t| t.timestamp())
-    else {
-        return false;
-    };
-    let remaining = (next_reset - fetched_at).rem_euclid(WEEKLY_PERIOD_S);
-    let elapsed = if remaining == 0.0 {
-        0.0
-    } else {
-        WEEKLY_PERIOD_S - remaining
-    };
-    if elapsed < SUPPRESS_AFTER_RESET_S {
-        return false;
-    }
-    let expected = (elapsed / WEEKLY_PERIOD_S * 100.0).min(100.0);
-    pct - expected >= AHEAD_THRESHOLD_PCT
+    pace::compute_pace(window.as_object(), fetched_at).is_some_and(|p| p.ahead)
 }
 
 #[cfg(test)]
@@ -174,17 +138,5 @@ mod tests {
             reset_text(Some(&elapsed), now).as_deref(),
             Some("resets now")
         );
-    }
-
-    #[test]
-    fn pace_marker_needs_a_day_into_the_week_and_a_fifteen_point_gap() {
-        let now = now_secs();
-        let one_day_in = json!({"pct": 50.0, "resets_at": iso_in(86400.0 * 6.0)});
-        assert!(ahead_of_pace(&one_day_in, Some(now)));
-        assert!(!ahead_of_pace(&one_day_in, None));
-        let just_reset = json!({"pct": 50.0, "resets_at": iso_in(86400.0 * 6.5)});
-        assert!(!ahead_of_pace(&just_reset, Some(now)));
-        let on_pace = json!({"pct": 20.0, "resets_at": iso_in(86400.0 * 6.0)});
-        assert!(!ahead_of_pace(&on_pace, Some(now)));
     }
 }

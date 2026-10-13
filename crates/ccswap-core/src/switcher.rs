@@ -738,6 +738,7 @@ impl Switcher<'_> {
     ) -> Result<Performed> {
         self.accounts().refuse_session_shell()?;
         let mut warnings = Vec::new();
+        self.warn_live_session_target(target, emit, &mut warnings, console);
         let provenance = match provenance {
             Some(p) => p,
             None if force => Provenance::default(),
@@ -953,6 +954,12 @@ impl Switcher<'_> {
             Outgoing::OwnFamily | Outgoing::OwnRotated | Outgoing::Unresolved => {
                 self.secrets
                     .write_backup(current_account, current_email, &live)?;
+                crate::session_profile::after_backup_write(
+                    self.secrets.keychain(),
+                    self.paths,
+                    current_account,
+                    current_email,
+                );
                 config_backup(self)?;
                 if outgoing == Outgoing::OwnRotated {
                     self.backfill_slot_uuid(data, current_account, provenance);
@@ -1424,6 +1431,37 @@ impl Switcher<'_> {
             console.line(&self.style.yellowed(&message));
         }
         Ok(())
+    }
+
+    /// Default login and a live session on one account can each leave the
+    /// other's token stale; warned, never blocked.
+    fn warn_live_session_target(
+        &self,
+        target: &str,
+        emit: bool,
+        warnings: &mut Vec<String>,
+        console: &mut dyn Console,
+    ) {
+        let data = store::read_sequence(self.paths)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let email = store::accounts(&data)
+            .and_then(|a| a.get(target))
+            .and_then(|r| r.get("email"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if email.is_empty() {
+            return;
+        }
+        let pids = crate::session_profile::live_session_pids(self.paths, target, email);
+        if !pids.is_empty() {
+            let message = format!(
+                "Account-{target} ({email}) has a live session-mode Claude instance (PID {}). Running the same account as both the default login and a session can make one copy's token go stale if the server rotates it. If the session later fails to authenticate, exit it and re-run 'cswap run {target}'.",
+                crate::session_profile::join_pids(&pids)
+            );
+            self.warn(message, emit, warnings, console);
+        }
     }
 
     fn warn(

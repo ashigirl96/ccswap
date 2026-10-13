@@ -7,7 +7,7 @@ use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
-use ccswap_core::listing::{self, ListReport};
+use ccswap_core::listing::{self, ListOptions, ListReport};
 use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
@@ -149,8 +149,17 @@ impl Cli {
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }
+        if args.first().is_some_and(|v| v == "run") {
+            return crate::run_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if args.first().is_some_and(|v| v == "alias") {
             return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
+        }
+        if args.first().is_some_and(|v| v == "map") {
+            return crate::map_cmd::run_map(&self.prog, &self.env, &args[1..]);
+        }
+        if args.first().is_some_and(|v| v == "unmap") {
+            return crate::map_cmd::run_unmap(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "unclaimed") {
             return crate::unclaimed_cmd::run(&self.prog, &self.env, &args[1..]);
@@ -209,7 +218,7 @@ impl Cli {
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--list") {
-            self.list(&paths, &style, json)
+            self.list(&paths, &style, json, parsed.flag("--token-status"))
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
         } else if let Some(destination) = parsed.value("--export") {
@@ -279,12 +288,19 @@ impl Cli {
         Ok(())
     }
 
-    fn list(&mut self, paths: &Paths, style: &Style, json: bool) -> Result<(), Error> {
+    fn list(
+        &mut self,
+        paths: &Paths,
+        style: &Style,
+        json: bool,
+        token_status: bool,
+    ) -> Result<(), Error> {
         let endpoints = Endpoints::new(&self.env);
         let keychain = Keychain::new(endpoints.security.clone(), &self.env);
         let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
         let client = AnthropicClient::new(endpoints);
-        let report = listing::list(paths, &self.env, &secrets, &client)?;
+        let options = ListOptions { token_status, json };
+        let report = listing::list(paths, &self.env, &secrets, &client, options)?;
         if json {
             self.stdout
                 .push(pyjson::to_string_pretty(&usage_view::list_json(&report)));
@@ -386,7 +402,7 @@ impl Cli {
         let env = &self.env;
         let show_list = |console: &mut dyn Console| -> Result<(), Error> {
             let list_secrets = self.secrets(paths);
-            let report = listing::list(paths, env, &list_secrets, &client)?;
+            let report = listing::list(paths, env, &list_secrets, &client, ListOptions::default())?;
             for line in usage_view::list_lines(&report, style) {
                 console.line(&line);
             }

@@ -15,7 +15,8 @@ use crate::anthropic_client::{
 use crate::env::Environment;
 use crate::paths::Paths;
 use crate::poll_policy::{PlanInputs, plan_after_fetch};
-use crate::secret_store::{ActiveCredentials, SecretStore};
+use crate::secret_store::{ActiveCredentials, Keychain, SecretStore};
+use crate::session_profile;
 use crate::settings::{SettingValue, Settings};
 use crate::store::{self, JsonObject};
 use crate::usage::{Sentinel, static_sentinel, truthy};
@@ -121,6 +122,7 @@ fn decline_refresh(_num: &str, _email: &str, _snapshot: &str) -> RefreshOutcome 
 }
 
 pub struct UsageCollector<'a> {
+    pub paths: Paths,
     pub env: &'a Environment,
     pub secrets: &'a SecretStore,
     pub client: &'a AnthropicClient,
@@ -138,6 +140,7 @@ impl<'a> UsageCollector<'a> {
     ) -> Self {
         let (threshold, models) = poll_policy_inputs(paths);
         UsageCollector {
+            paths: paths.clone(),
             env,
             secrets,
             client,
@@ -280,6 +283,11 @@ impl<'a> UsageCollector<'a> {
             .non_empty("CLAUDE_SECURESTORAGE_CONFIG_DIR")
             .is_some();
         let client = self.client;
+        let sessions = SessionSource {
+            paths: &self.paths,
+            keychain: self.secrets.keychain(),
+        };
+        let sessions = &sessions;
         std::thread::scope(|scope| {
             let handles: Vec<_> = claims
                 .iter()
@@ -292,7 +300,7 @@ impl<'a> UsageCollector<'a> {
                         }
                         (
                             num.clone(),
-                            fetch_account(client, info, degraded, unmirrored),
+                            fetch_account(client, info, degraded, unmirrored, sessions),
                         )
                     })
                 })
@@ -347,22 +355,59 @@ fn record_of(outcome: UsageOutcome) -> FetchRecord {
     }
 }
 
+/// Where an inactive slot's session profile lives.
+struct SessionSource<'s> {
+    paths: &'s Paths,
+    keychain: &'s Keychain,
+}
+
 /// One network fetch for one slot. Never fails: problems become records.
 fn fetch_account(
     client: &AnthropicClient,
     info: &AccountInfo,
     degraded: bool,
     unmirrored: bool,
+    sessions: &SessionSource<'_>,
 ) -> FetchRecord {
     if info.is_active {
         return fetch_active(client, info, degraded, unmirrored);
+    }
+    let dir = session_profile::session_dir_for(sessions.paths, &info.num, &info.email);
+    let mut live =
+        !session_profile::live_session_pids(sessions.paths, &info.num, &info.email).is_empty();
+    // Once a session has run, the profile holds the account's newest token
+    // family; it is read strictly read-only so the next `run` stays logged in.
+    let mut session_creds =
+        session_profile::read_credentials(sessions.keychain, &dir).filter(|c| !c.is_empty());
+    if session_creds.is_some()
+        && session_profile::identity_drifted(&dir, &info.email, &info.org_uuid)
+    {
+        session_creds = None;
+        live = false;
+    }
+    if let Some(session_creds) = session_creds
+        && let Some(oauth) =
+            extract_oauth_data(&session_creds).filter(|o| o.get("accessToken").is_some_and(truthy))
+    {
+        if !is_oauth_token_expired(oauth.get("expiresAt")) {
+            return record_of(client.try_fetch_usage_for_account(
+                &info.num,
+                &info.email,
+                &session_creds,
+                true,
+                None,
+            ));
+        }
+        if live {
+            return FetchRecord::sentinel(Sentinel::TokenExpired);
+        }
     }
     record_of(client.try_fetch_usage_for_account(
         &info.num,
         &info.email,
         &info.creds,
-        false,
-        Some(&decline_refresh),
+        live,
+        if live { None } else { Some(&decline_refresh) },
     ))
 }
 

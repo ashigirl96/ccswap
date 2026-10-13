@@ -7,6 +7,7 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::migrations::LEGACY_KEYRING_SERVICE;
 use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
+use crate::session_profile::{self, join_pids, scan_live_sessions};
 use crate::store::{self, JsonObject};
 
 impl Accounts<'_> {
@@ -66,6 +67,7 @@ impl Accounts<'_> {
         let num = resolve_existing(&data, &identifier)?;
         let email = python_str(record(&data, &num).and_then(|r| r.get("email")));
         let org = text_field(&data, &num, "organizationUuid");
+        session_profile::ensure_no_live_session(self.paths, &num, &email, "--remove-account")?;
 
         if active_number(&data) == num {
             console.line(&style.yellowed(&format!(
@@ -89,7 +91,7 @@ impl Accounts<'_> {
             }
         }
 
-        self.delete_account_files(&num, &email);
+        self.delete_account_files(&num, &email)?;
         {
             let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
             let mut data = self.roster()?;
@@ -284,6 +286,7 @@ impl Accounts<'_> {
                     .collect()
             })
             .unwrap_or_default();
+        refuse_live_profiles(&session_dirs)?;
 
         console.line(&style.yellowed("This will remove ALL claude-swap data from your system:"));
         console.line(&format!("  - Backup directory: {}", backup_root.display()));
@@ -391,6 +394,42 @@ impl Accounts<'_> {
         let org = text_field(&data, &num, "organizationUuid");
         Ok((num, email, org))
     }
+}
+
+/// Purging would pull a profile out from under a live Claude, and an
+/// unreadable record cannot rule one out.
+fn refuse_live_profiles(session_dirs: &[std::path::PathBuf]) -> Result<()> {
+    let mut live = Vec::new();
+    let mut unreadable = Vec::new();
+    for dir in session_dirs {
+        let name = dir.file_name().unwrap_or_default().to_string_lossy();
+        let (sessions, bad) = scan_live_sessions(dir);
+        if !sessions.is_empty() {
+            let pids: Vec<i32> = sessions.iter().map(|s| s.pid).collect();
+            live.push(format!("{name} (PID {})", join_pids(&pids)));
+        } else if bad > 0 {
+            unreadable.push(format!("{name} ({bad} record(s))"));
+        }
+    }
+    if !live.is_empty() {
+        return Err(Error::new(
+            ErrorKind::SessionError,
+            format!(
+                "Live session-mode Claude instance(s) found: {}. Exit them first, then retry --purge.",
+                live.join("; ")
+            ),
+        ));
+    }
+    if !unreadable.is_empty() {
+        return Err(Error::new(
+            ErrorKind::SessionError,
+            format!(
+                "Session records that could not be read: {}. Whether a Claude instance is live cannot be determined, and purging would pull a live profile out from under it. Repair or remove them, then retry --purge.",
+                unreadable.join("; ")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Resolves `identifier` to a slot whose record exists (and is non-empty).

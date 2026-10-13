@@ -53,6 +53,15 @@ impl Paths {
         }
     }
 
+    /// The default profile's global config, ignoring `CLAUDE_CONFIG_DIR`.
+    pub fn default_global_config_path(&self) -> PathBuf {
+        let legacy = self.default_claude_config_home().join(".config.json");
+        if legacy.exists() {
+            return legacy;
+        }
+        self.home.join(".claude.json")
+    }
+
     pub fn credentials_path(&self) -> PathBuf {
         self.claude_config_home().join(".credentials.json")
     }
