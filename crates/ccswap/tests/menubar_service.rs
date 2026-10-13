@@ -331,17 +331,49 @@ fn status_notices_a_loaded_service_whose_plist_is_gone() {
 fn the_plist_is_byte_identical_to_what_plistlib_writes() {
     let env = TestEnv::new();
     env.run(["menubar", "--install-service"]).assert_code(0);
-    let out = Command::new("python3")
-        .args([
-            "-I",
-            "-c",
-            "import plistlib, sys; d = open(sys.argv[1], 'rb').read(); \
-             sys.exit(plistlib.dumps(plistlib.loads(d)) != d)",
-        ])
-        .arg(plist_path(&env))
-        .status()
-        .expect("run python3");
-    assert!(out.success());
+    let bin = env!("CARGO_BIN_EXE_ccswap");
+    let bin_dir = std::path::Path::new(bin)
+        .parent()
+        .unwrap()
+        .display()
+        .to_string();
+    let home = env.home().display().to_string();
+    // Captured from plistlib.dumps of the same dict.
+    let expected = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>{bin_dir}:{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>Label</key>
+	<string>com.cswap.menubar</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{bin}</string>
+		<string>menubar</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>{home}/Library/Logs/com.cswap.menubar.err</string>
+	<key>StandardOutPath</key>
+	<string>{home}/Library/Logs/com.cswap.menubar.log</string>
+</dict>
+</plist>
+"#
+    );
+    assert_eq!(std::fs::read_to_string(plist_path(&env)).unwrap(), expected);
 }
 
 #[test]
