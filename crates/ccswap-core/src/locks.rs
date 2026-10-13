@@ -298,19 +298,22 @@ mod tests {
     }
 
     #[test]
-    fn store_lock_is_a_bsd_flock_seen_by_other_processes() {
+    fn store_lock_is_a_bsd_flock_seen_by_other_open_files() {
+        use std::os::fd::AsRawFd;
+
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".lock");
-        let _held = StoreLock::acquire(&path, SHORT).unwrap();
-        let status = std::process::Command::new("/usr/bin/python3")
-            .args([
-                "-c",
-                "import fcntl,sys; f=open(sys.argv[1],'w')\ntry:\n fcntl.flock(f, fcntl.LOCK_EX|fcntl.LOCK_NB)\nexcept OSError:\n sys.exit(3)",
-            ])
-            .arg(&path)
-            .status()
-            .unwrap();
-        assert_eq!(status.code(), Some(3), "Python's flock must see our lock");
+        let held = StoreLock::acquire(&path, SHORT).unwrap();
+        // flock(2) locks belong to the open file description, so a second open contends like another process.
+        let other = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let flock = || unsafe { libc::flock(other.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        assert_eq!(flock(), -1, "a second open file must not get the lock");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EWOULDBLOCK)
+        );
+        drop(held);
+        assert_eq!(flock(), 0, "the lock is free once released");
     }
 
     #[test]
