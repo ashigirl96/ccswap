@@ -14,6 +14,7 @@ use ccswap_core::settings::Settings;
 use ccswap_core::status;
 use ccswap_core::switcher::Switcher;
 use ccswap_core::transfer::Transfer;
+use ccswap_core::update_check;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 
@@ -174,6 +175,12 @@ impl Cli {
             return self.usage_error(&msg);
         }
 
+        // Before any store access, so a broken store cannot block it.
+        if parsed.flag("--upgrade") {
+            println!("{}", update_check::UPGRADE_INSTRUCTIONS);
+            return 0;
+        }
+
         let paths = Paths::new(&self.env);
         let style = Style::detect(&self.env, &paths);
         let json = parsed.flag("--json");
@@ -184,9 +191,7 @@ impl Cli {
             );
             return 1;
         }
-        if !parsed.flag("--upgrade") {
-            run_store_migrations(&self.env, &paths);
-        }
+        run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
@@ -214,6 +219,15 @@ impl Cli {
             Ok(()) => {
                 for line in self.stdout.drain(..) {
                     println!("{line}");
+                }
+                // After purge the check would recreate the store it just removed.
+                if !json && !parsed.flag("--purge") {
+                    let endpoints = Endpoints::new(&self.env);
+                    if let Some(notice) =
+                        update_check::check_for_update(&paths, &endpoints, ccswap_core::VERSION)
+                    {
+                        eprintln!("\n{}", style.muted(&notice));
+                    }
                 }
                 0
             }
@@ -452,10 +466,11 @@ impl Cli {
     }
 }
 
-/// Upstream runs these wherever it builds its switcher: every command but
-/// `upgrade`, before the root check (ccswap runs them after it so root never
-/// writes into the user's store).
-pub fn run_store_migrations(env: &Environment, paths: &Paths) {
+/// Upstream's switcher start-up: logging, then the store migrations. Every
+/// command but `upgrade` runs it, upstream before the root check (ccswap
+/// after it, so root never writes into the user's store).
+pub fn run_store_migrations(env: &Environment, paths: &Paths, debug: bool) {
+    ccswap_core::log::setup(&paths.backup_root(), debug);
     let keychain = Keychain::new(Endpoints::new(env).security, env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);
     for line in migrations::run_migrations(paths, &secrets).stderr {

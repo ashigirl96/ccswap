@@ -12,6 +12,7 @@ use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 use crate::locks::{self, STORE_LOCK_TIMEOUT, StoreLock};
+use crate::log;
 use crate::paths::Paths;
 use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::pyjson;
@@ -183,6 +184,16 @@ enum Step {
     SequenceUpdated,
 }
 
+impl Step {
+    fn name(&self) -> &'static str {
+        match self {
+            Step::CredentialsWritten => "credentials_written",
+            Step::ConfigWritten => "config_written",
+            Step::SequenceUpdated => "sequence_updated",
+        }
+    }
+}
+
 /// The live state before the switch and the steps applied since, undone
 /// newest first.
 struct SwitchTransaction {
@@ -212,7 +223,13 @@ impl SwitchTransaction {
                     .map_err(|e| Error::config(e.to_string())),
                 Step::SequenceUpdated => self.restore_active_number(switcher.paths),
             };
-            ok &= undone.is_ok();
+            match undone {
+                Ok(()) => log::info(format!("Rolled back step: {}", step.name())),
+                Err(e) => {
+                    log::error(format!("Failed to rollback step {}: {e}", step.name()));
+                    ok = false;
+                }
+            }
         }
         ok
     }
@@ -590,13 +607,18 @@ impl Switcher<'_> {
                 &mut warnings,
                 console,
             );
+            if let Err(e) = &outcome {
+                log::error(format!("Switch failed: {e}, attempting rollback"));
+            }
             let backend = match outcome {
                 Ok(backend) => backend,
                 Err(e) if transaction.completed.is_empty() => return Err(e),
                 Err(e) => {
                     let message = if transaction.rollback(self) {
+                        log::info("Rollback successful");
                         format!("Switch failed and was rolled back: {e}")
                     } else {
+                        log::error("Rollback failed!");
                         format!(
                             "Switch failed and rollback also failed: {e}. Manual recovery may be needed."
                         )
@@ -650,7 +672,8 @@ impl Switcher<'_> {
             .secrets
             .read_backup(current_account, current_email)
             .value;
-        match classify_outgoing(&backup, &live) {
+        let outgoing = classify_outgoing(&backup, &live);
+        match outgoing {
             Outgoing::OwnBytes => {
                 store::write_account_config(
                     self.paths,
@@ -658,6 +681,9 @@ impl Switcher<'_> {
                     current_email,
                     &transaction.original_config,
                 )?;
+                log::info(format!(
+                    "Backed up account {current_account} (config only; credentials unchanged)"
+                ));
             }
             Outgoing::Wiped => {
                 store::write_account_config(
@@ -680,6 +706,13 @@ impl Switcher<'_> {
                     current_email,
                     &transaction.original_config,
                 )?;
+                log::info(if matches!(outgoing, Outgoing::Unresolved) {
+                    format!(
+                        "Backed up account {current_account} (lineage differs from the stored backup and ownership could not be verified — pre-fix backup)"
+                    )
+                } else {
+                    format!("Backed up account {current_account}")
+                });
             }
         }
 
@@ -696,6 +729,7 @@ impl Switcher<'_> {
                 Some(&live),
             ))?;
         transaction.record(Step::CredentialsWritten);
+        log::info("Wrote target credentials");
 
         let target_config: Value =
             serde_json::from_str(&target_config).map_err(|e| Error::config(e.to_string()))?;
@@ -718,6 +752,7 @@ impl Switcher<'_> {
             }
         }
         transaction.record(Step::ConfigWritten);
+        log::info("Updated config file");
 
         let number: i64 = target.parse().map_err(|_| {
             Error::config(format!(
@@ -728,6 +763,9 @@ impl Switcher<'_> {
         data.insert("lastUpdated".into(), store::timestamp_now().into());
         store::write_sequence(self.paths, data)?;
         transaction.record(Step::SequenceUpdated);
+        log::info(format!(
+            "Switched from account {current_account} to {target}"
+        ));
         Ok(backend)
     }
 
@@ -783,6 +821,11 @@ impl Switcher<'_> {
                     ),
                 )
             })?;
+        log::warning(format!(
+            "{} could not be parsed; a copy was kept at {} before it was replaced",
+            path.display(),
+            salvage.display()
+        ));
         let message = format!(
             "{name} could not be parsed — a copy was kept at {}",
             salvage.file_name().unwrap_or_default().to_string_lossy()

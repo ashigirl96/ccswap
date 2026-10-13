@@ -5,6 +5,7 @@ pub mod env;
 pub mod error;
 pub mod fsutil;
 pub mod locks;
+pub mod log;
 pub mod mappings;
 pub mod migrations;
 pub mod paths;
@@ -16,6 +17,7 @@ pub mod status;
 pub mod store;
 pub mod switcher;
 pub mod transfer;
+pub mod update_check;
 pub mod usage;
 pub mod usage_store;
 

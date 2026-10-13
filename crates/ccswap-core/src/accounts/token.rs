@@ -105,6 +105,7 @@ impl Accounts<'_> {
             let mut data = self.roster()?;
             data.insert("lastUpdated".into(), store::timestamp_now().into());
             store::write_sequence(self.paths, &data)?;
+            crate::log::info(format!("Updated {kind_label} for account {num}: {email}"));
             console.line(&format!(
                 "{} for Account {num} ({email} {}).",
                 style.accent(&format!("Updated {kind_label}")),
@@ -202,6 +203,7 @@ impl Accounts<'_> {
         }
         data.insert("lastUpdated".into(), store::timestamp_now().into());
         store::write_sequence(self.paths, &data)?;
+        crate::log::info(format!("Added account {num} from {kind_label}: {email}"));
 
         if let Some(old) = &migrate_from {
             console.line(&style.dimmed(&format!(

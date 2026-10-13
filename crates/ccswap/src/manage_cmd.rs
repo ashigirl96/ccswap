@@ -70,6 +70,7 @@ pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let mut positionals: Vec<String> = Vec::new();
     let mut extras: Vec<String> = Vec::new();
     let mut unset = false;
+    let mut debug = false;
     let mut options_done = false;
     for arg in argv {
         if !options_done && arg == "--" {
@@ -86,6 +87,7 @@ pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
                         ));
                     }
                     unset |= opt == "--unset";
+                    debug |= opt == "--debug";
                 }
                 Some(_) => {
                     print!("{}", ALIAS_HELP.replace("{prog}", prog));
@@ -123,7 +125,7 @@ pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, debug);
     let endpoints = Endpoints::new(env);
     let keychain = Keychain::new(endpoints.security.clone(), env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);

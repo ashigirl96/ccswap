@@ -279,7 +279,6 @@ pub struct SecretStore {
     paths: Paths,
     securestorage_dir: Option<String>,
     capability: RefCell<Capability>,
-    warnings: RefCell<Vec<String>>,
 }
 
 impl SecretStore {
@@ -291,7 +290,6 @@ impl SecretStore {
                 .get("CLAUDE_SECURESTORAGE_CONFIG_DIR")
                 .map(|v| v.to_string_lossy().into_owned()),
             capability: RefCell::default(),
-            warnings: RefCell::default(),
         }
     }
 
@@ -327,13 +325,8 @@ impl SecretStore {
         }
     }
 
-    /// Diagnostics upstream sends to its log file, oldest first.
-    pub fn take_warnings(&self) -> Vec<String> {
-        std::mem::take(&mut self.warnings.borrow_mut())
-    }
-
     fn warn(&self, message: String) {
-        self.warnings.borrow_mut().push(message);
+        crate::log::warning(message);
     }
 
     /// Runs a Keychain op and records what it says about Keychain usability.

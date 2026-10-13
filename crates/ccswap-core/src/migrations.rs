@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value, json};
 
 use crate::fsutil;
+use crate::log;
 use crate::paths::Paths;
 use crate::secret_store::{KeychainError, SecretStore};
 use crate::store;
@@ -17,11 +18,10 @@ pub const LEGACY_KEYRING_SERVICE: &str = "claude-code";
 
 const STATE_VERSION: u64 = 1;
 
-/// What a run produced: lines for stderr, and diagnostics for the log file.
+/// What a run produced for stderr; diagnostics go to the log.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MigrationReport {
     pub stderr: Vec<String>,
-    pub log: Vec<String>,
 }
 
 enum Outcome {
@@ -48,18 +48,15 @@ pub fn run_migrations(paths: &Paths, secrets: &SecretStore) -> MigrationReport {
         match migration(paths, secrets, &mut report) {
             Ok(Outcome::Completed) => {
                 if let Err(e) = mark_applied(paths, id) {
-                    report.log.push(format!(
+                    log::warning(format!(
                         "Migration {id} ran but recording it failed (will re-run next time): {e}"
                     ));
                 }
             }
             Ok(Outcome::Skipped) => {}
-            Err(e) => report
-                .log
-                .push(format!("Migration {id} did not complete (will retry): {e}")),
+            Err(e) => log::warning(format!("Migration {id} did not complete (will retry): {e}")),
         }
     }
-    report.log.extend(secrets.take_warnings());
     report
 }
 
@@ -137,11 +134,7 @@ fn macos_keyring_to_security(
             .get_password(LEGACY_KEYRING_SERVICE, username)
             .map(Option::unwrap_or_default)
     };
-    let mut warn = |message: String| {
-        report
-            .log
-            .push(format!("macos_keyring_to_security: {message}"))
-    };
+    let warn = |message: String| log::warning(format!("macos_keyring_to_security: {message}"));
 
     let (mut migrated, mut failed) = (0, 0);
     for (num, email) in pending {
