@@ -15,8 +15,14 @@ use crate::locks::{self, STORE_LOCK_TIMEOUT, StoreLock};
 use crate::paths::Paths;
 use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::pyjson;
+use crate::ranking::{self, Strategy};
 use crate::secret_store::{ActiveBackend, SecretStore};
 use crate::store::{self, JsonObject};
+
+mod strategy;
+
+use strategy::Hook;
+pub use strategy::{ModelSource, SwitchStrategy};
 
 /// Credential siblings of `claudeAiOauth` owned by the machine rather than
 /// an account: on activation the live copies win, absence included.
@@ -251,15 +257,18 @@ impl Switcher<'_> {
     }
 
     /// Bare `switch`: the next enabled, switchable slot in `sequence` order
-    /// after the recorded active one.
+    /// after the recorded active one, or the pick of a usage-aware strategy.
     pub fn switch_next(
         &self,
+        strategy: Option<&SwitchStrategy>,
         json: bool,
         console: &mut dyn Console,
     ) -> Result<Option<SwitchReport>> {
-        const STRATEGY: &str = "rotation";
+        let label = strategy.map_or("rotation", |s| s.strategy.label());
+        let models: &[String] = strategy.map_or(&[], |s| &s.models);
         let style = self.style;
         let mut warnings = Vec::new();
+        self.announce_models(strategy, json, console);
         if !self.paths.sequence_file().exists() {
             return Err(Error::config("No accounts are managed yet"));
         }
@@ -281,7 +290,7 @@ impl Switcher<'_> {
                     email,
                 });
                 return Ok(Some(SwitchReport::noop(
-                    STRATEGY,
+                    label,
                     "unmanaged-account",
                     unmanaged,
                     "Active account is not managed; run cswap --add-account".into(),
@@ -316,7 +325,7 @@ impl Switcher<'_> {
             let message = "Only one account is managed. Add more accounts to switch between.";
             if json {
                 return Ok(Some(SwitchReport::noop(
-                    STRATEGY,
+                    label,
                     "only-one-account",
                     Some(AccountRef::slot(&live_slot, &email)),
                     message.into(),
@@ -328,11 +337,36 @@ impl Switcher<'_> {
         }
 
         let current_ref = AccountRef::slot(&live_slot, &email);
+        let next_available = strategy.is_some_and(|s| s.strategy == Strategy::NextAvailable);
+        if strategy.is_some_and(|s| s.strategy == Strategy::Best)
+            && let Hook::Done(report) = self.switch_best(
+                &data,
+                &live_slot,
+                &current_ref,
+                models,
+                json,
+                &mut warnings,
+                console,
+            )?
+        {
+            return Ok(report);
+        }
         let active = data.get("activeAccountNumber");
-        let start = active
-            .and_then(slot_number)
-            .and_then(|n| sequence.iter().position(|v| v.as_i64() == Some(n)))
+        let position =
+            |n: Option<i64>| n.and_then(|n| sequence.iter().position(|v| v.as_i64() == Some(n)));
+        let anchor = if next_available {
+            live_slot.parse().ok()
+        } else {
+            active.and_then(slot_number)
+        };
+        let start = position(anchor)
+            .or_else(|| position(active.and_then(slot_number)))
             .unwrap_or(0);
+        let usage = next_available.then(|| self.decision_usage(&data));
+        if let Some(usage) = &usage {
+            self.warn_inert_models(usage, models, json, &mut warnings, console);
+        }
+        let mut skipped_exhausted = false;
 
         let mut next = None;
         for offset in 1..sequence.len() {
@@ -361,14 +395,44 @@ impl Switcher<'_> {
                 }
                 continue;
             }
+            if let Some(at) = usage.as_ref().and_then(|u| {
+                ranking::at_limit_label(u.get(&candidate).and_then(Option::as_ref), models)
+            }) {
+                skipped_exhausted = true;
+                let message = format!("Account-{candidate} (at {at} limit)");
+                if json {
+                    warnings.push(format!("Skipped {message}"));
+                } else {
+                    console.line(&format!("{} {message}", style.accent("Skipping")));
+                }
+                continue;
+            }
             next = Some(candidate);
             break;
+        }
+
+        if next.is_none() && skipped_exhausted {
+            let message = format!(
+                "All other accounts are at their {} — staying on Account-{live_slot}.",
+                strategy::limits_label(models)
+            );
+            if json {
+                return Ok(Some(SwitchReport::noop(
+                    label,
+                    "candidates-exhausted",
+                    Some(current_ref),
+                    message,
+                    warnings,
+                )));
+            }
+            console.line(&style.yellowed(&message));
+            return Ok(None);
         }
 
         let Some(next) = next else {
             if json {
                 return Ok(Some(SwitchReport::noop(
-                    STRATEGY,
+                    label,
                     "no-valid-target",
                     Some(current_ref),
                     "No other accounts have valid stored credentials/config.".into(),
@@ -385,7 +449,7 @@ impl Switcher<'_> {
             let message = format!("Already on Account-{next} ({email})");
             if json {
                 return Ok(Some(SwitchReport::noop(
-                    STRATEGY,
+                    label,
                     "already-active",
                     Some(current_ref),
                     message,
@@ -400,7 +464,7 @@ impl Switcher<'_> {
         }
 
         let performed = self.perform(&next, !json, console)?;
-        Ok(json.then(|| SwitchReport::from_performed(performed, STRATEGY, warnings)))
+        Ok(json.then(|| SwitchReport::from_performed(performed, label, warnings)))
     }
 
     /// `switch <num|alias|email>`. Disabled slots are allowed when named.
