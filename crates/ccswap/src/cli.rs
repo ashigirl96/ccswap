@@ -11,6 +11,7 @@ use ccswap_core::pyjson;
 use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
 use ccswap_core::status;
+use ccswap_core::transfer::Transfer;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 
@@ -181,6 +182,10 @@ impl Cli {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
+        } else if let Some(destination) = parsed.value("--export") {
+            self.export(&paths, destination, &parsed)
+        } else if let Some(source) = parsed.value("--import") {
+            self.import(&paths, source, parsed.flag("--force"))
         } else {
             let command = COMMAND_FLAGS
                 .iter()
@@ -245,6 +250,49 @@ impl Cli {
             assume_yes: false,
         };
         accounts.add_account(&options, &mut TerminalConsole)
+    }
+
+    fn secrets(&self, paths: &Paths) -> SecretStore {
+        let keychain = Keychain::new(Endpoints::new(&self.env).security, &self.env);
+        SecretStore::new(keychain, paths.clone(), &self.env)
+    }
+
+    /// An empty destination selects nothing, as upstream's truthiness dispatch does.
+    fn export(&mut self, paths: &Paths, destination: &str, parsed: &Parsed) -> Result<(), Error> {
+        if destination.is_empty() {
+            return Ok(());
+        }
+        let secrets = self.secrets(paths);
+        let transfer = Transfer {
+            paths,
+            secrets: &secrets,
+        };
+        if let Some(envelope) = transfer.export(
+            destination,
+            parsed.value("--account"),
+            parsed.flag("--full"),
+            &mut |line| eprintln!("{line}"),
+        )? {
+            self.stdout.push(envelope);
+        }
+        Ok(())
+    }
+
+    fn import(&mut self, paths: &Paths, source: &str, force: bool) -> Result<(), Error> {
+        if source.is_empty() {
+            return Ok(());
+        }
+        let secrets = self.secrets(paths);
+        let transfer = Transfer {
+            paths,
+            secrets: &secrets,
+        };
+        transfer.import(
+            source,
+            force,
+            &mut || std::io::read_to_string(std::io::stdin()),
+            &mut |line| eprintln!("{line}"),
+        )
     }
 
     /// Flag-combination checks, in upstream's order.
