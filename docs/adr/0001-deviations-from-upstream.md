@@ -1,6 +1,6 @@
 # upstream と意図して変える点 (spec に無いもの)
 
-振る舞いの正は claude-swap v0.26.0 (`upstream/`) で、意図して変える点は spec (ashigirl96/ccswap#1) の「意図して upstream と変える点」に列挙してある。実装の途中で、spec に無い違いをいくつか入れた。ここにまとめて記録する。
+振る舞いの正は claude-swap v0.26.0 (https://github.com/realiti4/claude-swap) で、意図して変える点は spec (ashigirl96/ccswap#1) の「意図して upstream と変える点」に列挙してある。実装の途中で、spec に無い違いをいくつか入れた。ここにまとめて記録する。
 
 ## store の `.lock` を取るコマンドを増やす
 
