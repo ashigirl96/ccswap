@@ -22,6 +22,7 @@ use ccswap_core::update_check;
 use ccswap_core::usage_view;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
+use crate::launch_agent::{self, LaunchAgent};
 
 const HELP: &str = include_str!("help.txt");
 
@@ -237,7 +238,20 @@ impl Cli {
                 || parsed.flag("--uninstall-service")
                 || parsed.flag("--service-status")
             {
-                return self.not_implemented("menubar --install-service");
+                return match self.menubar_service(&parsed, &style) {
+                    Ok(()) => 0,
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                pyjson::to_string_pretty(&presentation::error_envelope(&error))
+                            );
+                        } else {
+                            eprintln!("{}", style.red(&format!("Error: {error}")));
+                        }
+                        1
+                    }
+                };
             }
             let actions = Arc::new(LiveActions::new(self.env.clone()));
             return crate::menubar::run(actions, self.env.clone());
@@ -295,6 +309,69 @@ impl Cli {
                 1
             }
         }
+    }
+
+    fn menubar_service(&self, parsed: &Parsed, style: &Style) -> Result<(), Error> {
+        let agent = LaunchAgent::new(&self.env);
+        if parsed.flag("--install-service") {
+            let program = launch_agent::resolve_program(
+                std::env::args_os().next().as_deref(),
+                &std::env::current_dir().unwrap_or_default(),
+                ccswap_core::session::which(&self.env, launch_agent::PROGRAM_NAME),
+                || std::env::current_exe().ok(),
+            );
+            let installed = agent.install(program)?;
+            println!("Menu bar service installed ({}).", installed.label);
+            println!("  plist: {}", installed.plist.display());
+            println!("  logs:  {}", installed.stderr_log.display());
+            println!(
+                "{}",
+                style.dimmed(&format!(
+                    "It starts at login from now on. Re-run this after a {} upgrade to point launchd at the new build.",
+                    self.prog
+                ))
+            );
+            return Ok(());
+        }
+        if parsed.flag("--uninstall-service") {
+            let removed = agent.uninstall()?;
+            if removed.was_loaded || removed.removed_plist {
+                println!("Menu bar service removed.");
+            } else {
+                println!("Menu bar service was not installed.");
+            }
+            return Ok(());
+        }
+        let status = agent.status()?;
+        if !status.installed && !status.loaded {
+            println!("Menu bar service is not installed.");
+            println!(
+                "{}",
+                style.dimmed(&format!(
+                    "Install it with: {} menubar --install-service",
+                    self.prog
+                ))
+            );
+            return Ok(());
+        }
+        let state = status
+            .state
+            .clone()
+            .unwrap_or_else(|| if status.loaded { "loaded" } else { "stopped" }.to_string());
+        let pid = status
+            .pid
+            .filter(|p| *p != 0)
+            .map(|p| format!(" (pid {p})"))
+            .unwrap_or_default();
+        println!("Menu bar service: {state}{pid}");
+        println!("  plist: {}", status.plist.display());
+        if !status.installed {
+            println!(
+                "{}",
+                style.dimmed("launchd still has it loaded, but the plist is gone.")
+            );
+        }
+        Ok(())
     }
 
     fn status(&mut self, paths: &Paths, style: &Style, json: bool) -> Result<(), Error> {

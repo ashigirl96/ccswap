@@ -25,6 +25,17 @@ fn guard_refuses_to_launch_without_the_security_override() {
 }
 
 #[test]
+fn guard_refuses_to_launch_with_the_real_launchctl_on_path() {
+    let env = TestEnv::new();
+    let err = env
+        .cmd(["status"])
+        .env("PATH", "/usr/bin:/bin")
+        .try_run()
+        .unwrap_err();
+    assert!(err.contains("launchctl on PATH is not the fake"), "{err}");
+}
+
+#[test]
 fn guard_refuses_real_home_and_remote_endpoints() {
     let env = TestEnv::new();
     let real_home = std::env::var("HOME").unwrap();
@@ -62,6 +73,10 @@ fn guard_accepts_the_default_environment() {
         ("CCSWAP_API_BASE_URL", env.http().base_url()),
         ("CCSWAP_OAUTH_TOKEN_URL", env.http().base_url()),
         ("CCSWAP_UPDATE_CHECK_URL", env.http().base_url()),
+        (
+            "PATH",
+            format!("{}:/usr/bin:/bin", env.launchctl().bin_dir().display()),
+        ),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
