@@ -16,6 +16,8 @@ use crate::secret_store::{SecretStore, looks_like_api_key};
 use crate::store::{self, Identity, JsonObject};
 use crate::usage_store::UsageStore;
 
+mod manage;
+
 /// Where account operations print and ask. The CLI writes to the terminal;
 /// the TUI and menu bar collect lines and confirm on their own.
 pub trait Console {

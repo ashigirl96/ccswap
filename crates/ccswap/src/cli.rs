@@ -140,6 +140,9 @@ impl Cli {
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }
+        if args.first().is_some_and(|v| v == "alias") {
+            return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
+        }
         if let Some(verb) = args
             .first()
             .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
@@ -181,6 +184,10 @@ impl Cli {
             self.status(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
+        } else if let Some(result) =
+            crate::manage_cmd::dispatch(&self.env, &paths, &style, &parsed)
+        {
+            result
         } else {
             let command = COMMAND_FLAGS
                 .iter()
@@ -331,7 +338,7 @@ impl Cli {
 
 /// Prints as it goes, so output already shown survives a later error the
 /// way Python's `print` does.
-struct TerminalConsole;
+pub(crate) struct TerminalConsole;
 
 impl Console for TerminalConsole {
     fn line(&mut self, text: &str) {
