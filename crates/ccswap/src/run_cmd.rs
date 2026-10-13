@@ -1,13 +1,16 @@
-//! `run NUM|EMAIL [options] [-- claude args]`: session mode. Everything after
-//! the first `--` goes to claude verbatim.
+//! `run [NUM|EMAIL] [options] [-- claude args]`: session mode. Everything
+//! after the first `--` goes to claude verbatim. Without an account, the
+//! working directory's mapping picks it, else plain `claude` launches.
 
 use std::io::Write;
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
-use ccswap_core::error::{Error, ErrorKind};
+use ccswap_core::error::{self, Error};
+use ccswap_core::mappings::{self, DirectoryAccount};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 use ccswap_core::secret_store::{Keychain, SecretStore};
@@ -96,16 +99,55 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         client: &client,
         style: &style,
     };
-    let Some(account) = args.account else {
-        return fail(&Error::new(
-            ErrorKind::ClaudeSwitchError,
-            "'run' without an account is not implemented yet in ccswap",
-        ));
+    let account = match args.account {
+        Some(account) => account,
+        None => match mapped_account(env, &paths, &style) {
+            Ok(Some(slot)) => slot,
+            Ok(None) => {
+                return match sessions.exec_default(tail) {
+                    Ok(launch) => exec(&launch, &style),
+                    Err(error) => fail(&error),
+                };
+            }
+            Err(error) => return fail(&error),
+        },
     };
     match sessions.run(&account, tail, args.options, &mut TerminalConsole) {
         Ok(launch) => exec(&launch, &style),
         Err(error) => fail(&error),
     }
+}
+
+/// The slot mapped to the working directory, or None (after saying why)
+/// when the default account should launch instead.
+fn mapped_account(
+    env: &Environment,
+    paths: &Paths,
+    style: &Style,
+) -> error::Result<Option<String>> {
+    let cwd = crate::map_cmd::cwd();
+    let key = mappings::normalize_path(Path::new(&cwd), env);
+    Ok(match mappings::account_for_directory(paths, &key)? {
+        DirectoryAccount::Mapped { slot, .. } => Some(slot),
+        DirectoryAccount::Removed { email } => {
+            println!(
+                "{}",
+                style.yellowed(&format!(
+                    "Mapped account {email} no longer exists — launching the default account."
+                ))
+            );
+            None
+        }
+        DirectoryAccount::Unmapped => {
+            println!(
+                "{}",
+                style.dimmed(&format!(
+                    "No account mapped for {cwd} — launching the default account."
+                ))
+            );
+            None
+        }
+    })
 }
 
 /// Replaces this process; returns only when the exec itself failed.
