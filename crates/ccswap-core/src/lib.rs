@@ -9,6 +9,7 @@ pub mod locks;
 pub mod log;
 pub mod mappings;
 pub mod migrations;
+pub mod pace;
 pub mod paths;
 pub mod poll_policy;
 pub mod presentation;

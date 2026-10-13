@@ -359,10 +359,10 @@ fn fetch_account(
         !session_profile::live_session_pids(sessions.paths, &info.num, &info.email).is_empty();
     // Once a session has run, the profile holds the account's newest token
     // family; it is read strictly read-only so the next `run` stays logged in.
-    let mut session_creds = session_profile::read_session_credentials(sessions.keychain, &dir)
-        .filter(|c| !c.is_empty());
+    let mut session_creds =
+        session_profile::read_credentials(sessions.keychain, &dir).filter(|c| !c.is_empty());
     if session_creds.is_some()
-        && session_profile::session_identity_drifted(&dir, &info.email, &info.org_uuid)
+        && session_profile::identity_drifted(&dir, &info.email, &info.org_uuid)
     {
         session_creds = None;
         live = false;

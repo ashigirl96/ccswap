@@ -347,8 +347,7 @@ impl Sessions<'_> {
     /// Same credential generation as the backup; unknowable reads as a match
     /// so a read error never throws a working profile away.
     fn profile_matches_backup(&self, target: &Target) -> bool {
-        let profile =
-            session_profile::read_session_credentials(self.secrets.keychain(), &target.dir);
+        let profile = session_profile::read_credentials(self.secrets.keychain(), &target.dir);
         let backup = self.secrets.read_backup(&target.num, &target.email).value;
         match profile {
             Some(profile) if !profile.is_empty() && !backup.is_empty() => {
@@ -370,7 +369,7 @@ impl Sessions<'_> {
 
     fn artifacts_say_usable(&self, target: &Target) -> bool {
         self.may_have_credential_material(&target.dir)
-            && !session_profile::session_identity_drifted(&target.dir, &target.email, &target.org)
+            && !session_profile::identity_drifted(&target.dir, &target.email, &target.org)
     }
 
     /// False only when every store is positively empty; an unreadable

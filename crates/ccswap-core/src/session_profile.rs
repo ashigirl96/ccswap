@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::{Error, ErrorKind, Result};
@@ -210,9 +209,10 @@ pub fn delete_slot_profile(keychain: &Keychain, paths: &Paths, num: &str, email:
     ));
 }
 
-/// The profile's current credential: its hashed Keychain item (Claude
-/// rotates the token family there), else the plaintext seed. Read-only.
-pub fn read_session_credentials(keychain: &Keychain, session_dir: &Path) -> Option<String> {
+/// Best-effort read of the profile's current credential: its hashed
+/// Keychain item (which shadows the seed once Claude writes it), else the
+/// plaintext `.credentials.json`. Read-only.
+pub fn read_credentials(keychain: &Keychain, session_dir: &Path) -> Option<String> {
     if !session_dir.is_dir() {
         return None;
     }
@@ -225,34 +225,34 @@ pub fn read_session_credentials(keychain: &Keychain, session_dir: &Path) -> Opti
     std::fs::read_to_string(session_dir.join(".credentials.json")).ok()
 }
 
-/// `(email, org)` the profile's `.claude.json` says it is logged in as.
-pub fn read_session_identity(dir: &Path) -> Option<(String, String)> {
-    let text = std::fs::read_to_string(dir.join(".claude.json")).ok()?;
-    let config: Value = serde_json::from_str(&text).ok()?;
-    let account = config.as_object()?.get("oauthAccount");
-    let account = match account {
-        Some(v) if crate::store::is_truthy(Some(v)) => v.as_object()?,
-        _ => return None,
+/// `(email, organization uuid)` the profile is logged in as, from its
+/// `.claude.json`.
+pub fn read_identity(session_dir: &Path) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(session_dir.join(".claude.json")).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let account = match config.as_object()?.get("oauthAccount") {
+        None | Some(serde_json::Value::Null) => return None,
+        Some(v) => v.as_object()?,
     };
-    let text = |key: &str| {
+    let field = |key: &str| {
         account
             .get(key)
-            .and_then(Value::as_str)
+            .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_string()
     };
-    let email = text("emailAddress");
-    (!email.is_empty()).then(|| (email, text("organizationUuid")))
+    let email = field("emailAddress");
+    (!email.is_empty()).then(|| (email, field("organizationUuid")))
 }
 
-/// An in-session `/login` can re-point the profile at another account. An
-/// unreadable identity is not drift.
-pub fn session_identity_drifted(dir: &Path, email: &str, org: &str) -> bool {
-    match read_session_identity(dir) {
-        None => false,
-        Some((profile_email, _)) if profile_email != email => true,
-        Some((_, profile_org)) => !profile_org.is_empty() && !org.is_empty() && profile_org != org,
-    }
+/// An in-session `/login` can re-point a profile at another account; an
+/// unreadable identity is trusted, not drift.
+pub fn identity_drifted(session_dir: &Path, email: &str, org_uuid: &str) -> bool {
+    let Some((profile_email, profile_org)) = read_identity(session_dir) else {
+        return false;
+    };
+    profile_email != email
+        || (!profile_org.is_empty() && !org_uuid.is_empty() && profile_org != org_uuid)
 }
 
 #[cfg(test)]
@@ -276,15 +276,15 @@ mod tests {
     fn identity_drift() {
         let dir = tempfile::tempdir().unwrap();
         let write = |v: &str| std::fs::write(dir.path().join(".claude.json"), v).unwrap();
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(!identity_drifted(dir.path(), "a@x.com", "o"));
         write(r#"{"oauthAccount": {"emailAddress": "b@x.com"}}"#);
-        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(identity_drifted(dir.path(), "a@x.com", "o"));
         write(r#"{"oauthAccount": {"emailAddress": "a@x.com", "organizationUuid": "p"}}"#);
-        assert!(session_identity_drifted(dir.path(), "a@x.com", "o"));
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", ""));
+        assert!(identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(!identity_drifted(dir.path(), "a@x.com", ""));
         write(r#"{"oauthAccount": {"emailAddress": "a@x.com"}}"#);
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(!identity_drifted(dir.path(), "a@x.com", "o"));
         write("not json");
-        assert!(!session_identity_drifted(dir.path(), "a@x.com", "o"));
+        assert!(!identity_drifted(dir.path(), "a@x.com", "o"));
     }
 }
