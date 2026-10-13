@@ -1,0 +1,236 @@
+use std::io::IsTerminal;
+
+use serde_json::{Map, Value, json};
+
+use crate::env::Environment;
+use crate::error::Error;
+use crate::paths::Paths;
+use crate::status::StatusReport;
+use crate::store::read_json_lenient;
+use crate::usage::UsageEntry;
+
+pub const SCHEMA_VERSION: i64 = 1;
+
+const RESET: &str = "\x1b[0m";
+const BOLD: &str = "\x1b[1m";
+const DIM: &str = "\x1b[2m";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Dark,
+    Light,
+}
+
+struct Palette {
+    accent: &'static str,
+    muted: &'static str,
+    red: &'static str,
+    yellow: &'static str,
+}
+
+const DARK: Palette = Palette {
+    accent: "\x1b[38;5;173m",
+    muted: "\x1b[38;5;250m",
+    red: "\x1b[31m",
+    yellow: "\x1b[33m",
+};
+
+const LIGHT: Palette = Palette {
+    accent: "\x1b[38;2;149;76;42m",
+    muted: "\x1b[38;2;99;93;85m",
+    red: "\x1b[38;2;173;49;40m",
+    yellow: "\x1b[38;2;121;89;17m",
+};
+
+/// Terminal styling: ANSI codes when colour is on, the text verbatim otherwise.
+#[derive(Debug, Clone, Copy)]
+pub struct Style {
+    enabled: bool,
+    theme: Theme,
+}
+
+impl Style {
+    pub fn new(enabled: bool, theme: Theme) -> Self {
+        Style { enabled, theme }
+    }
+
+    pub fn plain() -> Self {
+        Self::new(false, Theme::Dark)
+    }
+
+    /// `NO_COLOR` (even empty) disables, then `FORCE_COLOR` (any value)
+    /// enables, then stdout must be a TTY with `TERM` other than `dumb`.
+    pub fn detect(env: &Environment, paths: &Paths) -> Self {
+        let enabled = if env.is_set("NO_COLOR") {
+            false
+        } else if env.is_set("FORCE_COLOR") {
+            true
+        } else {
+            std::io::stdout().is_terminal() && env.get("TERM").is_none_or(|t| t != "dumb")
+        };
+        Self::new(enabled, cli_theme(paths))
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn palette(&self) -> &'static Palette {
+        match self.theme {
+            Theme::Dark => &DARK,
+            Theme::Light => &LIGHT,
+        }
+    }
+
+    fn paint(&self, text: &str, codes: &[&str]) -> String {
+        if !self.enabled {
+            return text.to_string();
+        }
+        format!("{}{text}{RESET}", codes.concat())
+    }
+
+    pub fn accent(&self, text: &str) -> String {
+        self.paint(text, &[self.palette().accent])
+    }
+
+    pub fn muted(&self, text: &str) -> String {
+        self.paint(text, &[self.palette().muted])
+    }
+
+    pub fn dimmed(&self, text: &str) -> String {
+        self.paint(text, &[DIM])
+    }
+
+    pub fn bolded(&self, text: &str) -> String {
+        self.paint(text, &[BOLD])
+    }
+
+    pub fn bold_accent(&self, text: &str) -> String {
+        self.paint(text, &[BOLD, self.palette().accent])
+    }
+
+    pub fn yellowed(&self, text: &str) -> String {
+        self.paint(text, &[self.palette().yellow])
+    }
+
+    pub fn red(&self, text: &str) -> String {
+        self.paint(text, &[self.palette().red])
+    }
+}
+
+/// `ui.theme` from settings.json; `auto` resolves to dark until terminal
+/// background detection exists.
+fn cli_theme(paths: &Paths) -> Theme {
+    let theme = read_json_lenient(&paths.settings_file())
+        .and_then(|s| s.get("ui")?.get("theme")?.as_str().map(str::to_string));
+    match theme.as_deref() {
+        Some("light") => Theme::Light,
+        _ => Theme::Dark,
+    }
+}
+
+/// `{schemaVersion, error: {type, message}}`.
+pub fn error_envelope(error: &Error) -> Value {
+    json!({
+        "schemaVersion": SCHEMA_VERSION,
+        "error": { "type": error.kind.type_name(), "message": error.message },
+    })
+}
+
+pub fn status_lines(report: &StatusReport, style: &Style) -> Vec<String> {
+    let label = style.bolded("Status:");
+    match report {
+        StatusReport::NoActiveAccount => {
+            vec![format!(
+                "{label} {}",
+                style.dimmed("No active Claude account")
+            )]
+        }
+        StatusReport::Unmanaged { email } => {
+            vec![format!("{label} {email} {}", style.dimmed("(not managed)"))]
+        }
+        StatusReport::Managed {
+            number,
+            email,
+            organization_name,
+            total_managed,
+            usage,
+            ..
+        } => {
+            let tag = if organization_name.is_empty() {
+                "personal"
+            } else {
+                organization_name
+            };
+            let mut lines = vec![
+                format!(
+                    "{label} {} ({email} {})",
+                    style.accent(&format!("Account-{number}")),
+                    style.muted(&format!("[{tag}]"))
+                ),
+                format!(
+                    "  {}",
+                    style.dimmed(&format!("Total managed accounts: {total_managed}"))
+                ),
+            ];
+            lines.extend(
+                usage_lines(usage, style)
+                    .into_iter()
+                    .map(|l| format!("  {l}")),
+            );
+            lines
+        }
+    }
+}
+
+fn usage_lines(entry: &UsageEntry, style: &Style) -> Vec<String> {
+    match entry {
+        UsageEntry::Sentinel(sentinel) => vec![style.dimmed(sentinel.note())],
+        UsageEntry::Unavailable => vec![style.dimmed("usage unavailable")],
+    }
+}
+
+pub fn status_json(report: &StatusReport) -> Value {
+    let mut payload = Map::new();
+    payload.insert("schemaVersion".into(), SCHEMA_VERSION.into());
+    match report {
+        StatusReport::NoActiveAccount => {
+            payload.insert("active".into(), Value::Null);
+        }
+        StatusReport::Unmanaged { email } => {
+            payload.insert("active".into(), json!({ "email": email, "managed": false }));
+        }
+        StatusReport::Managed {
+            number,
+            email,
+            organization_name,
+            organization_uuid,
+            alias,
+            total_managed,
+            usage,
+        } => {
+            let mut active = Map::new();
+            active.insert("number".into(), (*number).into());
+            active.insert("email".into(), email.as_str().into());
+            active.insert("organizationName".into(), organization_name.as_str().into());
+            active.insert("organizationUuid".into(), organization_uuid.as_str().into());
+            active.insert(
+                "isOrganization".into(),
+                (!organization_uuid.is_empty()).into(),
+            );
+            active.insert("managed".into(), true.into());
+            let status = match usage {
+                UsageEntry::Sentinel(s) => s.json_status(),
+                UsageEntry::Unavailable => "unavailable",
+            };
+            active.insert("usageStatus".into(), status.into());
+            active.insert("usage".into(), Value::Null);
+            if !alias.is_empty() {
+                active.insert("alias".into(), alias.as_str().into());
+            }
+            payload.insert("active".into(), Value::Object(active));
+            payload.insert("totalManagedAccounts".into(), (*total_managed).into());
+        }
+    }
+    Value::Object(payload)
+}
