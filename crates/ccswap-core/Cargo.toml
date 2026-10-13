@@ -1,0 +1,13 @@
+[package]
+name = "ccswap-core"
+description = "Core library of ccswap: store, secrets, presentation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sha2 = "0.10"
+unicode-normalization = "0.1"
+libc = "0.2"
