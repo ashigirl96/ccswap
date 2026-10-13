@@ -32,6 +32,28 @@ fn guard_refuses_to_launch_with_the_real_launchctl_on_path() {
 }
 
 #[test]
+fn guard_refuses_to_launch_with_a_claude_outside_the_root_on_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = TestEnv::new();
+    let outside = tempfile::tempdir().unwrap();
+    let foreign = outside.path().join("claude");
+    std::fs::write(&foreign, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&foreign, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        outside.path().display(),
+        env.launchctl().bin_dir().display()
+    );
+    let err = env
+        .cmd(["status"])
+        .env("PATH", &path)
+        .try_run()
+        .unwrap_err();
+    assert!(err.contains("claude on PATH is not the fake"), "{err}");
+}
+
+#[test]
 fn guard_refuses_real_home_and_remote_endpoints() {
     let env = TestEnv::new();
     let real_home = std::env::var("HOME").unwrap();
