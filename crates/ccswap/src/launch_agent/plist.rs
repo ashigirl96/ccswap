@@ -21,7 +21,12 @@ impl Plist {
     }
 
     pub fn dict<const N: usize>(entries: [(&str, Plist); N]) -> Self {
-        Plist::Dict(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        Plist::Dict(
+            entries
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
     }
 
     pub fn to_xml(&self) -> String {

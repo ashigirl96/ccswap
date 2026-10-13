@@ -354,9 +354,10 @@ impl Cli {
             );
             return Ok(());
         }
-        let state = status.state.clone().unwrap_or_else(|| {
-            if status.loaded { "loaded" } else { "stopped" }.to_string()
-        });
+        let state = status
+            .state
+            .clone()
+            .unwrap_or_else(|| if status.loaded { "loaded" } else { "stopped" }.to_string());
         let pid = status
             .pid
             .filter(|p| *p != 0)

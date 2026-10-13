@@ -339,7 +339,8 @@ fn claude_missing_from_path_is_an_error() {
     let env = TestEnv::new();
     seed(&env, 1);
 
-    let out = env.cmd(["run", "2"]).env("PATH", "/usr/bin:/bin").run();
+    let path = format!("{}:/usr/bin:/bin", env.launchctl().bin_dir().display());
+    let out = env.cmd(["run", "2"]).env("PATH", &path).run();
 
     assert_error(&out, "'claude' was not found on PATH");
 }

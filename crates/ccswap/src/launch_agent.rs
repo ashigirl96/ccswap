@@ -24,13 +24,17 @@ const UNLOAD_TIMEOUT: Duration = Duration::from_secs(5);
 const UNLOAD_POLL: Duration = Duration::from_millis(100);
 
 pub fn plist_path(home: &Path) -> PathBuf {
-    home.join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
+    home.join("Library/LaunchAgents")
+        .join(format!("{LABEL}.plist"))
 }
 
 /// `(stdout, stderr)` log destinations.
 pub fn log_paths(home: &Path) -> (PathBuf, PathBuf) {
     let logs = home.join("Library/Logs");
-    (logs.join(format!("{LABEL}.log")), logs.join(format!("{LABEL}.err")))
+    (
+        logs.join(format!("{LABEL}.log")),
+        logs.join(format!("{LABEL}.err")),
+    )
 }
 
 /// What launchd runs, minus the `menubar` subcommand: `argv[0]` made absolute
@@ -115,8 +119,14 @@ pub fn build_plist(program: &[String], home: &Path) -> Plist {
             "EnvironmentVariables",
             Plist::dict([("PATH", Plist::string(path_env(program, home)))]),
         ),
-        ("StandardOutPath", Plist::string(out_log.display().to_string())),
-        ("StandardErrorPath", Plist::string(err_log.display().to_string())),
+        (
+            "StandardOutPath",
+            Plist::string(out_log.display().to_string()),
+        ),
+        (
+            "StandardErrorPath",
+            Plist::string(err_log.display().to_string()),
+        ),
     ])
 }
 
@@ -146,7 +156,7 @@ pub struct ServiceStatus {
 
 /// The job's own `state` and `pid` from `launchctl print`. Nested blocks
 /// (endpoints, environment) repeat those keys one tab deeper.
-pub fn parse_print(stdout: &str) -> (Option<String>, Option<u64>) {
+fn parse_print(stdout: &str) -> (Option<String>, Option<u64>) {
     let mut state = None;
     let mut pid = None;
     for line in stdout.lines() {
@@ -154,18 +164,13 @@ pub fn parse_print(stdout: &str) -> (Option<String>, Option<u64>) {
             continue;
         }
         let field = line.trim();
-        if state.is_none() {
-            if let Some(value) = field.strip_prefix("state = ") {
-                state = Some(value.trim().to_string());
-                continue;
-            }
-        }
-        if pid.is_none() {
-            if let Some(raw) = field.strip_prefix("pid = ").map(str::trim) {
-                if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) {
-                    pid = raw.parse().ok();
-                }
-            }
+        if let (None, Some(value)) = (&state, field.strip_prefix("state = ")) {
+            state = Some(value.trim().to_string());
+        } else if let (None, Some(raw)) = (pid, field.strip_prefix("pid = ").map(str::trim))
+            && !raw.is_empty()
+            && raw.bytes().all(|b| b.is_ascii_digit())
+        {
+            pid = raw.parse().ok();
         }
     }
     (state, pid)
@@ -212,7 +217,12 @@ impl LaunchAgent {
     }
 
     fn launchctl(&self, args: &[&str]) -> Result<Reply, Error> {
-        let not_found = || Error::new(ErrorKind::ClaudeSwitchError, "launchctl not found; is this macOS?");
+        let not_found = || {
+            Error::new(
+                ErrorKind::ClaudeSwitchError,
+                "launchctl not found; is this macOS?",
+            )
+        };
         let program = ccswap_core::session::which(&self.env, "launchctl").ok_or_else(not_found)?;
         let out = Command::new(program)
             .args(args)

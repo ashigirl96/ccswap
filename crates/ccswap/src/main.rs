@@ -1,8 +1,8 @@
 mod argparse;
 mod auto_cmd;
 mod cli;
-mod launch_agent;
 mod config_cmd;
+mod launch_agent;
 mod manage_cmd;
 mod map_cmd;
 mod menubar;

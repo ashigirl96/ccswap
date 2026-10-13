@@ -18,7 +18,12 @@ fn parsed(home: &Path) -> Value {
         .stderr(Stdio::piped())
         .spawn()
         .expect("run plutil");
-    child.stdin.take().unwrap().write_all(xml.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(xml.as_bytes())
+        .unwrap();
     let out = child.wait_with_output().unwrap();
     assert!(
         out.status.success(),
@@ -80,7 +85,10 @@ fn build_plist_survives_paths_that_would_break_hand_written_xml() {
 
 #[test]
 fn build_plist_path_env_leads_with_the_programs_own_directory() {
-    assert_eq!(path_entries(Path::new("/Users/x"))[0], "/Users/x/.local/bin");
+    assert_eq!(
+        path_entries(Path::new("/Users/x"))[0],
+        "/Users/x/.local/bin"
+    );
 }
 
 #[test]
@@ -159,7 +167,12 @@ fn resolve_program_ignores_an_argv0_that_is_not_ccswap() {
 fn resolve_program_looks_up_a_bare_argv0_on_path() {
     let tmp = tempfile::tempdir().unwrap();
     let on_path = PathBuf::from("/opt/homebrew/bin/ccswap");
-    let found = resolve_program(Some(OsStr::new("ccswap")), tmp.path(), Some(on_path), no_exe);
+    let found = resolve_program(
+        Some(OsStr::new("ccswap")),
+        tmp.path(),
+        Some(on_path),
+        no_exe,
+    );
     assert_eq!(found, ["/opt/homebrew/bin/ccswap"]);
 }
 

@@ -1195,6 +1195,10 @@ impl FakeLaunchctl {
         }
     }
 
+    pub fn bin_dir(&self) -> &Path {
+        &self.bin_dir
+    }
+
     /// Mark the job loaded; `print` answers with `print_stdout` until a `bootout`.
     pub fn load(&self, print_stdout: &str) {
         std::fs::write(self.state.join("loaded"), print_stdout).unwrap();

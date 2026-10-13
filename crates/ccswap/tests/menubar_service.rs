@@ -19,7 +19,8 @@ fn uid() -> u32 {
 }
 
 fn plist_path(env: &TestEnv) -> PathBuf {
-    env.home().join(format!("Library/LaunchAgents/{LABEL}.plist"))
+    env.home()
+        .join(format!("Library/LaunchAgents/{LABEL}.plist"))
 }
 
 /// The plist as launchd's own parser reads it.
@@ -29,7 +30,11 @@ fn read_plist(env: &TestEnv) -> Value {
         .arg(plist_path(env))
         .output()
         .expect("run plutil");
-    assert!(out.status.success(), "plutil: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "plutil: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
@@ -45,7 +50,12 @@ fn install_writes_the_plist_and_bootstraps_it() {
 
     let plist = plist_path(&env);
     assert!(plist.is_file());
-    let calls: Vec<Vec<String>> = env.launchctl().calls().into_iter().map(|c| c.argv).collect();
+    let calls: Vec<Vec<String>> = env
+        .launchctl()
+        .calls()
+        .into_iter()
+        .map(|c| c.argv)
+        .collect();
     assert!(calls.contains(&vec![
         "bootstrap".to_string(),
         format!("gui/{}", uid()),
@@ -55,7 +65,10 @@ fn install_writes_the_plist_and_bootstraps_it() {
 }
 
 fn running_print(pid: &str) -> String {
-    format!("{} = {{\n\tstate = running\n\tpid = {pid}\n}}\n", service_target())
+    format!(
+        "{} = {{\n\tstate = running\n\tpid = {pid}\n}}\n",
+        service_target()
+    )
 }
 
 #[test]
@@ -103,7 +116,10 @@ fn install_replaces_an_already_loaded_service_by_booting_it_out_first() {
 
     let calls = env.launchctl().calls();
     let subs = env.launchctl().subcommands();
-    let bootout = subs.iter().position(|s| s == "bootout").expect("booted out");
+    let bootout = subs
+        .iter()
+        .position(|s| s == "bootout")
+        .expect("booted out");
     assert_eq!(calls[bootout].argv, ["bootout", &service_target()]);
     assert!(bootout < subs.iter().position(|s| s == "bootstrap").unwrap());
     assert!(env.launchctl().is_loaded());
@@ -176,7 +192,12 @@ fn uninstall_boots_out_and_removes_the_plist() {
     assert_eq!(out.stdout, "Menu bar service removed.\n");
     assert!(!plist_path(&env).exists());
     assert!(!env.launchctl().is_loaded());
-    let calls: Vec<Vec<String>> = env.launchctl().calls().into_iter().map(|c| c.argv).collect();
+    let calls: Vec<Vec<String>> = env
+        .launchctl()
+        .calls()
+        .into_iter()
+        .map(|c| c.argv)
+        .collect();
     assert!(calls.contains(&vec!["bootout".to_string(), service_target()]));
 }
 
@@ -209,7 +230,10 @@ fn uninstall_raises_when_bootout_fails_and_the_service_stays_loaded() {
     let out = env.run(["menubar", "--uninstall-service"]);
     out.assert_code(1);
 
-    assert_eq!(out.stderr, "Error: launchctl bootout failed (exit 3): in use\n");
+    assert_eq!(
+        out.stderr,
+        "Error: launchctl bootout failed (exit 3): in use\n"
+    );
     assert!(plist_path(&env).exists());
 }
 
@@ -345,7 +369,11 @@ fn ccswap_install_replaces_a_python_cswap_service_and_uninstall_removes_it() {
         read_plist(&env)["ProgramArguments"],
         json!([env!("CARGO_BIN_EXE_ccswap"), "menubar"])
     );
-    assert!(env.launchctl().subcommands().contains(&"bootout".to_string()));
+    assert!(
+        env.launchctl()
+            .subcommands()
+            .contains(&"bootout".to_string())
+    );
     assert!(env.launchctl().is_loaded());
 
     env.cmd(["menubar", "--uninstall-service"])
@@ -356,7 +384,10 @@ fn ccswap_install_replaces_a_python_cswap_service_and_uninstall_removes_it() {
         .cmd(["menubar", "--service-status"])
         .using(Impl::Upstream)
         .run();
-    assert_eq!(status.stdout.lines().next(), Some("Menu bar service is not installed."));
+    assert_eq!(
+        status.stdout.lines().next(),
+        Some("Menu bar service is not installed.")
+    );
 }
 
 #[test]
