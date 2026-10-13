@@ -9,6 +9,7 @@ use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 use ccswap_core::secret_store::{Keychain, SecretStore};
+use ccswap_core::settings::Settings;
 use ccswap_core::status;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
@@ -133,6 +134,12 @@ impl Cli {
 
     /// Runs one invocation and returns the exit code.
     pub fn run(&mut self, args: Vec<String>) -> i32 {
+        for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
+            eprintln!("{warning}");
+        }
+        if args.first().is_some_and(|v| v == "config") {
+            return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if let Some(verb) = args
             .first()
             .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
