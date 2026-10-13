@@ -95,3 +95,17 @@ fn help_lists_commands_and_hides_legacy_flags() {
         out.stdout
     );
 }
+
+#[test]
+fn empty_command_values_select_nothing() {
+    let env = TestEnv::new();
+    for args in [["--switch-to", ""], ["--export", ""], ["--import", ""]] {
+        let out = env.run(args);
+        out.assert_code(0);
+        assert_eq!(
+            (out.stdout.as_str(), out.stderr.as_str()),
+            ("", ""),
+            "{args:?}"
+        );
+    }
+}

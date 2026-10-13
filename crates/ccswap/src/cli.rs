@@ -81,19 +81,6 @@ const COMMAND_FLAGS: &[&str] = &[
     "--add-token",
 ];
 
-/// Commands parsed by their own parser before the main one.
-const PRE_DISPATCHED: &[&str] = &[
-    "run",
-    "auto",
-    "config",
-    "map",
-    "unmap",
-    "unclaimed",
-    "alias",
-    "swap",
-    "move",
-];
-
 const SUBCOMMAND_FLAGS: &[(&str, &str)] = &[
     ("help", "--help"),
     ("list", "--list"),
@@ -171,12 +158,6 @@ impl Cli {
         }
         if let Some(verb @ ("swap" | "move")) = args.first().map(String::as_str) {
             return crate::renumber_cmd::run(&self.prog, &self.env, verb, &args[1..]);
-        }
-        if let Some(verb) = args
-            .first()
-            .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
-        {
-            return self.not_implemented(verb);
         }
         let mut args = args;
         if args.is_empty() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
@@ -274,12 +255,7 @@ impl Cli {
         {
             result
         } else {
-            let command = COMMAND_FLAGS
-                .iter()
-                .find(|f| parsed.flag(f) || parsed.value(f).is_some())
-                .copied()
-                .unwrap_or_default();
-            Err(not_implemented_error(command.trim_start_matches('-')))
+            Ok(())
         };
         match result {
             Ok(()) => {
@@ -661,11 +637,6 @@ impl Cli {
         eprintln!("{}: error: {msg}", self.prog);
         2
     }
-
-    fn not_implemented(&self, verb: &str) -> i32 {
-        eprintln!("Error: {}", not_implemented_error(verb));
-        1
-    }
 }
 
 /// Upstream's switcher start-up: logging, then the store migrations. Every
@@ -724,13 +695,6 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
         chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
     }
     Some(chosen)
-}
-
-fn not_implemented_error(command: &str) -> Error {
-    Error::new(
-        ErrorKind::ClaudeSwitchError,
-        format!("'{command}' is not implemented yet in ccswap"),
-    )
 }
 
 /// `ccswap list` → `--list`, `ccswap switch X` → `--switch-to X`, etc.
