@@ -549,6 +549,7 @@ fn read_jsonl(path: &Path) -> Vec<Value> {
 /// `security` double: items keyed by `(service, account)`, exit 44 for a
 /// missing item, the secret printed only with `-w`, and `-i` commands read
 /// from stdin.
+#[derive(Clone)]
 pub struct FakeSecurity {
     path: PathBuf,
     state: PathBuf,

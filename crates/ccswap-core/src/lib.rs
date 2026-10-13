@@ -16,6 +16,7 @@ pub mod status;
 pub mod store;
 pub mod switcher;
 pub mod transfer;
+pub mod unclaimed;
 pub mod usage;
 pub mod usage_store;
 

@@ -146,6 +146,9 @@ impl Cli {
         if args.first().is_some_and(|v| v == "alias") {
             return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
         }
+        if args.first().is_some_and(|v| v == "unclaimed") {
+            return crate::unclaimed_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if let Some(verb) = args
             .first()
             .filter(|v| PRE_DISPATCHED.contains(&v.as_str()))
