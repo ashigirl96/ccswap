@@ -42,6 +42,32 @@ impl UsageStore {
         })
     }
 
+    /// The slot's dead-token verdict as stored; blank when the row is missing
+    /// or belongs to another identity.
+    pub fn dead_token_strike(&self, num: &str, identity: &Identity) -> DeadTokenStrike {
+        let rows = self.read_rows();
+        let row = match rows.get(num) {
+            Some(Value::Object(row)) if matches(row, identity) => row,
+            _ => return DeadTokenStrike::default(),
+        };
+        let strikes = match row.get("authDeadStrikes") {
+            Some(Value::Number(n)) => n
+                .as_i64()
+                .or_else(|| n.as_f64().map(|f| f.trunc() as i64))
+                .unwrap_or(0),
+            Some(Value::String(s)) => s.trim().parse().unwrap_or(0),
+            Some(Value::Bool(b)) => i64::from(*b),
+            _ => 0,
+        };
+        DeadTokenStrike {
+            strikes,
+            fingerprint: row
+                .get("struckFingerprint")
+                .filter(|v| !v.is_null())
+                .cloned(),
+        }
+    }
+
     fn mutate(
         &self,
         slots: &[(String, Identity)],
@@ -85,6 +111,30 @@ impl UsageStore {
                 }
             }
             _ => Map::new(),
+        }
+    }
+}
+
+pub const AUTH_DEAD_STRIKES: i64 = 1;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DeadTokenStrike {
+    pub strikes: i64,
+    /// The condemned generation's fingerprint; `None` for rows struck before
+    /// fingerprints were recorded, which bind unconditionally.
+    pub fingerprint: Option<Value>,
+}
+
+impl DeadTokenStrike {
+    /// A strike condemns the generation that was POSTed: a different stored
+    /// fingerprint means the credential was replaced since and the strike is healed.
+    pub fn token_dead(&self, stored_fp: Option<&str>) -> bool {
+        if self.strikes < AUTH_DEAD_STRIKES {
+            return false;
+        }
+        match (stored_fp, &self.fingerprint) {
+            (Some(stored), Some(struck)) => struck.as_str() == Some(stored),
+            _ => true,
         }
     }
 }
