@@ -1088,3 +1088,35 @@ fn unclaimed_parses_its_own_arguments() {
     out.assert_code(1);
     assert_eq!(out.stderr, "Error: no unclaimed entry nope\n");
 }
+
+// _replan_new_active runs after a direct activation too
+#[test]
+fn a_direct_activation_pulls_the_new_active_plan_to_the_floor() {
+    let env = TestEnv::new();
+    seed(&env, &[1, 2], 1);
+    std::fs::remove_file(env.global_config_path()).unwrap();
+    let mut seq = sequence(&env);
+    seq["activeAccountNumber"] = json!(2);
+    env.seed_sequence(seq);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let fetched = now - 30.0;
+    env.write_json(
+        ".claude-swap-backup/cache/usage.json",
+        &json!({"schemaVersion": 2, "accounts": {"2": {
+            "email": "b@example.com", "organizationUuid": "",
+            "lastGood": {"five_hour": {"pct": 33}}, "fetchedAt": fetched,
+            "nextPollAt": now + 3600.0, "pollIntervalS": 3600.0,
+        }}}),
+    );
+
+    env.run(["switch"]).assert_code(0);
+
+    let row = &env.read_json(".claude-swap-backup/cache/usage.json")["accounts"]["2"];
+    assert!(
+        row["nextPollAt"].as_f64().unwrap() <= fetched + 180.0 + 1.0,
+        "{row}"
+    );
+}

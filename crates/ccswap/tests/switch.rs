@@ -14,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, MANAGED_KEY_SERVICE, TestEnv};
+use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, MANAGED_KEY_SERVICE, StubResponse, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 const KEYCHAIN_FOLLOWUP: &str = "Restart Claude Code to apply immediately — otherwise the session can take up to ~30 seconds to pick up the new account.";
@@ -770,4 +770,35 @@ fn a_session_shell_cannot_switch() {
     out.assert_code(1);
     assert_eq!(out.json()["error"]["type"], "SwitchError");
     assert_eq!(sequence(&env)["activeAccountNumber"], 1);
+}
+
+// TestPerformSwitchPostDisplay (the list between "Switched to" and the
+// followup) and test_replan_new_active_pulls_candidate_plan_to_floor
+#[test]
+fn human_switch_lists_accounts_and_pulls_the_new_active_plan_to_the_floor() {
+    let env = TestEnv::new();
+    seed(&env, &[1, 2], 1);
+    env.http().respond_with("GET", "/api/oauth/usage", |req| {
+        if req.header("Authorization") == Some("Bearer at-2") {
+            StubResponse::json(200, r#"{"five_hour": {"utilization": 10}}"#)
+        } else {
+            StubResponse::json(500, "{}")
+        }
+    });
+
+    let out = env.run(["switch"]);
+    out.assert_code(0);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Switched to Account-2 (b@example.com)\nAccounts:\n  1: a@example.com [personal]\n     usage unavailable (http-500)\n\n  2: b@example.com [personal] (active)\n     └ 5h:  10%\n\n{KEYCHAIN_FOLLOWUP}\n\n"
+        )
+    );
+    let row = &env.read_json(env.store_dir().join("cache/usage.json"))["accounts"]["2"];
+    let fetched = row["fetchedAt"].as_f64().unwrap();
+    assert!(
+        row["nextPollAt"].as_f64().unwrap() <= fetched + 180.0,
+        "{row}"
+    );
+    assert_eq!(row["pollIntervalS"], 180.0);
 }

@@ -751,6 +751,36 @@ impl SecretStore {
         }
     }
 
+    /// A pre-commit clear that fails closed: backend errors and a key that
+    /// still reads non-empty or unreadable are a `CredentialError`, since a
+    /// destination that should be empty but may still serve material is the
+    /// wrong-credential state a renumber must never commit.
+    pub fn delete_backup_strict(&self, num: &str, email: &str) -> Result<()> {
+        self.delete_backup(num, email);
+        let failed = |detail: String| {
+            Error::new(
+                ErrorKind::CredentialError,
+                format!(
+                    "Could not clear stored credentials for slot {num} ({email}) — aborting before commit{detail}"
+                ),
+            )
+        };
+        match std::fs::remove_file(self.backup_enc_path(num, email)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(failed(format!(": {e}")));
+            }
+            _ => {}
+        }
+        let account = Self::backup_account_name(num, email);
+        self.kc(|k| k.delete_password(BACKUP_SERVICE, &account))
+            .map_err(|e| failed(format!(": {e}")))?;
+        let after = self.read_backup(num, email);
+        if !after.value.is_empty() || after.unreadable {
+            return Err(failed(String::new()));
+        }
+        Ok(())
+    }
+
     pub fn delete_previous_backup(&self, num: &str, email: &str) {
         let prev = self.previous_enc_path(num, email);
         if prev.exists()

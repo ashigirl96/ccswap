@@ -30,7 +30,7 @@ pub const SHARED_CREDENTIAL_KEYS: [&str; 5] = [
 ];
 
 /// Prints the account list after a human-mode switch.
-pub type Listing = dyn Fn(&mut dyn Console) -> Result<()>;
+pub type Listing<'a> = dyn Fn(&mut dyn Console) -> Result<()> + 'a;
 
 pub struct Switcher<'a> {
     pub paths: &'a Paths,
@@ -40,7 +40,7 @@ pub struct Switcher<'a> {
     pub style: &'a Style,
     /// Prints the account list after a human-mode switch; an error becomes
     /// a one-line notice instead of failing the switch.
-    pub listing: Option<&'a Listing>,
+    pub listing: Option<&'a Listing<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -663,7 +663,7 @@ impl Switcher<'_> {
             None => self.prefetch_live_identity(),
         };
 
-        let (to, from, backend, direct) = {
+        let (to, from, target_org, backend, direct) = {
             let _locks = self.lock()?;
             let mut data = self.roster()?;
             let target_email = store::accounts(&data)
@@ -678,6 +678,7 @@ impl Switcher<'_> {
                     )
                 })?;
             let to = AccountRef::slot(target, &target_email);
+            let target_org = record_text(&data, target, "organizationUuid").to_string();
             let identity = store::current_identity(self.paths);
             let current_account = match &identity {
                 Some(i) => store::find_account_slot(&data, &i.email, &i.organization_uuid),
@@ -699,7 +700,7 @@ impl Switcher<'_> {
                         &mut warnings,
                         console,
                     )?;
-                    (to, Some(from), backend, false)
+                    (to, Some(from), target_org, backend, false)
                 }
                 (identity, current_account) => {
                     let from = identity.as_ref().map(|i| AccountRef {
@@ -716,7 +717,7 @@ impl Switcher<'_> {
                         &mut warnings,
                         console,
                     )?;
-                    (to, from, backend, true)
+                    (to, from, target_org, backend, true)
                 }
             }
         };
@@ -742,6 +743,8 @@ impl Switcher<'_> {
             console.line(&self.style.dimmed(followup(backend)));
             console.line("");
         }
+        crate::usage_store::UsageStore::new(&self.paths.usage_cache_dir())
+            .replan_new_active(target, &(to.email.clone(), target_org));
         Ok(Performed { from, to, warnings })
     }
 
