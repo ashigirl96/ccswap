@@ -8,6 +8,7 @@ Keychain, when they are missing.
 
 import os
 import pwd
+import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -31,6 +32,7 @@ PROTECTED = tuple(
     for name in (".claude-swap-backup", ".claude", ".claude.json", "Library/Keychains")
 )
 REAL_SECURITY = "/usr/bin/security"
+REAL_LAUNCHCTL = "/bin/launchctl"
 PATH_EVENTS = {
     "open", "os.mkdir", "os.rename", "os.replace", "os.remove", "os.rmdir",
     "os.chmod", "os.symlink", "os.link", "shutil.rmtree", "shutil.move",
@@ -46,6 +48,12 @@ def _is_protected(path) -> bool:
     return any(full == p or full.startswith(p + os.sep) for p in PROTECTED)
 
 
+def _resolves_to(candidate, real) -> bool:
+    name = os.fsdecode(candidate)
+    found = name if os.sep in name else shutil.which(name)
+    return bool(found) and os.path.realpath(found) == real
+
+
 def _audit(event, args):
     if event in PATH_EVENTS:
         for arg in args[:2]:
@@ -57,6 +65,8 @@ def _audit(event, args):
         for candidate in (executable, first):
             if candidate and os.path.realpath(os.fsdecode(candidate)) == REAL_SECURITY:
                 raise RuntimeError("upstream_shim: blocked spawn of the real security")
+            if candidate and _resolves_to(candidate, REAL_LAUNCHCTL):
+                raise RuntimeError("upstream_shim: blocked spawn of the real launchctl")
 
 
 sys.addaudithook(_audit)

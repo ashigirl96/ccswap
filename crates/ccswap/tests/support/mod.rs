@@ -1,7 +1,7 @@
 //! Black-box harness for the `ccswap` binary (seam 1 of #1).
 //!
 //! Every test gets a [`TestEnv`]: a throwaway `HOME`, a fake `security`, a stub
-//! HTTP server and a fake `claude` first on `PATH`. The binary is launched with
+//! HTTP server and fakes of `claude` and `launchctl` first on `PATH`. The binary is launched with
 //! a cleared environment that points every seam at those doubles, so nothing
 //! can reach the real `~/.claude-swap-backup`, `~/.claude*` or Keychain.
 //!
@@ -40,9 +40,13 @@
 //! - `env.cmd(..).using(Impl::Ccswap | Impl::Upstream)` pins one
 //!   implementation for cswap/ccswap round trips (Upstream needs
 //!   `CCSWAP_TEST_UPSTREAM`).
+//! - `env.launchctl()` models launchd for the menu bar service: `bootstrap`
+//!   loads the job, `bootout` unloads it, `print` answers while loaded;
+//!   `.script(sub, replies)` overrides the next calls of one subcommand.
 //! - The isolation guard ([`check_isolation`]) runs before every launch and
 //!   refuses to start the binary unless `HOME`, the `security` path and every
-//!   HTTP endpoint point at this env's doubles.
+//!   HTTP endpoint point at this env's doubles, and `launchctl` on `PATH`
+//!   is the fake.
 
 #![allow(dead_code)]
 
@@ -73,6 +77,7 @@ const UPSTREAM_SRC_ENV: &str = "CCSWAP_UPSTREAM_SRC";
 
 const FAKE_SECURITY: &str = include_str!("fake_security.py");
 const FAKE_CLAUDE: &str = include_str!("fake_claude.py");
+const FAKE_LAUNCHCTL: &str = include_str!("fake_launchctl.py");
 const UPSTREAM_SHIM: &str = include_str!("upstream_shim.py");
 
 pub fn is_upstream() -> bool {
@@ -100,6 +105,7 @@ pub struct TestEnv {
     config_dir: Option<PathBuf>,
     security: FakeSecurity,
     claude: FakeClaude,
+    launchctl: FakeLaunchctl,
     http: StubServer,
 }
 
@@ -120,6 +126,7 @@ impl TestEnv {
         mkdir_private(&home.join(".claude"));
         let security = FakeSecurity::install(&base.join("fake-security"));
         let claude = FakeClaude::install(&base.join("fake-claude"));
+        let launchctl = FakeLaunchctl::install(&base.join("fake-launchctl"));
         let http = StubServer::start();
         TestEnv {
             root,
@@ -127,6 +134,7 @@ impl TestEnv {
             config_dir: None,
             security,
             claude,
+            launchctl,
             http,
         }
     }
@@ -176,6 +184,10 @@ impl TestEnv {
 
     pub fn http(&self) -> &StubServer {
         &self.http
+    }
+
+    pub fn launchctl(&self) -> &FakeLaunchctl {
+        &self.launchctl
     }
 
     /// The directory prepended to the binary's `PATH` (holds the fake `claude`).
@@ -271,7 +283,11 @@ impl TestEnv {
         let inherited_path = std::env::var("PATH").unwrap_or_default();
         vars.insert(
             "PATH".into(),
-            format!("{}:{inherited_path}", self.claude.bin_dir.display()),
+            format!(
+                "{}:{}:{inherited_path}",
+                self.claude.bin_dir.display(),
+                self.launchctl.bin_dir.display()
+            ),
         );
         vars.insert("HOME".into(), self.home.display().to_string());
         vars.insert("USER".into(), KEYCHAIN_ACCOUNT.into());
@@ -306,6 +322,16 @@ pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(
     };
     inside("HOME")?;
     inside(SECURITY_ENV)?;
+    let launchctl = vars
+        .get("PATH")
+        .into_iter()
+        .flat_map(|p| std::env::split_paths(p).collect::<Vec<_>>())
+        .map(|dir| dir.join("launchctl"))
+        .find(|candidate| candidate.is_file());
+    match launchctl {
+        Some(found) if found.starts_with(root) => {}
+        found => return Err(format!("launchctl on PATH is not the fake: {found:?}")),
+    }
     for name in [
         "CLAUDE_CONFIG_DIR",
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
@@ -1119,4 +1145,72 @@ fn serve(stream: TcpStream, routes: &Routes, requests: &Mutex<Vec<StubRequest>>)
     head.push_str("\r\n");
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(response.body.as_bytes());
+}
+
+/// `launchctl` double (see the module docs). Records each call's argv and
+/// whether the job was loaded when it ran.
+pub struct FakeLaunchctl {
+    bin_dir: PathBuf,
+    state: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct LaunchctlCall {
+    pub argv: Vec<String>,
+    pub loaded: bool,
+}
+
+impl FakeLaunchctl {
+    fn install(dir: &Path) -> Self {
+        install_script(dir, "launchctl", FAKE_LAUNCHCTL);
+        FakeLaunchctl {
+            bin_dir: dir.join("bin"),
+            state: dir.join("state"),
+        }
+    }
+
+    /// Mark the job loaded; `print` answers with `print_stdout` until a `bootout`.
+    pub fn load(&self, print_stdout: &str) {
+        std::fs::write(self.state.join("loaded"), print_stdout).unwrap();
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.state.join("loaded").exists()
+    }
+
+    /// Answer the next calls of `sub` with `(exit, stdout, stderr)` in order,
+    /// then fall back to the launchd model.
+    pub fn script(&self, sub: &str, replies: &[(i32, &str, &str)]) {
+        let path = self.state.join("script.json");
+        let mut script: serde_json::Map<String, Value> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let replies: Vec<Value> = replies
+            .iter()
+            .map(|(exit, stdout, stderr)| {
+                serde_json::json!({"exit": exit, "stdout": stdout, "stderr": stderr})
+            })
+            .collect();
+        script.insert(sub.into(), Value::Array(replies));
+        std::fs::write(&path, Value::Object(script).to_string()).unwrap();
+    }
+
+    pub fn calls(&self) -> Vec<LaunchctlCall> {
+        read_jsonl(&self.state.join("calls.jsonl"))
+            .into_iter()
+            .map(|c| LaunchctlCall {
+                argv: serde_json::from_value(c["argv"].clone()).unwrap(),
+                loaded: c["loaded"].as_bool().unwrap(),
+            })
+            .collect()
+    }
+
+    /// The subcommand of each call, in order.
+    pub fn subcommands(&self) -> Vec<String> {
+        self.calls()
+            .into_iter()
+            .map(|c| c.argv.first().cloned().unwrap_or_default())
+            .collect()
+    }
 }
