@@ -7,7 +7,7 @@ use crate::error::Error;
 use crate::paths::Paths;
 use crate::status::StatusReport;
 use crate::store::read_json_lenient;
-use crate::usage::UsageEntry;
+use crate::usage_store::UsageEntry;
 
 pub const SCHEMA_VERSION: i64 = 1;
 
@@ -184,10 +184,7 @@ pub fn status_lines(report: &StatusReport, style: &Style) -> Vec<String> {
 }
 
 fn usage_lines(entry: &UsageEntry, style: &Style) -> Vec<String> {
-    match entry {
-        UsageEntry::Sentinel(sentinel) => vec![style.dimmed(sentinel.note())],
-        UsageEntry::Unavailable => vec![style.dimmed("usage unavailable")],
-    }
+    crate::usage_view::usage_entry_lines(entry, style)
 }
 
 pub fn status_json(report: &StatusReport) -> Value {
@@ -219,15 +216,7 @@ pub fn status_json(report: &StatusReport) -> Value {
                 (!organization_uuid.is_empty()).into(),
             );
             active.insert("managed".into(), true.into());
-            let status = match usage {
-                UsageEntry::Sentinel(s) => s.json_status(),
-                UsageEntry::Unavailable => "unavailable",
-            };
-            active.insert("usageStatus".into(), status.into());
-            active.insert("usage".into(), Value::Null);
-            if !alias.is_empty() {
-                active.insert("alias".into(), alias.as_str().into());
-            }
+            crate::usage_view::insert_usage_fields(&mut active, usage, alias, false);
             payload.insert("active".into(), Value::Object(active));
             payload.insert("totalManagedAccounts".into(), (*total_managed).into());
         }

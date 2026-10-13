@@ -5,12 +5,14 @@ use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
+use ccswap_core::listing::{self, ListReport};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
 use ccswap_core::status;
+use ccswap_core::usage_view;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 
@@ -179,6 +181,8 @@ impl Cli {
             return 1;
         } else if parsed.flag("--status") {
             self.status(&paths, &style, json)
+        } else if parsed.flag("--list") {
+            self.list(&paths, &style, json)
         } else if parsed.flag("--add-account") {
             self.add(&paths, &style, &parsed)
         } else {
@@ -214,7 +218,8 @@ impl Cli {
         let endpoints = Endpoints::new(&self.env);
         let keychain = Keychain::new(endpoints.security.clone(), &self.env);
         let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
-        let report = status::status(paths, &secrets)?;
+        let client = AnthropicClient::new(endpoints);
+        let report = status::status(paths, &self.env, &secrets, &client)?;
         if json {
             self.stdout
                 .push(pyjson::to_string_pretty(&presentation::status_json(
@@ -225,6 +230,60 @@ impl Cli {
                 .extend(presentation::status_lines(&report, style));
         }
         Ok(())
+    }
+
+    fn list(&mut self, paths: &Paths, style: &Style, json: bool) -> Result<(), Error> {
+        let endpoints = Endpoints::new(&self.env);
+        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
+        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
+        let client = AnthropicClient::new(endpoints);
+        let report = listing::list(paths, &self.env, &secrets, &client)?;
+        if json {
+            self.stdout
+                .push(pyjson::to_string_pretty(&usage_view::list_json(&report)));
+            return Ok(());
+        }
+        if report == ListReport::NoStore {
+            TerminalConsole.line(&style.dimmed("No accounts are managed yet."));
+            return self.first_run_setup(paths, style, &secrets, &client);
+        }
+        self.stdout.extend(usage_view::list_lines(&report, style));
+        Ok(())
+    }
+
+    fn first_run_setup(
+        &mut self,
+        paths: &Paths,
+        style: &Style,
+        secrets: &SecretStore,
+        client: &AnthropicClient,
+    ) -> Result<(), Error> {
+        let mut console = TerminalConsole;
+        let Some(identity) = ccswap_core::store::current_identity(paths) else {
+            console.line(&style.dimmed("No active Claude account found. Please log in first."));
+            return Ok(());
+        };
+        let answer = console
+            .prompt(&format!(
+                "No managed accounts found. Add current account ({}) to managed list? [Y/n] ",
+                identity.email
+            ))
+            .ok_or_else(|| Error::new(ErrorKind::ClaudeSwitchError, "EOF when reading a line"))?;
+        if answer.to_lowercase() == "n" {
+            console.line(&style.dimmed(&format!(
+                "Setup cancelled. You can run '{} --add-account' later.",
+                self.prog
+            )));
+            return Ok(());
+        }
+        let accounts = Accounts {
+            paths,
+            env: &self.env,
+            secrets,
+            client,
+            style,
+        };
+        accounts.add_account(&AddOptions::default(), &mut console)
     }
 
     fn add(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
