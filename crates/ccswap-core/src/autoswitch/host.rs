@@ -167,8 +167,7 @@ impl EngineHost for SwitcherHost<'_> {
             collector.threshold = threshold;
             collector.models = models;
         }
-        let mut entries =
-            collector.collect_restricted(&infos, active.as_ref(), Some(fetch), scheduled);
+        let mut entries = collector.collect_with(&infos, active.as_ref(), Some(fetch), scheduled);
         infos
             .iter()
             .map(|i| (i.num.clone(), entries.remove(&i.num).unwrap_or_default()))

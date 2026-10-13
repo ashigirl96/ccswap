@@ -156,14 +156,14 @@ impl<'a> UsageCollector<'a> {
         infos: &[AccountInfo],
         active: Option<&ActiveCredentials>,
     ) -> HashMap<String, UsageEntry> {
-        self.collect_restricted(infos, active, None, false)
+        self.collect_with(infos, active, None, false)
     }
 
     /// Like [`collect`](Self::collect), but only slots in `fetch` may be
     /// fetched, and they may beat the serve TTL (the auto engine's
     /// scheduler). `scheduled` keeps valid future plans while still letting
     /// due ones fetch.
-    pub fn collect_restricted(
+    pub fn collect_with(
         &self,
         infos: &[AccountInfo],
         active: Option<&ActiveCredentials>,
