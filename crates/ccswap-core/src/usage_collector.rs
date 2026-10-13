@@ -434,23 +434,7 @@ pub fn poll_policy_inputs(paths: &Paths) -> (f64, Vec<String>) {
         Ok(SettingValue::Int(i)) => i as f64,
         _ => 90.0,
     };
-    let models = match settings.get("autoswitch.model").map(|s| s.value) {
-        Ok(SettingValue::Text(t)) => parse_model_names(&t),
-        _ => Vec::new(),
-    };
-    (threshold, models)
-}
-
-/// Comma-separated names, trimmed, deduplicated case-insensitively (first
-/// spelling wins).
-pub fn parse_model_names(value: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-        if !out.iter().any(|o| o.to_lowercase() == name.to_lowercase()) {
-            out.push(name.to_string());
-        }
-    }
-    out
+    (threshold, settings.autoswitch_models())
 }
 
 /// A `[0, 1)` source for poll-plan jitter.
@@ -461,19 +445,5 @@ fn jitter_source() -> impl FnMut() -> f64 {
         state ^= state >> 7;
         state ^= state << 17;
         (state >> 11) as f64 / (1u64 << 53) as f64
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn model_names_are_trimmed_and_deduplicated() {
-        assert_eq!(
-            parse_model_names(" Fable, fable ,Opus,,"),
-            ["Fable", "Opus"]
-        );
-        assert!(parse_model_names("").is_empty());
     }
 }

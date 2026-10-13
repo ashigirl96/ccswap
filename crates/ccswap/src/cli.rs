@@ -10,11 +10,13 @@ use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
+use ccswap_core::ranking::Strategy;
 use ccswap_core::secret_store::{Keychain, SecretStore};
-use ccswap_core::settings::Settings;
+use ccswap_core::settings::{Settings, parse_model_names};
 use ccswap_core::status;
-use ccswap_core::switcher::Switcher;
+use ccswap_core::switcher::{ModelSource, SwitchStrategy, Switcher};
 use ccswap_core::transfer::Transfer;
+use ccswap_core::update_check;
 use ccswap_core::usage_view;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
@@ -185,6 +187,12 @@ impl Cli {
             return self.usage_error(&msg);
         }
 
+        // Before any store access, so a broken store cannot block it.
+        if parsed.flag("--upgrade") {
+            println!("{}", update_check::UPGRADE_INSTRUCTIONS);
+            return 0;
+        }
+
         let paths = Paths::new(&self.env);
         let style = Style::detect(&self.env, &paths);
         let json = parsed.flag("--json");
@@ -195,9 +203,7 @@ impl Cli {
             );
             return 1;
         }
-        if !parsed.flag("--upgrade") {
-            run_store_migrations(&self.env, &paths);
-        }
+        run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--list") {
@@ -227,6 +233,15 @@ impl Cli {
             Ok(()) => {
                 for line in self.stdout.drain(..) {
                     println!("{line}");
+                }
+                // After purge the check would recreate the store it just removed.
+                if !json && !parsed.flag("--purge") {
+                    let endpoints = Endpoints::new(&self.env);
+                    if let Some(notice) =
+                        update_check::check_for_update(&paths, &endpoints, ccswap_core::VERSION)
+                    {
+                        eprintln!("\n{}", style.muted(&notice));
+                    }
                 }
                 0
             }
@@ -363,9 +378,7 @@ impl Cli {
     }
 
     fn switch(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
-        if parsed.value("--strategy").is_some() {
-            return Err(not_implemented_error("switch --strategy"));
-        }
+        let strategy = switch_strategy(paths, parsed);
         let secrets = self.secrets(paths);
         let client = AnthropicClient::new(Endpoints::new(&self.env));
         let env = &self.env;
@@ -390,11 +403,15 @@ impl Cli {
             Some(target) => {
                 switcher.switch_to(target, json, parsed.flag("--force"), &mut TerminalConsole)?
             }
-            None => switcher.switch_next(json, &mut TerminalConsole)?,
+            None => switcher.switch_next(strategy.as_ref(), json, &mut TerminalConsole)?,
         };
         if let Some(report) = report.filter(|_| json) {
-            self.stdout
-                .push(pyjson::to_string_pretty(&report.to_json()));
+            let mut payload = report.to_json();
+            if let Some(s) = strategy.as_ref().filter(|s| !s.models.is_empty()) {
+                payload["models"] = s.models.clone().into();
+                payload["modelSource"] = s.model_source.map(ModelSource::as_str).into();
+            }
+            self.stdout.push(pyjson::to_string_pretty(&payload));
         }
         Ok(())
     }
@@ -529,10 +546,11 @@ impl Cli {
     }
 }
 
-/// Upstream runs these wherever it builds its switcher: every command but
-/// `upgrade`, before the root check (ccswap runs them after it so root never
-/// writes into the user's store).
-pub fn run_store_migrations(env: &Environment, paths: &Paths) {
+/// Upstream's switcher start-up: logging, then the store migrations. Every
+/// command but `upgrade` runs it, upstream before the root check (ccswap
+/// after it, so root never writes into the user's store).
+pub fn run_store_migrations(env: &Environment, paths: &Paths, debug: bool) {
+    ccswap_core::log::setup(&paths.backup_root(), debug);
     let keychain = Keychain::new(Endpoints::new(env).security, env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);
     for line in migrations::run_migrations(paths, &secrets).stderr {
@@ -571,6 +589,19 @@ impl Console for TerminalConsole {
 
 fn nonempty(p: &Parsed, name: &str) -> bool {
     p.value(name).is_some_and(|v| !v.is_empty())
+}
+
+/// `--model` wins; otherwise the `autoswitch.model` setting applies.
+fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
+    let mut chosen = SwitchStrategy::new(Strategy::parse(parsed.value("--strategy")?)?);
+    if let Some(names) = parsed.value("--model") {
+        chosen.models = parse_model_names(names);
+        chosen.model_source = Some(ModelSource::Cli);
+    } else {
+        chosen.models = Settings::new(paths).autoswitch_models();
+        chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
+    }
+    Some(chosen)
 }
 
 fn not_implemented_error(command: &str) -> Error {

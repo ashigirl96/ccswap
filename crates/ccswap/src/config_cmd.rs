@@ -17,6 +17,7 @@ const VERBS: [&str; 5] = ["list", "get", "set", "unset", "path"];
 struct Args {
     verb: Option<&'static str>,
     json: bool,
+    debug: bool,
     positionals: Vec<String>,
 }
 
@@ -51,7 +52,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         );
         return 1;
     }
-    crate::cli::run_store_migrations(env, &paths);
+    crate::cli::run_store_migrations(env, &paths, args.debug);
     match execute(&args, &Settings::new(&paths), &style) {
         Ok(()) => 0,
         Err(error) => {
@@ -242,6 +243,7 @@ fn parse(prog: &str, argv: &[String]) -> Result<Args, Exit> {
                         )));
                     }
                     args.json |= opt == "--json";
+                    args.debug |= opt == "--debug";
                 }
                 Some(_) => return Err(Exit::Help(top_help(prog))),
                 None => extras.push(arg.clone()),
