@@ -218,6 +218,23 @@ impl Cli {
         if parsed.flag("--tui") {
             return crate::tui::run(Arc::new(LiveActions::new(self.env.clone())));
         }
+        if parsed.flag("--menubar") {
+            if !cfg!(target_os = "macos") {
+                eprintln!(
+                    "{}",
+                    style.red("Error: The menu bar is only available on macOS.")
+                );
+                return 1;
+            }
+            if parsed.flag("--install-service")
+                || parsed.flag("--uninstall-service")
+                || parsed.flag("--service-status")
+            {
+                return self.not_implemented("menubar --install-service");
+            }
+            let actions = Arc::new(LiveActions::new(self.env.clone()));
+            return crate::menubar::run(actions, self.env.clone());
+        }
         let result = if parsed.flag("--status") {
             self.status(&paths, &style, json)
         } else if parsed.flag("--list") {
