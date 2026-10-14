@@ -1,0 +1,9 @@
+usage: {prog} widget [-h] [--install]
+
+Register the desktop widget that ships inside ccswap.app, so it appears in the
+widget gallery. The widget shows every account's usage and switches accounts
+through the running menu bar.
+
+options:
+  -h, --help  show this help message and exit
+  --install   Register ccswap.app's widget with macOS

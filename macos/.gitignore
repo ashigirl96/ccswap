@@ -1,0 +1,5 @@
+CcswapWidget.xcodeproj/
+CcswapWidget/Info.plist
+CcswapWidget/CcswapWidget.entitlements
+build/
+build.log

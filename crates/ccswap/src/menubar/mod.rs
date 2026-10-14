@@ -5,6 +5,7 @@ mod appkit;
 pub mod format;
 pub mod menu;
 pub mod settings;
+pub mod widget;
 
 use std::sync::Arc;
 

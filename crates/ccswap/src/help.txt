@@ -32,6 +32,7 @@ Commands:
   {prog} watch                      dashboard, opened on the live watch page
   {prog} menubar                    macOS menu bar app
   {prog} menubar --install-service  keep the menu bar running via launchd
+  {prog} widget --install           add the desktop widget (ccswap.app)
   {prog} upgrade                    self-upgrade to latest
   {prog} purge                      remove all claude-swap data
 
