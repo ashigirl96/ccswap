@@ -1,0 +1,36 @@
+{usage}
+
+[EXPERIMENTAL] Launch Claude Code as a stored account in this terminal only (the default login and other terminals are unaffected).
+
+positional arguments:
+  NUM|EMAIL             Account to run (number or email). Omit to use the
+                        current directory's mapping (see `ccswap map`).
+
+options:
+  -h, --help            show this help message and exit
+  --no-share            Don't share
+                        settings/keybindings/CLAUDE.md/skills/commands/agents
+                        from ~/.claude into the session profile (and remove
+                        previously shared items)
+  --share-history, --no-share-history
+                        Share conversation history (projects/ and
+                        history.jsonl) from ~/.claude into the session
+                        profile, so every account sees one unified history.
+                        History the profile already accumulated is merged into
+                        ~/.claude first. --no-share-history restores per-
+                        account history (the default). Not supported on
+                        Windows.
+  --require-session     Refuse to launch when the account is already the
+                        active default login, instead of running plain claude
+                        on that login (which a later switch could pull out
+                        from under the session)
+  --debug               Enable debug logging
+
+Examples:
+  {prog} run 2
+  {prog} run user@example.com
+  {prog} run 2 --no-share
+  {prog} run 2 --share-history
+  {prog} run 2 --require-session
+  {prog} run 2 -- --resume
+
