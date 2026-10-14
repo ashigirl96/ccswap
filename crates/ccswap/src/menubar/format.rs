@@ -209,37 +209,97 @@ pub(super) fn named_pct(window: &Map<String, Value>) -> Option<(&str, f64)> {
     (!name.is_empty()).then_some((name, pct))
 }
 
-/// `fetched_at` only drives the weekly "ahead of pace" marker.
-pub fn usage_summary(usage: &DisplayUsage, now: f64, fetched_at: Option<f64>) -> String {
-    let usage = match usage {
-        DisplayUsage::Note(note) => return note.clone(),
-        DisplayUsage::Unavailable => return "usage unavailable".into(),
-        DisplayUsage::Measured(usage) => usage,
-    };
-    let mut parts = Vec::new();
-    for (key, label) in [("five_hour", "5h"), ("seven_day", "7d")] {
-        let (window, is_ahead) = if key == "seven_day" {
-            let rolled = rolled_weekly_window(usage.get(key), now);
-            let is_ahead = ahead(rolled.as_ref(), fetched_at);
-            (rolled, is_ahead)
-        } else {
-            (usage.get(key).cloned(), false)
-        };
-        let Some(p) = pct_of(window.as_ref()) else {
-            continue;
-        };
-        let mut seg = format!("{label} {}%", pct(p));
-        if is_ahead {
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsageKind {
+    Session,
+    Weekly,
+    Scoped(String),
+    Spend,
+}
+
+/// One usage window as the dropdown shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageRow {
+    pub kind: UsageKind,
+    pub pct: f64,
+    pub ahead: bool,
+    pub countdown: Option<String>,
+}
+
+impl UsageRow {
+    pub fn name(&self) -> &str {
+        match &self.kind {
+            UsageKind::Session => "Session",
+            UsageKind::Weekly => "All",
+            UsageKind::Scoped(name) => name,
+            UsageKind::Spend => "Spend",
+        }
+    }
+
+    fn short_name(&self) -> &str {
+        match &self.kind {
+            UsageKind::Session => "5h",
+            UsageKind::Weekly => "7d",
+            UsageKind::Scoped(name) => name,
+            UsageKind::Spend => "$",
+        }
+    }
+
+    pub fn maxed(&self) -> bool {
+        self.pct >= 100.0
+    }
+
+    pub fn pct_text(&self) -> String {
+        format!("{}%", pct(self.pct))
+    }
+
+    fn summary(&self) -> String {
+        let mut seg = format!("{} {}", self.short_name(), self.pct_text());
+        if matches!(self.kind, UsageKind::Scoped(_)) && self.maxed() {
+            seg.push_str(" (!)");
+        } else if self.ahead {
             seg.push_str(" (ahead)");
         }
-        if let Some(countdown) = live_countdown(window.as_ref(), now) {
+        if let Some(countdown) = &self.countdown {
             seg.push_str(&format!(" ({countdown})"));
         }
-        parts.push(seg);
+        seg
+    }
+}
+
+/// `Err` is the note shown instead of usage. `fetched_at` only drives the
+/// weekly "ahead of pace" marker.
+pub fn usage_rows(
+    usage: &DisplayUsage,
+    now: f64,
+    fetched_at: Option<f64>,
+) -> std::result::Result<Vec<UsageRow>, String> {
+    let usage = match usage {
+        DisplayUsage::Note(note) => return Err(note.clone()),
+        DisplayUsage::Unavailable => return Err("usage unavailable".into()),
+        DisplayUsage::Measured(usage) => usage,
+    };
+    let mut rows = Vec::new();
+    let session = usage.get("five_hour");
+    if let Some(p) = pct_of(session) {
+        rows.push(UsageRow {
+            kind: UsageKind::Session,
+            pct: p,
+            ahead: false,
+            countdown: live_countdown(session, now),
+        });
+    }
+    let weekly = rolled_weekly_window(usage.get("seven_day"), now);
+    if let Some(p) = pct_of(weekly.as_ref()) {
+        rows.push(UsageRow {
+            kind: UsageKind::Weekly,
+            pct: p,
+            ahead: ahead(weekly.as_ref(), fetched_at),
+            countdown: live_countdown(weekly.as_ref(), now),
+        });
     }
     for window in scoped_windows(usage) {
         let rolled = rolled_weekly_window(Some(window), now);
-        let is_ahead = ahead(rolled.as_ref(), fetched_at);
         let Some((name, p)) = rolled
             .as_ref()
             .and_then(Value::as_object)
@@ -247,24 +307,36 @@ pub fn usage_summary(usage: &DisplayUsage, now: f64, fetched_at: Option<f64>) ->
         else {
             continue;
         };
-        let mut seg = format!("{name} {}%", pct(p));
-        if p >= 100.0 {
-            seg.push_str(" (!)");
-        } else if is_ahead {
-            seg.push_str(" (ahead)");
-        }
-        if let Some(countdown) = live_countdown(rolled.as_ref(), now) {
-            seg.push_str(&format!(" ({countdown})"));
-        }
-        parts.push(seg);
+        rows.push(UsageRow {
+            kind: UsageKind::Scoped(name.to_string()),
+            pct: p,
+            ahead: ahead(rolled.as_ref(), fetched_at),
+            countdown: live_countdown(rolled.as_ref(), now),
+        });
     }
     if let Some(p) = window_pct(Some(usage), "spend") {
-        parts.push(format!("$ {}%", pct(p)));
+        rows.push(UsageRow {
+            kind: UsageKind::Spend,
+            pct: p,
+            ahead: false,
+            countdown: None,
+        });
     }
-    if parts.is_empty() {
-        "usage unavailable".into()
+    if rows.is_empty() {
+        Err("usage unavailable".into())
     } else {
-        parts.join(SEPARATOR)
+        Ok(rows)
+    }
+}
+
+pub fn usage_summary(usage: &DisplayUsage, now: f64, fetched_at: Option<f64>) -> String {
+    match usage_rows(usage, now, fetched_at) {
+        Ok(rows) => rows
+            .iter()
+            .map(UsageRow::summary)
+            .collect::<Vec<_>>()
+            .join(SEPARATOR),
+        Err(note) => note,
     }
 }
 

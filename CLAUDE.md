@@ -1,3 +1,7 @@
+## Local install
+
+After a PR merges or a commit lands on `main`, pull `main` and run `just install`. The user's menu bar and desktop widget run from `~/Applications/ccswap.app`, so merged code reaches them only through this. Done when `ccswap menubar --service-status` reports `running`.
+
 ## Agent skills
 
 ### Issue tracker

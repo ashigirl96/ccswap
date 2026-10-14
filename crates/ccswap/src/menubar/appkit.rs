@@ -11,6 +11,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, ns_string};
 #[allow(deprecated)]
 use objc2_foundation::{NSUserNotification, NSUserNotificationCenter};
 
+use super::card_view;
 use super::menu::{Command, Entry};
 
 pub const NOTIFICATION_TITLE: &str = "claude-swap";
@@ -30,8 +31,12 @@ pub fn build_menu(
                 title,
                 checked,
                 command,
+                card,
             } => {
                 let item = new_item(mtm, title);
+                if let Some(card) = card {
+                    item.setView(Some(&card_view::new(mtm, card)));
+                }
                 if let Some(command) = command {
                     unsafe {
                         item.setAction(Some(sel!(menuAction:)));

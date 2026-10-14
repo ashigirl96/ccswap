@@ -44,12 +44,13 @@ private enum Palette {
     static let blue = Color(red: 0.184, green: 0.482, blue: 0.898)
     static let activeText = Color(red: 0.435, green: 0.659, blue: 0.961)
     static let amber = Color(red: 0.878, green: 0.627, blue: 0.188)
+    static let yellow = Color(red: 1.0, green: 0.839, blue: 0.039)
     static let red = Color(red: 0.898, green: 0.282, blue: 0.302)
     static let redText = Color(red: 0.949, green: 0.467, blue: 0.478)
 }
 
 private extension Feed.Window {
-    var fill: Color { pct >= 100 ? Palette.red : pct >= 90 ? Palette.amber : Palette.blue }
+    var fill: Color { pct >= 90 ? Palette.red : pct >= 70 ? Palette.yellow : Palette.blue }
 }
 
 private extension Feed.Account {
@@ -71,7 +72,7 @@ struct UsageBar: View {
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(window.pct == 0 ? Palette.emptyTrack : Palette.track)
+                    Capsule().fill(window.pct == 0 ? Palette.emptyTrack : window.fill.opacity(0.2))
                     Capsule().fill(window.fill)
                         .frame(width: proxy.size.width * min(window.pct, 100) / 100)
                 }
