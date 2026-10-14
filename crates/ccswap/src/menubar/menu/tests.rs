@@ -87,6 +87,7 @@ fn full_menu_matches_upstream_layout() {
         lines,
         [
             "✓ 1  work  (a@x.com)  5h 42% · 7d 18%",
+            "---",
             "2  b@x.com  (disabled)  5h 42% · 7d 18%",
             "---",
             "Rotate to next",
@@ -212,4 +213,133 @@ fn entries_carry_their_commands() {
         panic!()
     };
     assert_eq!(command(entries, "2  b@x.com"), Command::Remove("2".into()));
+}
+
+fn card(entries: &[Entry], number: &str) -> AccountCard {
+    entries
+        .iter()
+        .find_map(|e| match e {
+            Entry::Item {
+                command: Some(Command::SwitchTo(n)),
+                card: Some(card),
+                ..
+            } if n == number => Some(card.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no card for account {number}"))
+}
+
+fn rows_of(card: &AccountCard) -> Vec<(String, String, Option<String>)> {
+    card.usage
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|r| (r.name().to_string(), r.pct_text(), r.countdown.clone()))
+        .collect()
+}
+
+fn snapshot_of(accounts: Vec<MenuAccount>) -> MenuSnapshot {
+    MenuSnapshot {
+        accounts,
+        ..MenuSnapshot::default()
+    }
+}
+
+fn measured_account(number: &str, usage: serde_json::Value) -> MenuAccount {
+    MenuAccount {
+        number: number.into(),
+        email: format!("{number}@x.com"),
+        is_active: false,
+        display: DisplayUsage::Measured(usage.clone()),
+        last_good: Some(usage),
+        alias: String::new(),
+        disabled: false,
+        fetched_at: None,
+    }
+}
+
+fn menu_for(snapshot: &MenuSnapshot) -> Vec<Entry> {
+    build_menu(&MenuInput {
+        snapshot,
+        settings: &MenuBarSettings::default(),
+        history: &[],
+        threshold: 95,
+        now: NOW,
+    })
+}
+
+#[test]
+fn account_cards_show_one_bar_per_window_with_live_countdowns() {
+    let at = |s: f64| {
+        chrono::DateTime::from_timestamp((NOW + s) as i64, 0)
+            .unwrap()
+            .to_rfc3339()
+    };
+    let usage = json!({
+        "five_hour": {"pct": 64.0, "resets_at": at(2.0 * 3600.0 + 49.0 * 60.0)},
+        "seven_day": {"pct": 77.0, "resets_at": at(16.0 * 3600.0 + 9.0 * 60.0)},
+        "scoped": [{"name": "Fable", "pct": 0.0, "resets_at": at(16.0 * 3600.0 + 9.0 * 60.0)}],
+    });
+    let snapshot = snapshot_of(vec![measured_account("1", usage)]);
+    let card = card(&menu_for(&snapshot), "1");
+    assert_eq!(
+        rows_of(&card),
+        [
+            ("Session".into(), "64%".into(), Some("2h 49m".into())),
+            ("All".into(), "77%".into(), Some("16h 9m".into())),
+            ("Fable".into(), "0%".into(), Some("16h 9m".into())),
+        ]
+    );
+}
+
+#[test]
+fn account_card_names_the_alias_and_keeps_the_email_beside_it() {
+    let snapshot = two_accounts();
+    let menu = menu_for(&snapshot);
+    let work = card(&menu, "1");
+    assert_eq!(
+        (work.name.as_str(), work.email.as_deref()),
+        ("work", Some("a@x.com"))
+    );
+    let plain = card(&menu, "2");
+    assert_eq!((plain.name.as_str(), plain.email), ("b@x.com", None));
+}
+
+#[test]
+fn account_card_status_prefers_active_then_disabled_then_limit() {
+    let mut active = measured_account("1", json!({"five_hour": {"pct": 100.0}}));
+    active.is_active = true;
+    let mut disabled = measured_account("2", json!({"five_hour": {"pct": 100.0}}));
+    disabled.disabled = true;
+    let limited = measured_account("3", json!({"five_hour": {"pct": 100.0}}));
+    let weekly_maxed = measured_account(
+        "4",
+        json!({"five_hour": {"pct": 10.0}, "seven_day": {"pct": 100.0}}),
+    );
+    let snapshot = snapshot_of(vec![active, disabled, limited, weekly_maxed]);
+    let menu = menu_for(&snapshot);
+    let statuses: Vec<_> = ["1", "2", "3", "4"]
+        .iter()
+        .map(|n| card(&menu, n).status)
+        .collect();
+    assert_eq!(
+        statuses,
+        [
+            AccountStatus::Active,
+            AccountStatus::Disabled,
+            AccountStatus::LimitReached,
+            AccountStatus::Idle,
+        ]
+    );
+}
+
+#[test]
+fn account_card_without_usage_carries_the_note() {
+    let mut account = measured_account("1", json!({}));
+    account.display = DisplayUsage::Note("no credentials".into());
+    let snapshot = snapshot_of(vec![account]);
+    assert_eq!(
+        card(&menu_for(&snapshot), "1").usage,
+        Err("no credentials".into())
+    );
 }

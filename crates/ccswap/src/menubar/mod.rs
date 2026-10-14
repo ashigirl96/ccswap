@@ -2,6 +2,8 @@
 mod app;
 #[cfg(target_os = "macos")]
 mod appkit;
+#[cfg(target_os = "macos")]
+mod card_view;
 pub mod format;
 pub mod menu;
 pub mod settings;

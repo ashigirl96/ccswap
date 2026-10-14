@@ -3,7 +3,9 @@
 
 use ccswap_core::ranking::Strategy;
 
-use super::format::{MenuSnapshot, format_account_label};
+use super::format::{
+    MenuAccount, MenuSnapshot, UsageKind, UsageRow, format_account_label, usage_rows,
+};
 use super::settings::{MenuBarSettings, REFRESH_CHOICES, TITLE_PCT_CHOICES};
 
 pub const AUTO_THRESHOLD_CHOICES: [i64; 4] = [80, 90, 95, 98];
@@ -35,9 +37,11 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
     Item {
+        /// Still read by VoiceOver and type-select when `card` replaces it.
         title: String,
         checked: bool,
         command: Option<Command>,
+        card: Option<AccountCard>,
     },
     Submenu {
         title: String,
@@ -52,6 +56,7 @@ impl Entry {
             title: title.into(),
             checked: false,
             command: Some(command),
+            card: None,
         }
     }
 
@@ -60,15 +65,39 @@ impl Entry {
             title: title.into(),
             checked: false,
             command: None,
+            card: None,
         }
     }
 
     fn check(self, on: bool) -> Self {
         match self {
-            Entry::Item { title, command, .. } => Entry::Item {
+            Entry::Item {
+                title,
+                command,
+                card,
+                ..
+            } => Entry::Item {
                 title,
                 checked: on,
                 command,
+                card,
+            },
+            other => other,
+        }
+    }
+
+    fn card(self, card: AccountCard) -> Self {
+        match self {
+            Entry::Item {
+                title,
+                checked,
+                command,
+                ..
+            } => Entry::Item {
+                title,
+                checked,
+                command,
+                card: Some(card),
             },
             other => other,
         }
@@ -79,6 +108,67 @@ impl Entry {
             title: title.into(),
             entries,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AccountStatus {
+    Active,
+    Disabled,
+    LimitReached,
+    Idle,
+}
+
+impl AccountStatus {
+    pub fn text(self) -> &'static str {
+        match self {
+            AccountStatus::Active => "In use",
+            AccountStatus::Disabled => "Disabled",
+            AccountStatus::LimitReached => "Limit reached",
+            AccountStatus::Idle => "",
+        }
+    }
+}
+
+/// An account's dropdown row drawn as the widget draws it: a header and one
+/// bar per usage window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountCard {
+    pub number: String,
+    pub name: String,
+    /// Shown beside an alias so the email stays findable.
+    pub email: Option<String>,
+    pub status: AccountStatus,
+    /// `Err` is the note shown instead of bars.
+    pub usage: Result<Vec<UsageRow>, String>,
+}
+
+fn account_card(account: &MenuAccount, now: f64) -> AccountCard {
+    let usage = usage_rows(&account.display, now, account.fetched_at);
+    let session_maxed = usage.as_ref().is_ok_and(|rows| {
+        rows.iter()
+            .any(|r| r.kind == UsageKind::Session && r.maxed())
+    });
+    let status = if account.is_active {
+        AccountStatus::Active
+    } else if account.disabled {
+        AccountStatus::Disabled
+    } else if session_maxed {
+        AccountStatus::LimitReached
+    } else {
+        AccountStatus::Idle
+    };
+    let (name, email) = if account.alias.is_empty() {
+        (account.email.clone(), None)
+    } else {
+        (account.alias.clone(), Some(account.email.clone()))
+    };
+    AccountCard {
+        number: account.number.clone(),
+        name,
+        email,
+        status,
+        usage,
     }
 }
 
@@ -95,16 +185,20 @@ const NO_ACCOUNTS: &str = "No managed accounts";
 
 pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
     let accounts = &input.snapshot.accounts;
-    let mut menu: Vec<Entry> = accounts
-        .iter()
-        .map(|a| {
+    let mut menu = Vec::new();
+    for (i, a) in accounts.iter().enumerate() {
+        if i > 0 {
+            menu.push(Entry::Separator);
+        }
+        menu.push(
             Entry::action(
                 format_account_label(a, input.now),
                 Command::SwitchTo(a.number.clone()),
             )
             .check(a.is_active)
-        })
-        .collect();
+            .card(account_card(a, input.now)),
+        );
+    }
     if menu.is_empty() {
         menu.push(Entry::label(NO_ACCOUNTS));
     }
