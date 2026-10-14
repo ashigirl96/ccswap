@@ -213,7 +213,7 @@ WWDC23 [Bring widgets to life](https://developer.apple.com/videos/play/wwdc2023/
 
 > As soon as your perform returns, the system will immediately initiate a reload of your widget timeline, giving you the opportunity to update the content of your widget.
 
-結論: 文書化されている。intent を実行した直後の reload は budget の対象外で、必ず行われる。「更新」ボタンを置けば、押した時点で最新の `widget.json` を読み直せる。macOS 固有の例外は書かれていない。
+結論: 文書化されている。intent を実行した直後の reload は budget の対象外で、必ず行われる。「更新」ボタンを置けば、押した時点で最新の `feed.json` を読み直せる。macOS 固有の例外は書かれていない。
 
 ### 6. Swift 以外のプロセスから WidgetCenter を呼べるか
 
@@ -248,3 +248,20 @@ WWDC23 [Bring widgets to life](https://developer.apple.com/videos/play/wwdc2023/
 5. 呼び出し元のプロセスの識別方法（item 6）と、Rust バイナリを main executable にした `.app` から WidgetCenter を呼んだときの挙動。
 
 実測で確かめる方法の案（未検証）: 実機でメニューバーから `reloadAllTimelines()` を数分おきに呼び、`log stream` で `chronod` と `dasd` のログ（community の報告では `_DASWidgetBudget` の減算が出る）を見る。budget が引かれているかと、reload が保留されているかが分かる。
+
+## 実測 (macOS 26.6.2、ad-hoc 署名の ccswap.app)
+
+ccswap の widget (Extra large、`.after(60 秒後)`) を desktop に置き、`chronod` の log で reload の予定を見た。
+
+```sh
+/usr/bin/log show --last 1h --predicate 'process == "chronod"' --style compact \
+  | grep 'ccswap.widget:ccswap.usage\] scheduled'
+```
+
+zsh では `log` が builtin なので `/usr/bin/log` と書く。
+
+- 03:22〜03:40 の約 18 分、`.after` による reload は約 64 秒おきに 17 回起きた。どれも `timelineExhausted-<日時>-budgeted-1` と記録された。macOS の desktop widget にも budget の計算はあるが、この間は間引かれなかった。1 日 40〜70 回の上限に当たるかは、もっと長く測らないと分からない。
+- widget の `Button(intent:)` を押した直後の reload は `systemRequest(userTappedFailedWidget)-immediate-free-1` と記録された。budget の対象外で、すぐに起きる。
+- extension を入れ替えた直後の reload は `extensionChanged-immediate-free-1` だった。
+
+ccswap はこの結果から、使用率の追従を timeline の reload にも `WidgetCenter` にも頼らない。切替ボタンの intent は、menubar が切替後の `feed.json` を書くまで最大 5 秒待ってから返る。そうすると、intent の後の必ず起きる reload で切替後の表示になる。実機では、押してから表示が変わるまで約 2.4 秒だった。ボタンを押さないときの使用率は、budget が効けば遅れて表示されうる。
