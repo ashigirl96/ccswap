@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      # The update check compares the latest release tag with the binary's own version.
+      - name: Check the tag matches the crate version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "ccswap") | .version')
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match crate version ${version}"
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - run: cargo test --all --locked
+
+      - name: Build a universal binary
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p ccswap --target "$target"
+          done
+          mkdir -p dist
+          lipo -create -output dist/ccswap \
+            target/aarch64-apple-darwin/release/ccswap \
+            target/x86_64-apple-darwin/release/ccswap
+          codesign --force --sign - dist/ccswap
+          dist/ccswap --version
+
+      - name: Package
+        run: |
+          name="ccswap-${VERSION}-macos-universal"
+          mkdir "dist/${name}"
+          cp dist/ccswap LICENSE "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          (cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          echo "ARCHIVE=dist/${name}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "ccswap ${VERSION}" \
+            --generate-notes \
+            --verify-tag \
+            "${ARCHIVE}" "${ARCHIVE}.sha256"
