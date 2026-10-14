@@ -18,6 +18,7 @@ use ccswap_core::autoswitch::{
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::Environment;
 use ccswap_core::error::{Error, ErrorKind, Result};
+use ccswap_core::fsutil;
 use ccswap_core::log;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{Style, Theme};
@@ -42,6 +43,7 @@ use super::format::{
 };
 use super::menu::{Command, MenuInput, build_menu};
 use super::settings::{FILENAME, MenuBarSettings};
+use super::widget;
 
 const SWITCHED_MESSAGE: &str =
     "Switch takes effect within ~30s — restart Claude Code to apply immediately.";
@@ -66,6 +68,8 @@ pub struct Controller {
     paths: Paths,
     settings_path: PathBuf,
     log_path: PathBuf,
+    widget_feed_path: PathBuf,
+    widget_request_path: PathBuf,
     settings: RefCell<MenuBarSettings>,
     snapshot: RefCell<MenuSnapshot>,
     source: Arc<SnapshotSource>,
@@ -125,6 +129,8 @@ pub fn run(actions: Arc<dyn Actions>, env: Environment) -> i32 {
         settings: RefCell::new(MenuBarSettings::load(&settings_path)),
         settings_path,
         log_path: backup.join("claude-swap.log"),
+        widget_feed_path: backup.join(widget::DIRNAME).join(widget::FEED_FILENAME),
+        widget_request_path: backup.join(widget::DIRNAME).join(widget::REQUEST_FILENAME),
         source: Arc::new(SnapshotSource::new(actions.clone())),
         actions,
         env,
@@ -261,6 +267,7 @@ impl Target {
             match report {
                 Report::Snapshot(snapshot) => {
                     *c.snapshot.borrow_mut() = snapshot;
+                    self.write_widget_feed();
                     dirty = true;
                 }
                 Report::Action {
@@ -283,6 +290,26 @@ impl Target {
         }
         self.detect_active_change();
         self.drain_engine_events();
+        if let Some(number) = widget::take_request(&c.widget_request_path, now_secs()) {
+            self.run_command(Command::SwitchTo(number));
+        }
+    }
+
+    fn write_widget_feed(&self) {
+        let c = self.ivars();
+        let feed = widget::feed(
+            &c.snapshot.borrow(),
+            self.threshold(),
+            c.settings.borrow().refresh_interval,
+            now_secs(),
+        );
+        let bytes = serde_json::to_vec(&feed).unwrap_or_default();
+        let dir = c.actions.backup_dir().join(widget::DIRNAME);
+        if let Err(error) = fsutil::ensure_private_dir(&dir)
+            .and_then(|()| fsutil::atomic_write_private(&dir, &c.widget_feed_path, &bytes))
+        {
+            log::debug(format!("widget feed write failed: {error}"));
+        }
     }
 
     /// Picks up switches made anywhere (CLI, Python cswap, the engine)

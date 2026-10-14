@@ -20,3 +20,13 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
+
+  widget:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: brew install xcodegen
+      - run: cargo build --release -p ccswap
+      - run: sh macos/build-app.sh target/release/ccswap 0.0.0 "${RUNNER_TEMP}"

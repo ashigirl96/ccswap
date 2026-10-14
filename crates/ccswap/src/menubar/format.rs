@@ -114,7 +114,7 @@ fn py_number(v: Option<&Value>) -> Option<f64> {
     }
 }
 
-fn pct_of(window: Option<&Value>) -> Option<f64> {
+pub(super) fn pct_of(window: Option<&Value>) -> Option<f64> {
     py_number(window?.as_object()?.get("pct"))
 }
 
@@ -127,7 +127,7 @@ fn pct(value: f64) -> String {
 }
 
 /// `inf` when `resets_at` is missing or unparseable.
-fn resets_at_ts(window: Option<&Value>) -> f64 {
+pub(super) fn resets_at_ts(window: Option<&Value>) -> f64 {
     window
         .and_then(|w| w.as_object()?.get("resets_at")?.as_str())
         .and_then(parse_iso)
@@ -158,7 +158,7 @@ fn live_countdown(window: Option<&Value>, now: f64) -> Option<String> {
 
 /// Weekly limits reset on a fixed 7-day cadence: a window whose reset has
 /// passed is shown as reset (0%, next boundary) without a refetch.
-fn rolled_weekly_window(window: Option<&Value>, now: f64) -> Option<Value> {
+pub(super) fn rolled_weekly_window(window: Option<&Value>, now: f64) -> Option<Value> {
     let window = window?;
     let Some(map) = window.as_object() else {
         return Some(window.clone());
@@ -195,7 +195,7 @@ fn ahead(window: Option<&Value>, fetched_at: Option<f64>) -> bool {
     compute_pace(window.and_then(Value::as_object), fetched_at).is_some_and(|p| p.ahead)
 }
 
-fn scoped_windows(usage: &Value) -> impl Iterator<Item = &Value> {
+pub(super) fn scoped_windows(usage: &Value) -> impl Iterator<Item = &Value> {
     usage
         .get("scoped")
         .and_then(Value::as_array)
@@ -203,7 +203,7 @@ fn scoped_windows(usage: &Value) -> impl Iterator<Item = &Value> {
         .flatten()
 }
 
-fn named_pct(window: &Map<String, Value>) -> Option<(&str, f64)> {
+pub(super) fn named_pct(window: &Map<String, Value>) -> Option<(&str, f64)> {
     let name = window.get("name").and_then(Value::as_str)?;
     let pct = py_number(window.get("pct"))?;
     (!name.is_empty()).then_some((name, pct))
@@ -278,7 +278,7 @@ pub fn format_account_label(account: &MenuAccount, now: f64) -> String {
     )
 }
 
-fn local_part(email: &str) -> String {
+pub(super) fn local_part(email: &str) -> String {
     const LIMIT: usize = 12;
     let local = email.split('@').next().unwrap_or_default();
     if local.chars().count() > LIMIT {

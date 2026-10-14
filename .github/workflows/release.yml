@@ -44,11 +44,18 @@ jobs:
           codesign --force --sign - dist/ccswap
           dist/ccswap --version
 
+      - name: Build ccswap.app with the desktop widget
+        run: |
+          brew install xcodegen
+          sh macos/build-app.sh dist/ccswap "${VERSION}" dist
+          dist/ccswap.app/Contents/MacOS/ccswap --version
+
       - name: Package
         run: |
           name="ccswap-${VERSION}-macos-universal"
           mkdir "dist/${name}"
-          cp dist/ccswap LICENSE "dist/${name}/"
+          cp -R dist/ccswap.app "dist/${name}/"
+          cp LICENSE "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           (cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
           echo "ARCHIVE=dist/${name}.tar.gz" >> "$GITHUB_ENV"

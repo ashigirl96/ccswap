@@ -10,6 +10,7 @@ mod renumber_cmd;
 mod run_cmd;
 mod tui;
 mod unclaimed_cmd;
+mod widget_cmd;
 
 use ccswap_core::env::Environment;
 
