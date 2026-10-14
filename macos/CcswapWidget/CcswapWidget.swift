@@ -72,7 +72,7 @@ struct UsageBar: View {
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(window.pct == 0 ? Palette.emptyTrack : Palette.track)
+                    Capsule().fill(window.pct == 0 ? Palette.emptyTrack : window.fill.opacity(0.2))
                     Capsule().fill(window.fill)
                         .frame(width: proxy.size.width * min(window.pct, 100) / 100)
                 }

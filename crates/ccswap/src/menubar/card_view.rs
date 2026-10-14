@@ -115,7 +115,7 @@ fn track_color(pct: f64) -> Retained<NSColor> {
     if pct <= 0.0 {
         NSColor::labelColor().colorWithAlphaComponent(0.1)
     } else {
-        NSColor::systemBlueColor().colorWithAlphaComponent(0.2)
+        fill_color(pct).colorWithAlphaComponent(0.2)
     }
 }
 
