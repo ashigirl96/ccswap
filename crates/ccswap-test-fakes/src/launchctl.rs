@@ -52,6 +52,8 @@ fn modelled(loaded: &Path, sub: &str, args: &[String]) -> Reply {
             reply(0, "")
         }
         "bootout" => reply(3, "Boot-out failed: 3: No such process\n"),
+        "kickstart" if is_loaded => reply(0, ""),
+        "kickstart" => reply(113, "Could not find service in domain for user gui\n"),
         "bootstrap" if is_loaded => reply(5, "Bootstrap failed: 5: Input/output error\n"),
         "bootstrap" => {
             let plist = std::fs::read_to_string(&args[2]).expect("read plist");

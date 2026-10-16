@@ -162,7 +162,13 @@ impl Cli {
             return crate::renumber_cmd::run(&self.prog, &self.env, verb, &args[1..]);
         }
         let mut args = args;
-        if args.is_empty() && std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
+        let opened_as_app = args.is_empty() && launched_as_app(&self.env);
+        if opened_as_app {
+            args = vec!["menubar".into()];
+        } else if args.is_empty()
+            && std::io::stdout().is_terminal()
+            && std::io::stdin().is_terminal()
+        {
             args = vec!["--tui".into()];
         }
         let args = translate_subcommand(args);
@@ -235,6 +241,10 @@ impl Cli {
                         1
                     }
                 };
+            }
+            // A second in-process menu bar would add a duplicate status item.
+            if opened_as_app && LaunchAgent::new(&self.env).kickstart() {
+                return 0;
             }
             let actions = Arc::new(LiveActions::new(self.env.clone()));
             return crate::menubar::run(actions, self.env.clone());
@@ -695,6 +705,13 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
         chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
     }
     Some(chosen)
+}
+
+/// LaunchServices sets this for the app it opens; a shell inherits its
+/// terminal's id instead.
+fn launched_as_app(env: &Environment) -> bool {
+    env.get("__CFBundleIdentifier")
+        .is_some_and(|id| id == launch_agent::BUNDLE_ID)
 }
 
 fn translate_subcommand(args: Vec<String>) -> Vec<String> {

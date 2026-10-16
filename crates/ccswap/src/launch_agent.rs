@@ -15,6 +15,7 @@ pub use plist::Plist;
 pub const LABEL: &str = "com.cswap.menubar";
 
 pub const PROGRAM_NAME: &str = "ccswap";
+pub const BUNDLE_ID: &str = "io.github.ashigirl96.ccswap";
 const EXTRA_PATH_DIRS: [&str; 3] = ["~/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"];
 const BASE_PATH_DIRS: [&str; 4] = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 // `bootout` can return before launchd has torn the job down, and a
@@ -304,6 +305,13 @@ impl LaunchAgent {
             was_loaded,
             removed_plist,
         })
+    }
+
+    /// Starts the loaded job unless it is already running; `false` when
+    /// launchd could not, such as when the service is not installed.
+    pub fn kickstart(&self) -> bool {
+        self.launchctl(&["kickstart", &self.service_target()])
+            .is_ok_and(|reply| reply.code == 0)
     }
 
     pub fn status(&self) -> Result<ServiceStatus, Error> {
