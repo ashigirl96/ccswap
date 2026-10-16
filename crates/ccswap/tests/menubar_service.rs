@@ -384,3 +384,36 @@ fn service_flags_are_rejected_outside_menubar() {
     ));
     assert!(env.launchctl().calls().is_empty());
 }
+
+#[test]
+fn opening_the_app_starts_the_installed_service_instead_of_a_second_menu_bar() {
+    let env = TestEnv::new();
+    env.launchctl().load(&running_print("111"));
+
+    env.cmd(Vec::<String>::new())
+        .env("__CFBundleIdentifier", "io.github.ashigirl96.ccswap")
+        .run()
+        .assert_code(0);
+
+    assert_eq!(
+        env.launchctl()
+            .calls()
+            .into_iter()
+            .map(|c| c.argv)
+            .collect::<Vec<_>>(),
+        [["kickstart".to_string(), service_target()]]
+    );
+}
+
+#[test]
+fn a_bare_run_from_a_terminal_does_not_touch_the_service() {
+    let env = TestEnv::new();
+    env.launchctl().load(&running_print("111"));
+
+    env.cmd(Vec::<String>::new())
+        .env("__CFBundleIdentifier", "com.apple.Terminal")
+        .run()
+        .assert_code(2);
+
+    assert!(env.launchctl().calls().is_empty());
+}
