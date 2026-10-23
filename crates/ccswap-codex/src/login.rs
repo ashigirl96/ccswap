@@ -3,8 +3,8 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::error::{Error, ErrorKind, Result};
-use crate::fsutil;
+use ccswap_core::error::{Error, ErrorKind, Result};
+use ccswap_core::fsutil;
 
 use super::identity::{CodexIdentity, read_identity};
 use super::program::CodexProgram;

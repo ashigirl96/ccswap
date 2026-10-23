@@ -4,8 +4,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::env::Environment;
-use crate::path_search::which;
+use ccswap_core::env::Environment;
+use ccswap_core::path_search::which;
 
 /// Where Codex installs put `codex`, searched after `PATH`.
 const FALLBACK_DIRS: [&str; 9] = [

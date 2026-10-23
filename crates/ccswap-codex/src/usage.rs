@@ -9,14 +9,13 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
+use ccswap_core::endpoints::Endpoints;
+use ccswap_core::fsutil;
+use ccswap_core::http_client::{self, classify_transport, parse_retry_after};
+use ccswap_core::usage::{Sentinel, now_secs};
+use ccswap_core::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-
-use crate::endpoints::Endpoints;
-use crate::fsutil;
-use crate::http_client::{self, classify_transport, parse_retry_after};
-use crate::usage::{Sentinel, now_secs};
-use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 
 use super::app_server::{self, AppServerError};
 use super::identity::jwt_claims;
@@ -128,7 +127,7 @@ impl CodexUsage {
             return HashMap::new();
         }
         if let Err(e) = codex.sync_live_owner() {
-            crate::log::debug(format!("Could not sync the live Codex auth.json: {e}"));
+            ccswap_core::log::debug(format!("Could not sync the live Codex auth.json: {e}"));
         }
         let live = codex.read_live().ok().flatten();
         let identities: Vec<(String, Identity)> = listing
@@ -284,7 +283,7 @@ impl CodexUsage {
         let staging = match self.stage(&credential.auth) {
             Ok(staging) => staging,
             Err(e) => {
-                crate::log::debug(format!("Could not stage a Codex login: {e}"));
+                ccswap_core::log::debug(format!("Could not stage a Codex login: {e}"));
                 return failed("unavailable");
             }
         };
@@ -296,7 +295,7 @@ impl CodexUsage {
         if let Ok(refreshed) = std::fs::read(staging.path().join("auth.json"))
             && let Err(e) = codex.commit_refreshed(credential.number, &credential.auth, &refreshed)
         {
-            crate::log::debug(format!("Could not save a refreshed Codex login: {e}"));
+            ccswap_core::log::debug(format!("Could not save a refreshed Codex login: {e}"));
         }
         drop(staging);
         match result {
@@ -305,7 +304,7 @@ impl CodexUsage {
                 ..Default::default()
             },
             Err(AppServerError::LoginDead(message)) => {
-                crate::log::debug(format!("Codex could not refresh a login: {message}"));
+                ccswap_core::log::debug(format!("Codex could not refresh a login: {message}"));
                 FetchRecord {
                     struck_fp: login_fingerprint(&credential.auth),
                     ..FetchRecord::error(DEAD_LOGIN_ERROR, None)
@@ -313,11 +312,11 @@ impl CodexUsage {
             }
             Err(AppServerError::Timeout) => failed("timeout"),
             Err(AppServerError::Unavailable(message)) => {
-                crate::log::debug(format!("Could not start codex app-server: {message}"));
+                ccswap_core::log::debug(format!("Could not start codex app-server: {message}"));
                 failed("unavailable")
             }
             Err(AppServerError::Failed(message)) => {
-                crate::log::debug(format!("codex app-server failed: {message}"));
+                ccswap_core::log::debug(format!("codex app-server failed: {message}"));
                 failed("error")
             }
         }
@@ -355,7 +354,7 @@ impl CodexUsage {
                 .get("Retry-After")
                 .and_then(|v| v.to_str().ok())
                 .and_then(parse_retry_after);
-            crate::log::debug(format!("Codex usage request failed: HTTP {status}"));
+            ccswap_core::log::debug(format!("Codex usage request failed: HTTP {status}"));
             return FetchRecord::error(format!("http-{status}"), retry_after_s);
         }
         let body = match response.body_mut().read_to_vec() {

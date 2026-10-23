@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use crate::env::Environment;
-use crate::paths::Paths;
+use ccswap_core::env::Environment;
+use ccswap_core::paths::Paths;
 
 use super::overrides::CodexOverrides;
 use super::program::CodexProgram;
