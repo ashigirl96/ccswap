@@ -1,9 +1,9 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
-use ccswap_core::accounts::Console;
 use ccswap_core::codex::{
     CodexPaths, CodexStore, CodexUsage, LoginStdio, identifier_candidates, resolve_account, view,
 };
+use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};

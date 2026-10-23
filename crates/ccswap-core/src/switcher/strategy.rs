@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use super::{AccountRef, SwitchReport, Switcher, is_disabled};
-use crate::accounts::Console;
+use crate::console::Console;
 use crate::error::Result;
 use crate::pyjson::py_str;
 use crate::ranking::{self, BestPick, DecisionUsage, Strategy};

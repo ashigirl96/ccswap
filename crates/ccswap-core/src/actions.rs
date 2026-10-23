@@ -8,8 +8,9 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::accounts::{Accounts, AddOptions, AddTokenOptions, Console, TokenInput};
+use crate::accounts::{Accounts, AddOptions, AddTokenOptions, TokenInput};
 use crate::anthropic_client::AnthropicClient;
+use crate::console::Console;
 use crate::endpoints::Endpoints;
 use crate::env::Environment;
 use crate::error::Result;

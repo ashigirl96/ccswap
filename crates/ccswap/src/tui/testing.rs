@@ -5,9 +5,9 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 
-use ccswap_core::accounts::Console;
 use ccswap_core::actions::Actions;
 use ccswap_core::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, EventKind};
+use ccswap_core::console::Console;
 use ccswap_core::error::{Error, ErrorKind, Result};
 use ccswap_core::settings::Settings;
 use ccswap_core::snapshot::{AccountKind, AccountSnapshot, AccountsSnapshot};

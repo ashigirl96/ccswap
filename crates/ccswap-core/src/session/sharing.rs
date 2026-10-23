@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{Map, Value, json};
 
 use super::{RunOptions, Sessions, set_mode};
-use crate::accounts::Console;
+use crate::console::Console;
 use crate::locks::{DirLock, DirLockOptions};
 use crate::log;
 use crate::pyjson;

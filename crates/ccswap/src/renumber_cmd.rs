@@ -1,8 +1,9 @@
 //! `swap` and `move` each mirror upstream's dedicated argparse parser: two
 //! positionals and `--debug`.
 
-use ccswap_core::accounts::{Accounts, Console};
+use ccswap_core::accounts::Accounts;
 use ccswap_core::anthropic_client::AnthropicClient;
+use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::Error;

@@ -382,13 +382,6 @@ impl Settings {
         Ok(true)
     }
 
-    pub fn autoswitch_models(&self) -> Vec<String> {
-        match self.get("autoswitch.model").map(|s| s.value) {
-            Ok(SettingValue::Text(t)) => parse_model_names(&t),
-            _ => Vec::new(),
-        }
-    }
-
     /// What upstream logs while loading the `ui` section at startup, before
     /// logging is configured, so it reaches stderr on every command.
     pub fn ui_load_warnings(&self) -> Vec<String> {
@@ -691,30 +684,9 @@ fn python_utf8_error(bytes: &[u8], e: &std::str::Utf8Error) -> String {
     format!("'utf-8' codec can't decode byte 0x{byte:02x} in position {pos}: {reason}")
 }
 
-/// Comma-separated names, trimmed, deduplicated case-insensitively (first
-/// spelling wins).
-pub fn parse_model_names(value: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-        if !out.iter().any(|o| o.to_lowercase() == name.to_lowercase()) {
-            out.push(name.to_string());
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn model_names_are_trimmed_and_deduplicated() {
-        assert_eq!(
-            parse_model_names(" Fable, fable ,Opus,,"),
-            ["Fable", "Opus"]
-        );
-        assert!(parse_model_names("").is_empty());
-    }
 
     #[test]
     fn python_number_grammar() {

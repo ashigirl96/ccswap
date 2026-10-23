@@ -9,7 +9,6 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use ccswap_core::accounts::Console;
 use ccswap_core::actions::Actions;
 use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::autoswitch::{
@@ -18,6 +17,7 @@ use ccswap_core::autoswitch::{
 use ccswap_core::codex::{
     AddOutcome, CodexPaths, CodexStore, CodexUsage, LoginOutcome, LoginStdio, SwitchOutcome,
 };
+use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::Environment;
 use ccswap_core::error::{Error, ErrorKind, Result};

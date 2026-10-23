@@ -1,13 +1,15 @@
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use crate::anthropic_client::AnthropicClient;
 use crate::env::Environment;
 use crate::error::Result;
 use crate::paths::Paths;
+use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::secret_store::SecretStore;
 use crate::store::{self, find_account_slot};
 use crate::usage_collector::{AccountInfo, UsageCollector};
 use crate::usage_store::UsageEntry;
+use crate::usage_view::{insert_usage_fields, usage_entry_lines};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatusReport {
@@ -79,4 +81,87 @@ pub fn status(
         total_managed: accounts.len(),
         usage: Box::new(entries.remove(&num).unwrap_or_default()),
     })
+}
+
+pub fn status_lines(report: &StatusReport, style: &Style) -> Vec<String> {
+    let label = style.bolded("Status:");
+    match report {
+        StatusReport::NoActiveAccount => {
+            vec![format!(
+                "{label} {}",
+                style.dimmed("No active Claude account")
+            )]
+        }
+        StatusReport::Unmanaged { email } => {
+            vec![format!("{label} {email} {}", style.dimmed("(not managed)"))]
+        }
+        StatusReport::Managed {
+            number,
+            email,
+            organization_name,
+            total_managed,
+            usage,
+            ..
+        } => {
+            let tag = if organization_name.is_empty() {
+                "personal"
+            } else {
+                organization_name
+            };
+            let mut lines = vec![
+                format!(
+                    "{label} {} ({email} {})",
+                    style.accent(&format!("Account-{number}")),
+                    style.muted(&format!("[{tag}]"))
+                ),
+                format!(
+                    "  {}",
+                    style.dimmed(&format!("Total managed accounts: {total_managed}"))
+                ),
+            ];
+            lines.extend(
+                usage_entry_lines(usage, style)
+                    .into_iter()
+                    .map(|l| format!("  {l}")),
+            );
+            lines
+        }
+    }
+}
+
+pub fn status_json(report: &StatusReport) -> Value {
+    let mut payload = Map::new();
+    payload.insert("schemaVersion".into(), SCHEMA_VERSION.into());
+    match report {
+        StatusReport::NoActiveAccount => {
+            payload.insert("active".into(), Value::Null);
+        }
+        StatusReport::Unmanaged { email } => {
+            payload.insert("active".into(), json!({ "email": email, "managed": false }));
+        }
+        StatusReport::Managed {
+            number,
+            email,
+            organization_name,
+            organization_uuid,
+            alias,
+            total_managed,
+            usage,
+        } => {
+            let mut active = Map::new();
+            active.insert("number".into(), (*number).into());
+            active.insert("email".into(), email.as_str().into());
+            active.insert("organizationName".into(), organization_name.as_str().into());
+            active.insert("organizationUuid".into(), organization_uuid.as_str().into());
+            active.insert(
+                "isOrganization".into(),
+                (!organization_uuid.is_empty()).into(),
+            );
+            active.insert("managed".into(), true.into());
+            insert_usage_fields(&mut active, usage, alias, false);
+            payload.insert("active".into(), Value::Object(active));
+            payload.insert("totalManagedAccounts".into(), (*total_managed).into());
+        }
+    }
+    Value::Object(payload)
 }

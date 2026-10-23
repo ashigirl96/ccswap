@@ -1,13 +1,11 @@
-//! Usage measurements as upstream's `oauth.py` normalises them, plus the
-//! states that stand in for one.
+//! Usage measurements in the normalised shape every provider's fetch produces
+//! (upstream `oauth.py`'s), plus the states that stand in for one.
 
 use crate::pyjson::py_str;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
-use serde_json::{Map, Value, json};
-
-use crate::secret_store::{ActiveCredentials, extract_access_token, looks_like_api_key};
+use serde_json::{Map, Value};
 
 /// Usage states that stand in for a measurement. Never persisted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,28 +63,6 @@ pub fn error_note(kind: &str) -> Option<&'static str> {
         }
         _ => return None,
     })
-}
-
-pub fn static_active_sentinel(active: &ActiveCredentials) -> Option<Sentinel> {
-    let creds = active.value.as_deref().unwrap_or_default();
-    static_sentinel(creds, || {
-        active.keychain_unavailable || active.value.is_none()
-    })
-}
-
-/// The network-free verdict for a slot's credential; `unreadable` says
-/// whether its store could not be read.
-pub fn static_sentinel(creds: &str, unreadable: impl FnOnce() -> bool) -> Option<Sentinel> {
-    if looks_like_api_key(creds) {
-        return Some(Sentinel::ApiKey);
-    }
-    if creds.is_empty() || extract_access_token(creds).is_none_or(|t| t.is_empty()) {
-        if unreadable() {
-            return Some(Sentinel::KeychainUnavailable);
-        }
-        return Some(Sentinel::NoCredentials);
-    }
-    None
 }
 
 pub fn now_secs() -> f64 {
@@ -263,146 +239,12 @@ pub fn truthy(v: &Value) -> bool {
     }
 }
 
-fn py_get<'a>(v: &'a Value, key: &str) -> Result<Option<&'a Value>, PyError> {
-    match v {
-        Value::Object(o) => Ok(o.get(key)),
-        _ => Err("AttributeError"),
-    }
-}
-
-fn py_index<'a>(v: &'a Value, key: &str) -> Result<&'a Value, PyError> {
-    match v {
-        Value::Object(o) => o.get(key).ok_or("KeyError"),
-        _ => Err("TypeError"),
-    }
-}
-
-fn add_reset(entry: &mut Map<String, Value>, resets_at: &Value) -> Result<(), PyError> {
-    entry.insert("resets_at".into(), resets_at.clone());
-    let (countdown, clock) = format_reset(resets_at)?;
-    entry.insert("countdown".into(), countdown.into());
-    entry.insert("clock".into(), clock.into());
-    Ok(())
-}
-
-/// Normalises a usage API body. `Ok(None)` is a successful fetch that
-/// carried no window; `Err` names the Python exception upstream would hit.
-pub fn build_usage_result(data: &Value) -> Result<Option<Value>, PyError> {
-    crate::log::debug(format!(
-        "Usage API response: {}",
-        crate::pyjson::to_string_pretty(data)
-    ));
-    let mut result = Map::new();
-    for key in ["five_hour", "seven_day"] {
-        let Some(window) = py_get(data, key)?.filter(|w| truthy(w)) else {
-            continue;
-        };
-        let mut entry = Map::new();
-        entry.insert("pct".into(), py_index(window, "utilization")?.clone());
-        if let Some(resets_at) = py_get(window, "resets_at")?.filter(|v| truthy(v)) {
-            add_reset(&mut entry, resets_at)?;
-        }
-        result.insert(key.into(), Value::Object(entry));
-    }
-    if let Some(eu) = py_get(data, "extra_usage")?.filter(|v| truthy(v))
-        && py_get(eu, "is_enabled")?.is_some_and(truthy)
-    {
-        match spend_entry(eu) {
-            Ok(Some(spend)) => {
-                result.insert("spend".into(), Value::Object(spend));
-            }
-            Ok(None) => {}
-            Err(e) => crate::log::debug(format!("extra_usage parse failed: {e}")),
-        }
-    }
-    if let Some(Value::Array(limits)) = py_get(data, "limits")? {
-        let mut scoped = Vec::new();
-        for lim in limits {
-            let Value::Object(lim) = lim else { continue };
-            let name = lim
-                .get("scope")
-                .and_then(Value::as_object)
-                .and_then(|s| s.get("model"))
-                .and_then(Value::as_object)
-                .and_then(|m| m.get("display_name"))
-                .filter(|n| truthy(n));
-            let (Some(name), Some(pct)) = (name, lim.get("percent").and_then(py_number)) else {
-                continue;
-            };
-            let mut entry = Map::new();
-            entry.insert("name".into(), name.clone());
-            entry.insert("pct".into(), json!(pct));
-            if let Some(resets_at) = lim.get("resets_at").filter(|v| truthy(v)) {
-                add_reset(&mut entry, resets_at)?;
-            }
-            scoped.push(Value::Object(entry));
-        }
-        if !scoped.is_empty() {
-            result.insert("scoped".into(), Value::Array(scoped));
-        }
-    }
-    Ok((!result.is_empty()).then_some(Value::Object(result)))
-}
-
 /// `isinstance(v, (int, float))`, bools included.
-fn py_number(v: &Value) -> Option<f64> {
+pub fn py_number(v: &Value) -> Option<f64> {
     match v {
         Value::Bool(b) => Some(f64::from(u8::from(*b))),
         other => other.as_f64(),
     }
-}
-
-/// `float(v)` for the values JSON can carry; `None` where Python raises.
-fn py_float(v: &Value) -> Option<f64> {
-    match v {
-        Value::String(s) => {
-            let t = s.trim().to_ascii_lowercase();
-            match t.as_str() {
-                "inf" | "+inf" | "infinity" | "+infinity" => Some(f64::INFINITY),
-                "-inf" | "-infinity" => Some(f64::NEG_INFINITY),
-                "nan" | "+nan" | "-nan" => Some(f64::NAN),
-                _ => t.replace('_', "").parse().ok(),
-            }
-        }
-        other => py_number(other),
-    }
-}
-
-/// `Err` carries the exception upstream's parse would log.
-fn spend_entry(eu: &Value) -> Result<Option<Map<String, Value>>, String> {
-    let Some(eu) = eu.as_object() else {
-        return Ok(None);
-    };
-    let field = |k: &str| eu.get(k).filter(|v| !v.is_null());
-    let (Some(used), Some(limit), Some(pct)) = (
-        field("used_credits"),
-        field("monthly_limit"),
-        field("utilization"),
-    ) else {
-        return Ok(None);
-    };
-    let mut entry = Map::new();
-    entry.insert("used".into(), json!(float_or_error(used)? / 100.0));
-    entry.insert("limit".into(), json!(float_or_error(limit)? / 100.0));
-    entry.insert("pct".into(), json!(float_or_error(pct)?));
-    entry.insert(
-        "currency".into(),
-        eu.get("currency").cloned().unwrap_or_else(|| "USD".into()),
-    );
-    if let Some(resets_at) = eu.get("resets_at").filter(|v| truthy(v)) {
-        add_reset(&mut entry, resets_at).map_err(|e| format!("{e}()"))?;
-    }
-    Ok(Some(entry))
-}
-
-fn float_or_error(v: &Value) -> Result<f64, String> {
-    py_float(v).ok_or_else(|| match v {
-        Value::String(s) => format!("ValueError(\"could not convert string to float: '{s}'\")"),
-        other => format!(
-            "TypeError(\"float() argument must be a string or a real number, not '{}'\")",
-            crate::pyjson::py_type_name(other)
-        ),
-    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -474,103 +316,13 @@ pub fn parse_reset_ts(resets_at: Option<&Value>) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from upstream tests/test_oauth.py (TestFetchUsage normalisation,
-    //! TestAccountHeadroom, TestRelevantWindows, TestFormatReset) and
-    //! test_json_output.py (fresh reset strings).
+    //! Ported from upstream tests/test_oauth.py (TestAccountHeadroom,
+    //! TestRelevantWindows, TestFormatReset) and test_json_output.py (fresh reset strings).
     use super::*;
+    use serde_json::json;
 
     fn iso_in(secs: i64) -> String {
         (Utc::now() + chrono::Duration::seconds(secs)).to_rfc3339()
-    }
-
-    #[test]
-    fn success_normalises_windows_and_keeps_pct_type() {
-        let r = build_usage_result(&json!({
-            "five_hour": {"utilization": 25, "resets_at": iso_in(3600 + 30)},
-            "seven_day": {"utilization": 60.0, "resets_at": null},
-        }))
-        .unwrap()
-        .unwrap();
-        assert_eq!(r["five_hour"]["pct"], json!(25));
-        assert_eq!(r["five_hour"]["countdown"], "1h 0m");
-        assert_eq!(r["seven_day"], json!({"pct": 60.0}));
-        let keys: Vec<_> = r.as_object().unwrap().keys().cloned().collect();
-        assert_eq!(keys, ["five_hour", "seven_day"]);
-    }
-
-    #[test]
-    fn empty_body_is_a_successful_fetch_without_usage() {
-        assert_eq!(build_usage_result(&json!({})), Ok(None));
-    }
-
-    #[test]
-    fn malformed_bodies_fail_with_python_exception_names() {
-        assert_eq!(build_usage_result(&json!([1])), Err("AttributeError"));
-        assert_eq!(
-            build_usage_result(&json!({"five_hour": {"resets_at": "x"}})),
-            Err("KeyError")
-        );
-        assert_eq!(
-            build_usage_result(&json!({"five_hour": [1]})),
-            Err("TypeError")
-        );
-        assert_eq!(
-            build_usage_result(&json!({"five_hour": {"utilization": 1, "resets_at": "nope"}})),
-            Err("ValueError")
-        );
-    }
-
-    #[test]
-    fn extra_usage_complete_adds_spend() {
-        let r = build_usage_result(&json!({
-            "five_hour": {"utilization": 10.0},
-            "extra_usage": {"is_enabled": true, "used_credits": 1250, "monthly_limit": 30000,
-                            "utilization": 4, "currency": "EUR"},
-        }))
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            r["spend"],
-            json!({"used": 12.5, "limit": 300.0, "pct": 4.0, "currency": "EUR"})
-        );
-    }
-
-    #[test]
-    fn extra_usage_partial_unlimited_or_disabled_keeps_other_rows() {
-        for eu in [
-            json!({"is_enabled": true, "used_credits": 5, "monthly_limit": null, "utilization": 1}),
-            json!({"is_enabled": true, "used_credits": null, "monthly_limit": 5, "utilization": 1}),
-            json!({"is_enabled": false, "used_credits": 5, "monthly_limit": 5, "utilization": 1}),
-        ] {
-            let r =
-                build_usage_result(&json!({"five_hour": {"utilization": 1}, "extra_usage": eu}))
-                    .unwrap()
-                    .unwrap();
-            assert!(r.get("spend").is_none());
-            assert_eq!(r["five_hour"]["pct"], 1);
-        }
-    }
-
-    #[test]
-    fn scoped_per_model_limits() {
-        let r = build_usage_result(&json!({
-            "limits": [
-                {"scope": {"model": {"display_name": "Fable"}}, "percent": 100},
-                {"scope": {"model": {"display_name": ""}}, "percent": 5},
-                {"scope": null, "percent": 5},
-                {"scope": {"model": {"display_name": "Opus"}}, "percent": "7"},
-            ]
-        }))
-        .unwrap()
-        .unwrap();
-        assert_eq!(r, json!({"scoped": [{"name": "Fable", "pct": 100.0}]}));
-        assert_eq!(
-            build_usage_result(&json!({"five_hour": {"utilization": 1}}))
-                .unwrap()
-                .unwrap()
-                .get("scoped"),
-            None
-        );
     }
 
     #[test]

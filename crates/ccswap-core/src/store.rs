@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value, json};
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, Result};
 use crate::fsutil;
 use crate::identifier::{self, Candidate, Found};
 use crate::paths::Paths;
@@ -329,35 +329,6 @@ pub fn slots_with_email(data: &JsonObject, email: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Python's `str.isdigit()` for the identifiers users type.
-pub fn is_slot_number(identifier: &str) -> bool {
-    !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit())
-}
-
-/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`
-/// (whose `$` also matches before one trailing newline).
-pub fn is_valid_email(email: &str) -> bool {
-    let email = email.strip_suffix('\n').unwrap_or(email);
-    let Some((local, domain)) = email.split_once('@') else {
-        return false;
-    };
-    let local_ok = !local.is_empty()
-        && local
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let domain_chars_ok = domain
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    let Some((host, tld)) = domain.rsplit_once('.') else {
-        return false;
-    };
-    local_ok
-        && domain_chars_ok
-        && !host.is_empty()
-        && tld.len() >= 2
-        && tld.chars().all(|c| c.is_ascii_alphabetic())
-}
-
 /// Python truthiness of a JSON value.
 pub fn is_truthy(value: Option<&Value>) -> bool {
     match value {
@@ -368,35 +339,6 @@ pub fn is_truthy(value: Option<&Value>) -> bool {
         Some(Value::Array(a)) => !a.is_empty(),
         Some(Value::Object(o)) => !o.is_empty(),
     }
-}
-
-/// Lowercase and validate a proposed alias (`[a-z0-9_.-]+`, not all digits,
-/// no leading `-`). Messages echo the raw input.
-pub fn normalize_alias(raw: &str) -> Result<String> {
-    let invalid = |m: String| Err(Error::new(ErrorKind::ValidationError, m));
-    let normalized = raw.trim().to_lowercase();
-    if normalized.is_empty() {
-        return invalid("alias cannot be empty".into());
-    }
-    if normalized.chars().all(|c| c.is_ascii_digit()) {
-        return invalid(format!(
-            "alias '{raw}' cannot be purely numeric (reserved for slot numbers)"
-        ));
-    }
-    if normalized.starts_with('-') {
-        return invalid(format!(
-            "alias '{raw}' cannot start with '-' (would be read as a command flag)"
-        ));
-    }
-    if !normalized
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.-".contains(c))
-    {
-        return invalid(format!(
-            "alias '{raw}' may only contain letters, digits, '-', '_', and '.'"
-        ));
-    }
-    Ok(normalized)
 }
 
 /// UTC `YYYY-MM-DDTHH:MM:SSZ`, the roster's timestamp format.
@@ -481,35 +423,6 @@ mod tests {
         assert_eq!(format_timestamp(0), "1970-01-01T00:00:00Z");
         assert_eq!(format_timestamp(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(format_timestamp(1_704_067_199), "2023-12-31T23:59:59Z");
-    }
-
-    #[test]
-    fn email_check_matches_the_upstream_pattern() {
-        for ok in [
-            "user@example.com",
-            "a.b+c%d_e-f@sub.example.co",
-            "x@a.b.cd",
-            "x@a..cd",
-            "setup-token-3@token.local",
-            "user@example.com\n",
-        ] {
-            assert!(is_valid_email(ok), "{ok:?}");
-        }
-        for bad in [
-            "not-an-email",
-            "../../evil",
-            "a@b",
-            "@example.com",
-            "user@.com",
-            "user@example.c",
-            "user@example.c0m",
-            "us er@example.com",
-            "a@b@example.com",
-            "user@example.com\n\n",
-            "ü@example.com",
-        ] {
-            assert!(!is_valid_email(bad), "{bad:?}");
-        }
     }
 
     #[test]

@@ -6,8 +6,9 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::accounts::{Accounts, Console};
+use crate::accounts::Accounts;
 use crate::anthropic_client::{AnthropicClient, RefreshOutcome};
+use crate::console::Console;
 use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::error::Result;

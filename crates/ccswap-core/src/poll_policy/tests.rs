@@ -12,7 +12,10 @@ fn usage(pct: f64) -> Value {
 }
 
 fn usage_reset(pct: f64, reset_ts: f64) -> Value {
-    let iso = crate::store::format_timestamp(reset_ts as i64);
+    let iso = chrono::DateTime::from_timestamp(reset_ts as i64, 0)
+        .expect("reset in range")
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     json!({"five_hour": {"pct": pct, "resets_at": iso}, "seven_day": {"pct": 0.0}})
 }
 
