@@ -84,7 +84,7 @@ fn help_lists_commands_and_hides_legacy_flags() {
     assert!(out.stdout.starts_with(&format!(
         "usage: {p} <command> [args] [options]\n\nMulti-Account Switcher for Claude Code\n"
     )));
-    assert!(out.stdout.contains(&format!("  {p} status ")));
+    assert!(out.stdout.contains(&format!("  {p} claude status ")));
     let options = out
         .stdout
         .split("Flags combine with subcommands:")

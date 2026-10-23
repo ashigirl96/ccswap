@@ -1,0 +1,70 @@
+usage: {prog} claude <command> [args] [options]
+
+Manage Claude Code accounts. Claude Code accounts are numbered on their own,
+apart from Codex accounts, and stored under ~/.claude-swap-backup/.
+An account is named by its number, alias or email.
+Every command also works without the 'claude' prefix ({prog} list, {prog} switch 2, ...).
+
+Commands:
+  {prog} claude list                list managed accounts
+  {prog} claude status              show current account
+  {prog} claude switch              rotate to the next account
+  {prog} claude switch <num|email>  switch to a specific account
+  {prog} claude add                 add the current account
+  {prog} claude add-token [TOKEN|-] register a setup-token or API key
+  {prog} claude remove <num|email>  remove an account
+  {prog} claude disable <num|email> hold an account out of auto-rotation
+  {prog} claude enable <num|email>  return a disabled account to rotation
+  {prog} claude run <num|email> [-- ...]
+                                    run as an account, this terminal only
+  {prog} claude run                 run the current dir's mapped account
+  {prog} claude map <num|email> [path]
+                                    map a directory to an account
+  {prog} claude map                 list directory mappings
+  {prog} claude unmap [path]        remove a directory mapping
+  {prog} claude alias <num|email> <name>
+                                    set a short alias for an account
+  {prog} claude alias <num|email> --unset
+                                    remove an account's alias
+  {prog} claude alias               list all aliases
+  {prog} claude swap <a> <b>        exchange two accounts' slot numbers
+  {prog} claude move <a> <slot>     assign an account to a slot (swaps if taken)
+  {prog} claude auto                auto-switch when nearing rate limits
+  {prog} claude unclaimed [--purge ID]
+                                    list or drop stashed credential entries
+  {prog} claude export <path>       export accounts
+  {prog} claude import <path>       import accounts
+
+Aliases: ls=list  rm=remove
+
+options:
+  -h, --help            show this help message and exit
+  --debug               Enable debug logging
+  --token-status        Show source-labelled OAuth token diagnostics (use with
+                        'list')
+  --json                Emit machine-readable JSON to stdout (use with 'list',
+                        'status', or 'switch'). See README 'JSON output for
+                        scripting'.
+  --strategy {best,next-available}
+                        With bare 'switch': pick the target by remaining 5h/7d
+                        quota. 'best' jumps to the account with the most
+                        headroom; 'next-available' rotates to the next
+                        account, skipping any at their limit
+  --model NAMES         With 'switch --strategy': also count these models'
+                        per-model weekly limits when comparing accounts
+                        (comma-separated display names, or 'all'). Defaults to
+                        the autoswitch.model setting
+  --slot NUM            Specify slot number when adding account (use with
+                        'add' or 'add-token')
+  --email EMAIL         Email address for the account. Optional with 'add-
+                        token'; defaults to setup-token-{slot}@token.local (or
+                        api-key-{slot}@token.local for API keys) since these
+                        tokens carry no real email metadata.
+  --account NUM|EMAIL   Limit export to one account (use with 'export')
+  --alias NAME          Set a short display alias for the account (use with
+                        'add')
+  --force               Overwrite existing accounts during import; with
+                        'switch <num|email>', activate the stored credentials
+                        without backing up the current login first
+  --full                Include full ~/.claude.json in export (default:
+                        oauthAccount only)
