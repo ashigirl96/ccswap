@@ -1,4 +1,4 @@
-usage: {prog} add [-h] [--slot NUM] [--alias NAME] [--debug]
+usage: {prog} claude add [-h] [--slot NUM] [--alias NAME] [--debug]
 
 Add the Claude Code account that is logged in now to the managed accounts.
 

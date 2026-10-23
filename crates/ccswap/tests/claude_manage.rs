@@ -652,7 +652,7 @@ fn alias_help_describes_the_command() {
     let p = PROG;
     assert!(
         out.stdout.starts_with(&format!(
-            "usage: {p} alias [-h] [--unset] [--debug] [NUM|EMAIL] [NAME]\n\nSet, remove, or list a short display alias"
+            "usage: {p} claude alias [-h] [--unset] [--debug] [NUM|EMAIL] [NAME]\n\nSet, remove, or list a short display alias"
         )),
         "{}",
         out.stdout

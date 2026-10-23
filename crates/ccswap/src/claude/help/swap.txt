@@ -1,4 +1,4 @@
-usage: {prog} swap [-h] [--debug] NUM|EMAIL|ALIAS NUM|EMAIL|ALIAS
+usage: {prog} claude swap [-h] [--debug] NUM|EMAIL|ALIAS NUM|EMAIL|ALIAS
 
 Exchange two accounts' slot numbers, so they trade places in `{prog} list` and as numeric targets. Aliases, backups, and session history move with their account.
 

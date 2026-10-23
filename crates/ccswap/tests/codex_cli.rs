@@ -45,6 +45,27 @@ fn codex_help_lists_its_commands() {
     }
 }
 
+#[test]
+fn every_help_names_a_codex_alias_target_as_its_verb_help_does() {
+    let env = TestEnv::new();
+    for args in [vec!["help"], vec!["codex", "--help"]] {
+        let out = env.run(&args);
+        out.assert_code(0);
+        let alias_lines: Vec<&str> = out
+            .stdout
+            .lines()
+            .filter(|line| line.starts_with(&format!("  {PROG} codex alias ")))
+            .collect();
+        assert!(!alias_lines.is_empty(), "{args:?}: {}", out.stdout);
+        for line in alias_lines {
+            assert!(
+                line.starts_with(&format!("  {PROG} codex alias <num|alias|email> ")),
+                "{args:?}: {line}"
+            );
+        }
+    }
+}
+
 /// The option names in a help's `options:` section.
 fn options(help: &str) -> Vec<&str> {
     help.lines()

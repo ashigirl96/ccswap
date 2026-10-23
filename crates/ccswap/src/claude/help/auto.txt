@@ -1,7 +1,4 @@
-usage: {prog} auto [-h] [--once] [--json] [--interval SECONDS]
-                   [--threshold PCT] [--cooldown SECONDS] [--model NAMES]
-                   [--include-api-key-accounts | --no-include-api-key-accounts]
-                   [--strategy {best,consume-first}] [--dry-run] [--debug]
+{usage}
 
 Automatically switch accounts when the active one nears its 5h/7d rate limit. Runs a foreground polling loop; use --once for a single tick (cron-friendly).
 

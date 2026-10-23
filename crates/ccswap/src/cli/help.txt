@@ -1,6 +1,6 @@
 usage: {prog} <command> [args] [options]
 
-Multi-Account Switcher for Claude Code
+Multi-Account Switcher for Claude Code and Codex
 
 Claude Code accounts:
   {prog} claude list                list managed accounts
@@ -41,7 +41,8 @@ Codex CLI accounts (numbered apart from Claude Code accounts):
   {prog} codex list                 list managed Codex accounts
   {prog} codex switch [num|email]   switch the Codex login (next one without an argument)
   {prog} codex remove <num|email>   remove a Codex account
-  {prog} codex alias <num|email> <name>  set a Codex account's alias (--unset removes it)
+  {prog} codex alias <num|alias|email> <name>
+                                    set a Codex account's alias (--unset removes it)
   {prog} codex --help               show the Codex commands and options
 
 App commands:

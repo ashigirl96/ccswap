@@ -1,4 +1,4 @@
-usage: {prog} list [-h] [--token-status] [--json] [--debug]
+usage: {prog} claude list [-h] [--token-status] [--json] [--debug]
 
 List managed Claude Code accounts with their 5h and 7d usage.
 

@@ -669,7 +669,7 @@ fn help_lists_keys_and_verbs() {
     let out = env.run(["config", "--help"]);
     out.assert_code(0);
     assert!(out.stdout.starts_with(&format!(
-        "usage: {p} config [-h] [--json] [--debug] {{list,get,set,unset,path}} ...\n\nRead and edit"
+        "usage: {p} config [-h] [--json] [--debug] {{list,get,set,unset,path}} ...\n\nRead and edit ccswap settings (settings.json in the backup root)."
     )));
     assert!(out.stdout.contains(
         "\n  autoswitch.model                  Also switch on these models' weekly limits (e.g. Fable, Fable,Opus, or all) (default (none))\n"

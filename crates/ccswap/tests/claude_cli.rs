@@ -246,7 +246,7 @@ fn each_claude_verb_help_lists_only_its_own_options() {
             out.assert_code(0);
             assert!(
                 out.stdout
-                    .starts_with(&format!("usage: {PROG} {verb} [-h]")),
+                    .starts_with(&format!("usage: {PROG} claude {verb} [-h]")),
                 "{verb} {flag}: {}",
                 out.stdout
             );
@@ -277,8 +277,26 @@ fn bare_verb_help_matches_the_claude_verb_help() {
         assert_eq!(namespaced.stdout, bare.stdout, "{args:?}");
         assert!(
             bare.stdout
-                .starts_with(&format!("usage: {PROG} {verb} [-h]")),
+                .starts_with(&format!("usage: {PROG} claude {verb} [-h]")),
             "{args:?}: {}",
+            bare.stdout
+        );
+    }
+}
+
+#[test]
+fn every_claude_verb_help_names_the_claude_namespace() {
+    let env = TestEnv::new();
+    for verb in CLAUDE_VERBS {
+        let bare = env.run([verb, "--help"]);
+        let namespaced = env.run(["claude", verb, "--help"]);
+        bare.assert_code(0);
+        assert_eq!(namespaced.code, 0, "{verb}");
+        assert_eq!(namespaced.stdout, bare.stdout, "{verb}");
+        assert!(
+            bare.stdout
+                .starts_with(&format!("usage: {PROG} claude {verb} [-h]")),
+            "{verb}: {}",
             bare.stdout
         );
     }

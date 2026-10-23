@@ -1,4 +1,4 @@
-usage: {prog} add-token [-h] [--email EMAIL] [--slot NUM] [--debug] [TOKEN|-]
+usage: {prog} claude add-token [-h] [--email EMAIL] [--slot NUM] [--debug] [TOKEN|-]
 
 Register a setup-token (from 'claude setup-token') or an API key as a managed
 account.

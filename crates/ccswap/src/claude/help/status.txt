@@ -1,4 +1,4 @@
-usage: {prog} status [-h] [--json] [--debug]
+usage: {prog} claude status [-h] [--json] [--debug]
 
 Show the Claude Code account that is logged in now.
 

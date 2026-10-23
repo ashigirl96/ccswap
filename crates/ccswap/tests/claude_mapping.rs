@@ -270,7 +270,7 @@ fn map_and_unmap_help_and_usage_errors_follow_argparse() {
     let help = env.run(["map", "-h"]);
     help.assert_code(0);
     assert!(help.stdout.starts_with(&format!(
-        "usage: {p} map [-h] [--debug] [NUM|EMAIL] [PATH]\n\nMap a stored account"
+        "usage: {p} claude map [-h] [--debug] [NUM|EMAIL] [PATH]\n\nMap a stored account"
     )));
     assert!(help.stdout.contains(&format!(
         "  {p} map                           # list all mappings\n"
@@ -278,7 +278,7 @@ fn map_and_unmap_help_and_usage_errors_follow_argparse() {
     let help = env.run(["unmap", "--h"]);
     help.assert_code(0);
     assert!(help.stdout.starts_with(&format!(
-        "usage: {p} unmap [-h] [--debug] [PATH]\n\nRemove a directory → account mapping (default: current directory).\n"
+        "usage: {p} claude unmap [-h] [--debug] [PATH]\n\nRemove a directory → account mapping (default: current directory).\n"
     )));
 
     let out = env.run(["map", "a", "b", "c"]);

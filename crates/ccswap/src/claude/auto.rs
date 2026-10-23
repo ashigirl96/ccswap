@@ -34,12 +34,21 @@ const OPTS: &[Opt] = &[
     Opt::flag("--debug"),
 ];
 
-fn usage(prog: &str) -> String {
-    HELP.lines()
-        .take(4)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .replace("{prog}", prog)
+const USAGE_LINES: [&str; 4] = [
+    "[-h] [--once] [--json] [--interval SECONDS]",
+    "[--threshold PCT] [--cooldown SECONDS] [--model NAMES]",
+    "[--include-api-key-accounts | --no-include-api-key-accounts]",
+    "[--strategy {best,consume-first}] [--dry-run] [--debug]",
+];
+
+/// The usage of `command` (`ccswap auto` or `ccswap claude auto`), its
+/// lines aligned under the first option.
+fn usage(command: &str) -> String {
+    let indent = " ".repeat("usage: ".len() + command.len() + 1);
+    format!(
+        "usage: {command} {}",
+        USAGE_LINES.join(&format!("\n{indent}"))
+    )
 }
 
 fn overrides(parsed: &Parsed) -> CliOverrides {
@@ -79,12 +88,16 @@ fn human_line(style: &Style, event: &AutoSwitchEvent) -> String {
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let parsed = match (Parser { opts: OPTS }).parse(argv) {
         Ok((Outcome::Help, _)) => {
-            print!("{}", HELP.replace("{prog}", prog));
+            print!(
+                "{}",
+                HELP.replace("{usage}", &usage(&format!("{prog} claude auto")))
+                    .replace("{prog}", prog)
+            );
             return 0;
         }
         Ok((_, parsed)) => parsed,
         Err(ParseError(msg)) => {
-            eprintln!("{}", usage(prog));
+            eprintln!("{}", usage(&format!("{prog} auto")));
             eprintln!("{prog} auto: error: {msg}");
             return 2;
         }

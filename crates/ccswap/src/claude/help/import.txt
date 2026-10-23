@@ -1,4 +1,4 @@
-usage: {prog} import [-h] [--force] [--debug] PATH
+usage: {prog} claude import [-h] [--force] [--debug] PATH
 
 Import Claude Code accounts from a file written by 'export'.
 

@@ -1,4 +1,4 @@
-usage: {prog} disable [-h] [--debug] NUM|ALIAS|EMAIL
+usage: {prog} claude disable [-h] [--debug] NUM|ALIAS|EMAIL
 
 Hold a managed Claude Code account out of rotation and auto-switch. 'enable'
 returns it.

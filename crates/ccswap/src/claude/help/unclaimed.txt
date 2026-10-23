@@ -1,4 +1,4 @@
-usage: {prog} unclaimed [-h] [--purge ID] [--debug]
+usage: {prog} claude unclaimed [-h] [--purge ID] [--debug]
 
 List stashed credential entries, or purge one by id. Purging deletes the bytes
 — recovery is /login + `ccswap add`.

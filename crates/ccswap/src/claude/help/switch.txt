@@ -1,6 +1,6 @@
-usage: {prog} switch [-h] [--strategy {best,next-available}] [--model NAMES]
-                     [--force] [--json] [--debug]
-                     [NUM|ALIAS|EMAIL]
+usage: {prog} claude switch [-h] [--strategy {best,next-available}] [--model NAMES]
+                            [--force] [--json] [--debug]
+                            [NUM|ALIAS|EMAIL]
 
 Switch the Claude Code login to another managed account. Without an account,
 rotate to the next one in sequence.
