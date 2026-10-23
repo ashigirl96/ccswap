@@ -1,0 +1,16 @@
+[package]
+name = "ccswap-codex"
+description = "Codex CLI accounts of ccswap: ledger, login, switching, usage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ccswap-core.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+base64 = "0.22.1"
+tempfile = "3"

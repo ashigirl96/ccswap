@@ -1,6 +1,6 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
-use ccswap_core::codex::{
+use ccswap_codex::{
     CodexPaths, CodexStore, CodexUsage, LoginStdio, identifier_candidates, resolve_account, view,
 };
 use ccswap_core::console::Console;

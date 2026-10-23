@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::{Error, ErrorKind, Result};
-use crate::fsutil;
+use ccswap_core::error::{Error, ErrorKind, Result};
+use ccswap_core::fsutil;
 
 use super::identity::read_identity;
 use super::ledger::Ledger;

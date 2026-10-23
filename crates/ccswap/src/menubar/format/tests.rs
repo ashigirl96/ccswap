@@ -650,8 +650,8 @@ fn usage_summary_reflects_passed_weekly_reset() {
 
 #[test]
 fn a_codex_account_needing_a_login_says_so_in_codex_terms() {
-    let listing = ccswap_core::codex::CodexListing {
-        accounts: vec![ccswap_core::codex::ListedCodexAccount {
+    let listing = ccswap_codex::CodexListing {
+        accounts: vec![ccswap_codex::ListedCodexAccount {
             number: 1,
             email: "c@x.com".into(),
             alias: None,

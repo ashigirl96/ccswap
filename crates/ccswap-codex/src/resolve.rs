@@ -1,8 +1,8 @@
 //! A Codex account number from what the user typed, by the rules the Claude store
-//! follows (`crate::identifier`).
+//! follows (`ccswap_core::identifier`).
 
-use crate::error::{Error, ErrorKind, Result};
-use crate::identifier::{self, Candidate, Found};
+use ccswap_core::error::{Error, ErrorKind, Result};
+use ccswap_core::identifier::{self, Candidate, Found};
 
 use super::ledger::Ledger;
 
@@ -63,7 +63,7 @@ pub fn resolve_account(ledger: &Ledger, identifier: &str) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codex::LedgerAccount;
+    use crate::LedgerAccount;
 
     fn ledger(rows: &[(u32, &str, &str, Option<&str>)]) -> Ledger {
         let mut ledger = Ledger::default();

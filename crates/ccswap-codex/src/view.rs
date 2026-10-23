@@ -2,15 +2,14 @@
 
 use std::collections::HashMap;
 
-use serde_json::{Map, Value, json};
-
-use crate::poll_policy::SERVE_TTL_S;
-use crate::presentation::{SCHEMA_VERSION, Style};
-use crate::usage::Sentinel;
-use crate::usage_store::UsageEntry;
-use crate::usage_view::{
+use ccswap_core::poll_policy::SERVE_TTL_S;
+use ccswap_core::presentation::{SCHEMA_VERSION, Style};
+use ccswap_core::usage::Sentinel;
+use ccswap_core::usage_store::UsageEntry;
+use ccswap_core::usage_view::{
     format_age, format_usage_lines, insert_usage_fields, last_seen_note, usage_entry_lines,
 };
+use serde_json::{Map, Value, json};
 
 use super::login::LoginOutcome;
 use super::store::{AddOutcome, CodexListing};

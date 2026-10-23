@@ -17,7 +17,7 @@ use ccswap_claude::autoswitch::{
 use ccswap_claude::secret_store::{Keychain, SecretStore};
 use ccswap_claude::snapshot::SnapshotSource;
 use ccswap_claude::switcher::SwitchStrategy;
-use ccswap_core::codex::{
+use ccswap_codex::{
     AddOutcome, CodexPaths, CodexStore, CodexUsage, LoginOutcome, LoginStdio, SwitchOutcome,
 };
 use ccswap_core::console::Console;

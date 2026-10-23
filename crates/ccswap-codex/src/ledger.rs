@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use ccswap_core::error::{Error, Result};
 use serde_json::{Map, Value, json};
-
-use crate::error::{Error, Result};
 
 /// `codex/accounts.json`. Fields this build does not know are kept on rewrite.
 #[derive(Debug, Clone, Default, PartialEq)]

@@ -1,7 +1,6 @@
 use base64::Engine;
+use ccswap_core::error::{Error, ErrorKind, Result};
 use serde_json::Value;
-
-use crate::error::{Error, ErrorKind, Result};
 
 const AUTH_CLAIMS: &str = "https://api.openai.com/auth";
 const PROFILE_CLAIMS: &str = "https://api.openai.com/profile";

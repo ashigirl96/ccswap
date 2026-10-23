@@ -1,5 +1,4 @@
 pub mod appearance;
-pub mod codex;
 pub mod console;
 pub mod endpoints;
 pub mod env;

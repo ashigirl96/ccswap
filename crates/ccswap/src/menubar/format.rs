@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use ccswap_claude::snapshot::AccountsSnapshot;
-use ccswap_core::codex::{self, CodexListing};
+use ccswap_codex::CodexListing;
+use ccswap_codex::view::sentinel_note;
 use ccswap_core::pace::compute_pace;
 use ccswap_core::usage::parse_iso;
 use ccswap_core::usage_store::UsageEntry;
@@ -101,7 +102,7 @@ pub fn codex_accounts(
                 email: account.email.clone(),
                 is_active: account.active,
                 display: entry.map_or(DisplayUsage::Unavailable, |e| match e.sentinel {
-                    Some(s) => DisplayUsage::Note(codex::view::sentinel_note(s).to_string()),
+                    Some(s) => DisplayUsage::Note(sentinel_note(s).to_string()),
                     None => DisplayUsage::from_entry(e),
                 }),
                 last_good: entry.and_then(|e| e.last_good.clone()),
