@@ -67,7 +67,7 @@ const COMMANDS: &[Command] = &[
     },
     Command {
         names: &["alias"],
-        opts: &[],
+        opts: &[Opt::flag("--unset")],
         max_positionals: 2,
         run: alias,
     },
@@ -229,12 +229,22 @@ fn remove(context: &Context, parsed: &Parsed, args: &[String]) -> Result<Vec<Str
     )])
 }
 
-fn alias(context: &Context, _: &Parsed, args: &[String]) -> Result<Vec<String>, Error> {
-    let [identifier, name] = args else {
-        return Err(Error::new(
-            ErrorKind::ValidationError,
-            "alias needs an account number or email and a name (\"\" removes the alias)",
-        ));
+fn alias(context: &Context, parsed: &Parsed, args: &[String]) -> Result<Vec<String>, Error> {
+    let (identifier, name) = match (args, parsed.flag("--unset")) {
+        ([identifier], true) => (identifier, ""),
+        ([_, _], true) => {
+            return Err(Error::new(
+                ErrorKind::ValidationError,
+                "--unset does not take a name",
+            ));
+        }
+        ([identifier, name], false) => (identifier, name.as_str()),
+        _ => {
+            return Err(Error::new(
+                ErrorKind::ValidationError,
+                "alias needs an account number or email and a name (--unset removes the alias)",
+            ));
+        }
     };
     let (number, alias) = context.store.set_alias(identifier, name)?;
     Ok(vec![match alias {

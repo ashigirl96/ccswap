@@ -24,6 +24,8 @@ pub enum Command {
     Remove(String),
     RefreshCredentials,
     CodexSwitchTo(String),
+    /// Same as `ccswap codex switch` without an argument.
+    CodexSwitchNext,
     CodexAddFromLogin,
     CodexLogin,
     CodexRemove(String),
@@ -187,60 +189,40 @@ pub struct MenuInput<'a> {
 
 const NO_ACCOUNTS: &str = "No managed accounts";
 
+const CLAUDE: &str = "Claude Code";
+const CODEX: &str = "Codex";
+
 pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
-    let accounts = &input.snapshot.accounts;
+    let snapshot = input.snapshot;
+    let sections = [
+        provider_section(
+            CLAUDE,
+            &snapshot.accounts,
+            Command::SwitchTo,
+            claude_actions(&snapshot.accounts),
+            input.now,
+        ),
+        provider_section(
+            CODEX,
+            &snapshot.codex,
+            Command::CodexSwitchTo,
+            codex_actions(&snapshot.codex),
+            input.now,
+        ),
+    ];
     let mut menu = Vec::new();
-    for (i, a) in accounts.iter().enumerate() {
-        if i > 0 {
+    for section in sections.into_iter().flatten() {
+        if !menu.is_empty() {
             menu.push(Entry::Separator);
         }
-        menu.push(
-            Entry::action(
-                format_account_label(a, input.now),
-                Command::SwitchTo(a.number.clone()),
-            )
-            .check(a.is_active)
-            .card(account_card(a, input.now)),
-        );
+        menu.extend(section);
     }
     if menu.is_empty() {
         menu.push(Entry::label(NO_ACCOUNTS));
     }
-    let codex = &input.snapshot.codex;
-    if !codex.is_empty() {
-        menu.extend([Entry::Separator, Entry::label("Codex")]);
-    }
-    for (i, a) in codex.iter().enumerate() {
-        if i > 0 {
-            menu.push(Entry::Separator);
-        }
-        menu.push(
-            Entry::action(
-                format_account_label(a, input.now),
-                Command::CodexSwitchTo(a.number.clone()),
-            )
-            .check(a.is_active)
-            .card(account_card(a, input.now)),
-        );
-    }
     menu.extend([
         Entry::Separator,
-        Entry::action("Rotate to next", Command::Switch(None)),
-        Entry::action("Switch to best", Command::Switch(Some(Strategy::Best))),
-        Entry::action(
-            "Next available",
-            Command::Switch(Some(Strategy::NextAvailable)),
-        ),
-        Entry::Separator,
-        add_menu(codex.is_empty()),
-        disable_menu(input.snapshot),
-        remove_menu(input.snapshot),
-        Entry::action("Refresh current credentials", Command::RefreshCredentials),
-    ]);
-    if !codex.is_empty() {
-        menu.push(codex_menu(codex));
-    }
-    menu.extend([
+        add_menu(),
         history_menu(input.history),
         Entry::Separator,
         settings_menu(input.settings, input.threshold),
@@ -250,49 +232,82 @@ pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
     menu
 }
 
-/// Without Codex accounts the Codex submenu is hidden, so its add items live here
-/// for adding the first one.
-fn add_menu(without_codex: bool) -> Entry {
-    let mut entries = vec![
-        Entry::action("From current login", Command::AddFromLogin),
-        Entry::action("From setup-token…", Command::AddFromToken),
-    ];
-    if without_codex {
-        entries.extend([
-            Entry::Separator,
-            Entry::action(
-                "Add Codex account from current login",
-                Command::CodexAddFromLogin,
-            ),
-            Entry::action("Log in to a new Codex account…", Command::CodexLogin),
-        ]);
+/// `None` for a provider without accounts, whose section is hidden.
+fn provider_section(
+    heading: &str,
+    accounts: &[MenuAccount],
+    switch_to: fn(String) -> Command,
+    actions: Vec<Entry>,
+    now: f64,
+) -> Option<Vec<Entry>> {
+    if accounts.is_empty() {
+        return None;
     }
-    Entry::submenu("Add account", entries)
+    let mut section = vec![Entry::label(heading)];
+    for (i, a) in accounts.iter().enumerate() {
+        if i > 0 {
+            section.push(Entry::Separator);
+        }
+        section.push(
+            Entry::action(format_account_label(a, now), switch_to(a.number.clone()))
+                .check(a.is_active)
+                .card(account_card(a, now)),
+        );
+    }
+    section.extend([
+        Entry::Separator,
+        Entry::submenu(&format!("{heading} accounts"), actions),
+    ]);
+    Some(section)
 }
 
-fn codex_menu(accounts: &[MenuAccount]) -> Entry {
-    let remove = accounts
-        .iter()
-        .map(|a| {
-            Entry::action(
-                format!("{}  {}", a.number, a.name()),
-                Command::CodexRemove(a.number.clone()),
-            )
-        })
-        .collect();
+fn claude_actions(accounts: &[MenuAccount]) -> Vec<Entry> {
+    vec![
+        Entry::action("Rotate to next", Command::Switch(None)),
+        Entry::action("Switch to best", Command::Switch(Some(Strategy::Best))),
+        Entry::action(
+            "Next available",
+            Command::Switch(Some(Strategy::NextAvailable)),
+        ),
+        Entry::Separator,
+        Entry::action("Add from current login", Command::AddFromLogin),
+        Entry::action("Add from setup-token…", Command::AddFromToken),
+        disable_menu(accounts),
+        account_picker("Remove account", accounts, Command::Remove),
+        Entry::Separator,
+        Entry::action("Refresh current credentials", Command::RefreshCredentials),
+    ]
+}
+
+fn codex_actions(accounts: &[MenuAccount]) -> Vec<Entry> {
+    vec![
+        Entry::action("Rotate to next", Command::CodexSwitchNext),
+        Entry::Separator,
+        Entry::action("Add from current login", Command::CodexAddFromLogin),
+        Entry::action("Log in to a new account…", Command::CodexLogin),
+        account_picker("Remove account", accounts, Command::CodexRemove),
+    ]
+}
+
+/// Holds every provider's add items, so a provider whose section is hidden
+/// still has a way in for its first account.
+fn add_menu() -> Entry {
     Entry::submenu(
-        "Codex accounts",
+        "Add account",
         vec![
-            Entry::action("Add from current login", Command::CodexAddFromLogin),
+            Entry::label(CLAUDE),
+            Entry::action("From current login", Command::AddFromLogin),
+            Entry::action("From setup-token…", Command::AddFromToken),
+            Entry::Separator,
+            Entry::label(CODEX),
+            Entry::action("From current login", Command::CodexAddFromLogin),
             Entry::action("Log in to a new account…", Command::CodexLogin),
-            Entry::submenu("Remove account", remove),
         ],
     )
 }
 
-fn disable_menu(snapshot: &MenuSnapshot) -> Entry {
-    let mut entries: Vec<Entry> = snapshot
-        .accounts
+fn disable_menu(accounts: &[MenuAccount]) -> Entry {
+    let entries = accounts
         .iter()
         .map(|a| {
             Entry::action(
@@ -305,27 +320,20 @@ fn disable_menu(snapshot: &MenuSnapshot) -> Entry {
             .check(a.disabled)
         })
         .collect();
-    if entries.is_empty() {
-        entries.push(Entry::label(NO_ACCOUNTS));
-    }
     Entry::submenu("Disable / enable account", entries)
 }
 
-fn remove_menu(snapshot: &MenuSnapshot) -> Entry {
-    let mut entries: Vec<Entry> = snapshot
-        .accounts
+fn account_picker(title: &str, accounts: &[MenuAccount], command: fn(String) -> Command) -> Entry {
+    let entries = accounts
         .iter()
         .map(|a| {
             Entry::action(
                 format!("{}  {}", a.number, a.name()),
-                Command::Remove(a.number.clone()),
+                command(a.number.clone()),
             )
         })
         .collect();
-    if entries.is_empty() {
-        entries.push(Entry::label(NO_ACCOUNTS));
-    }
-    Entry::submenu("Remove account", entries)
+    Entry::submenu(title, entries)
 }
 
 fn history_menu(history: &[String]) -> Entry {

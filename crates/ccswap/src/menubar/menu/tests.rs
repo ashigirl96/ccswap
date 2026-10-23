@@ -107,40 +107,69 @@ fn codex_card(entries: &[Entry], number: &str) -> AccountCard {
         .unwrap_or_else(|| panic!("no Codex card for account {number}"))
 }
 
-#[test]
-fn codex_accounts_follow_the_claude_accounts_under_a_heading() {
-    let lines = render(&MenuInput {
-        snapshot: &with_codex(),
+fn render_snapshot(snapshot: &MenuSnapshot) -> Vec<String> {
+    render(&MenuInput {
+        snapshot,
         settings: &MenuBarSettings::default(),
         history: &[],
         threshold: 95,
         now: NOW,
-    });
-    let start = lines.iter().position(|l| l == "Codex").unwrap();
+    })
+}
+
+fn up_to_history(lines: &[String]) -> Vec<String> {
+    let end = lines.iter().position(|l| l == "Switch history ▸").unwrap();
+    lines[..end].to_vec()
+}
+
+#[test]
+fn each_provider_gets_a_section_of_heading_cards_and_actions() {
     assert_eq!(
-        lines[start - 2..start + 5],
+        up_to_history(&render_snapshot(&with_codex())),
         [
+            "Claude Code",
+            "✓ 1  work  (a@x.com)  5h 42% · 7d 18%",
+            "---",
             "2  b@x.com  (disabled)  5h 42% · 7d 18%",
+            "---",
+            "Claude Code accounts ▸",
+            "  Rotate to next",
+            "  Switch to best",
+            "  Next available",
+            "  ---",
+            "  Add from current login",
+            "  Add from setup-token…",
+            "  Disable / enable account ▸",
+            "    1  work  (a@x.com)",
+            "    ✓ 2  b@x.com",
+            "  Remove account ▸",
+            "    1  work  (a@x.com)",
+            "    2  b@x.com",
+            "  ---",
+            "  Refresh current credentials",
             "---",
             "Codex",
             "1  c@x.com  5h 10% (1h 5m) · 7d 20% (3d 2h)",
             "---",
             "✓ 2  plus  (d@x.com)  5h 5% · 7d 60%",
             "---",
-        ]
-    );
-    assert_eq!(lines[start + 5], "Rotate to next");
-    let tools = lines.iter().position(|l| l == "Codex accounts ▸").unwrap();
-    assert_eq!(lines[tools - 1], "Refresh current credentials");
-    assert_eq!(
-        lines[tools..tools + 6],
-        [
             "Codex accounts ▸",
+            "  Rotate to next",
+            "  ---",
             "  Add from current login",
             "  Log in to a new account…",
             "  Remove account ▸",
             "    1  c@x.com",
             "    2  plus  (d@x.com)",
+            "---",
+            "Add account ▸",
+            "  Claude Code",
+            "  From current login",
+            "  From setup-token…",
+            "  ---",
+            "  Codex",
+            "  From current login",
+            "  Log in to a new account…",
         ]
     );
 }
@@ -174,6 +203,7 @@ fn codex_entries_carry_codex_commands_apart_from_claude_ones() {
     let Entry::Submenu { entries, .. } = find(&menu, "Codex accounts") else {
         panic!()
     };
+    assert_eq!(command(entries, "Rotate to next"), Command::CodexSwitchNext);
     assert_eq!(
         command(entries, "Add from current login"),
         Command::CodexAddFromLogin
@@ -191,52 +221,68 @@ fn codex_entries_carry_codex_commands_apart_from_claude_ones() {
     );
 }
 
+fn only_codex() -> MenuSnapshot {
+    MenuSnapshot {
+        accounts: Vec::new(),
+        active_email: None,
+        active_alias: None,
+        ..with_codex()
+    }
+}
+
 #[test]
-fn without_codex_accounts_the_codex_add_items_sit_in_add_account() {
-    let lines = render(&MenuInput {
-        snapshot: &two_accounts(),
-        settings: &MenuBarSettings::default(),
-        history: &[],
-        threshold: 95,
-        now: NOW,
-    });
+fn without_claude_accounts_the_claude_section_is_hidden() {
+    assert_eq!(
+        up_to_history(&render_snapshot(&only_codex()))[..8],
+        [
+            "Codex",
+            "1  c@x.com  5h 10% (1h 5m) · 7d 20% (3d 2h)",
+            "---",
+            "✓ 2  plus  (d@x.com)  5h 5% · 7d 60%",
+            "---",
+            "Codex accounts ▸",
+            "  Rotate to next",
+            "  ---",
+        ]
+    );
     assert!(
-        !lines.iter().any(|l| l.contains("Codex accounts")),
-        "{lines:?}"
-    );
-    let menu = menu_for(&two_accounts());
-    let Entry::Submenu { entries, .. } = find(&menu, "Add account") else {
-        panic!()
-    };
-    assert_eq!(
-        command(entries, "Add Codex account from current login"),
-        Command::CodexAddFromLogin
-    );
-    assert_eq!(
-        command(entries, "Log in to a new Codex account…"),
-        Command::CodexLogin
+        !render_snapshot(&only_codex())
+            .iter()
+            .any(|l| l == "Claude Code accounts ▸" || l == "Claude Code")
     );
 }
 
 #[test]
-fn with_codex_accounts_add_account_holds_only_claude_items() {
-    let lines = render(&MenuInput {
-        snapshot: &with_codex(),
-        settings: &MenuBarSettings::default(),
-        history: &[],
-        threshold: 95,
-        now: NOW,
-    });
-    let add = lines.iter().position(|l| l == "Add account ▸").unwrap();
-    assert_eq!(
-        lines[add..add + 4],
-        [
-            "Add account ▸",
-            "  From current login",
-            "  From setup-token…",
-            "Disable / enable account ▸",
-        ]
-    );
+fn add_account_holds_both_providers_add_items_whatever_the_counts() {
+    for snapshot in [
+        MenuSnapshot::default(),
+        two_accounts(),
+        only_codex(),
+        with_codex(),
+    ] {
+        let menu = menu_for(&snapshot);
+        let Entry::Submenu { entries, .. } = find(&menu, "Add account") else {
+            panic!()
+        };
+        let commands: Vec<_> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Item {
+                    command: Some(c), ..
+                } => Some(c.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            commands,
+            [
+                Command::AddFromLogin,
+                Command::AddFromToken,
+                Command::CodexAddFromLogin,
+                Command::CodexLogin,
+            ]
+        );
+    }
 }
 
 fn find<'a>(entries: &'a [Entry], title: &str) -> &'a Entry {
@@ -259,7 +305,7 @@ fn command(entries: &[Entry], title: &str) -> Command {
 }
 
 #[test]
-fn full_menu_matches_upstream_layout() {
+fn without_codex_accounts_the_codex_section_is_hidden() {
     let snapshot = two_accounts();
     let settings = MenuBarSettings::default();
     let history = ["2 → 1   2026-06-27 02:10".to_string()];
@@ -273,27 +319,35 @@ fn full_menu_matches_upstream_layout() {
     assert_eq!(
         lines,
         [
+            "Claude Code",
             "✓ 1  work  (a@x.com)  5h 42% · 7d 18%",
             "---",
             "2  b@x.com  (disabled)  5h 42% · 7d 18%",
             "---",
-            "Rotate to next",
-            "Switch to best",
-            "Next available",
+            "Claude Code accounts ▸",
+            "  Rotate to next",
+            "  Switch to best",
+            "  Next available",
+            "  ---",
+            "  Add from current login",
+            "  Add from setup-token…",
+            "  Disable / enable account ▸",
+            "    1  work  (a@x.com)",
+            "    ✓ 2  b@x.com",
+            "  Remove account ▸",
+            "    1  work  (a@x.com)",
+            "    2  b@x.com",
+            "  ---",
+            "  Refresh current credentials",
             "---",
             "Add account ▸",
+            "  Claude Code",
             "  From current login",
             "  From setup-token…",
             "  ---",
-            "  Add Codex account from current login",
-            "  Log in to a new Codex account…",
-            "Disable / enable account ▸",
-            "  1  work  (a@x.com)",
-            "  ✓ 2  b@x.com",
-            "Remove account ▸",
-            "  1  work  (a@x.com)",
-            "  2  b@x.com",
-            "Refresh current credentials",
+            "  Codex",
+            "  From current login",
+            "  Log in to a new account…",
             "Switch history ▸",
             "  2 → 1   2026-06-27 02:10",
             "  ---",
@@ -340,10 +394,9 @@ fn empty_store_shows_placeholders() {
         threshold: 0,
         now: NOW,
     });
-    assert_eq!(lines[0], "No managed accounts");
+    assert_eq!(lines[..3], ["No managed accounts", "---", "Add account ▸"]);
+    assert!(!lines.iter().any(|l| l == "Claude Code" || l == "Codex"));
     let after = |title: &str| lines[lines.iter().position(|l| l == title).unwrap() + 1].clone();
-    assert_eq!(after("Disable / enable account ▸"), "  No managed accounts");
-    assert_eq!(after("Remove account ▸"), "  No managed accounts");
     assert_eq!(after("Switch history ▸"), "  No switches logged yet");
     for checked in [
         "    ✓ None",
@@ -372,17 +425,35 @@ fn entries_carry_their_commands() {
         command(&menu, "1  work  (a@x.com)  5h 42% · 7d 18%"),
         Command::SwitchTo("1".into())
     );
-    assert_eq!(command(&menu, "Rotate to next"), Command::Switch(None));
+    assert_eq!(command(&menu, "Quit"), Command::Quit);
+    let Entry::Submenu {
+        entries: actions, ..
+    } = find(&menu, "Claude Code accounts")
+    else {
+        panic!()
+    };
+    assert_eq!(command(actions, "Rotate to next"), Command::Switch(None));
     assert_eq!(
-        command(&menu, "Switch to best"),
+        command(actions, "Switch to best"),
         Command::Switch(Some(Strategy::Best))
     );
     assert_eq!(
-        command(&menu, "Next available"),
+        command(actions, "Next available"),
         Command::Switch(Some(Strategy::NextAvailable))
     );
-    assert_eq!(command(&menu, "Quit"), Command::Quit);
-    let Entry::Submenu { entries, .. } = find(&menu, "Disable / enable account") else {
+    assert_eq!(
+        command(actions, "Add from current login"),
+        Command::AddFromLogin
+    );
+    assert_eq!(
+        command(actions, "Add from setup-token…"),
+        Command::AddFromToken
+    );
+    assert_eq!(
+        command(actions, "Refresh current credentials"),
+        Command::RefreshCredentials
+    );
+    let Entry::Submenu { entries, .. } = find(actions, "Disable / enable account") else {
         panic!()
     };
     assert_eq!(
@@ -399,7 +470,7 @@ fn entries_carry_their_commands() {
             disabled: true
         }
     );
-    let Entry::Submenu { entries, .. } = find(&menu, "Remove account") else {
+    let Entry::Submenu { entries, .. } = find(actions, "Remove account") else {
         panic!()
     };
     assert_eq!(command(entries, "2  b@x.com"), Command::Remove("2".into()));

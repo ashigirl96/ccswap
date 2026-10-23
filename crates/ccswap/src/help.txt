@@ -10,7 +10,7 @@ Commands:
   {prog} switch <num|email>         switch to a specific account
   {prog} add                        add the current account
   {prog} add-token [TOKEN|-]        register a setup-token or API key
-  {prog} remove <num|email>         remove an account
+  {prog} remove <num|email> [-y]    remove an account (-y skips the prompt)
   {prog} disable <num|email>        hold an account out of auto-rotation
   {prog} enable <num|email>         return a disabled account to rotation
   {prog} run <num|email> [-- ...]   run as an account, this terminal only
@@ -34,7 +34,7 @@ Commands:
   {prog} menubar --install-service  keep the menu bar running via launchd
   {prog} widget --install           add the desktop widget (ccswap.app)
   {prog} upgrade                    self-upgrade to latest
-  {prog} purge                      remove all claude-swap data
+  {prog} purge                      remove all ccswap data (Claude Code and Codex)
 
 Codex CLI accounts (numbered apart from Claude accounts):
   {prog} codex add                  register the current Codex login
@@ -42,7 +42,7 @@ Codex CLI accounts (numbered apart from Claude accounts):
   {prog} codex list                 list managed Codex accounts
   {prog} codex switch [num|email]   switch the Codex login (next one without an argument)
   {prog} codex remove <num|email>   remove a Codex account
-  {prog} codex alias <num|email> <name>  set a Codex account's alias ("" removes it)
+  {prog} codex alias <num|email> <name>  set a Codex account's alias (--unset removes it)
   {prog} codex --help               show the Codex commands and options
 
 Aliases: ls=list  rm=remove  update=upgrade
@@ -79,6 +79,7 @@ options:
                         without backing up the current login first
   --full                Include full ~/.claude.json in export (default:
                         oauthAccount only)
+  -y, --yes             Remove without asking (use with 'remove')
   --install-service     With 'menubar': install a launchd LaunchAgent so the
                         menu bar starts at login and restarts on crash (macOS)
   --uninstall-service   With 'menubar': stop the LaunchAgent and remove its

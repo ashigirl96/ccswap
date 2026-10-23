@@ -15,7 +15,9 @@ Commands:
   {prog} codex remove <num|email>
                             remove a Codex account; the live login is left in place
   {prog} codex alias <num|email> <name>
-                            set a short alias; an empty name ("") removes it
+                            set a short alias
+  {prog} codex alias <num|email> --unset
+                            remove an account's alias (an empty name "" also does)
 
 Aliases: ls=list  rm=remove
 
@@ -23,4 +25,5 @@ options:
   -h, --help  show this help message and exit
   --json      Emit machine-readable JSON to stdout (use with 'list' or 'switch')
   -y, --yes   Remove without asking (use with 'remove')
+  --unset     Remove the alias (use with 'alias')
   --debug     Enable debug logging
