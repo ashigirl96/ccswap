@@ -649,6 +649,31 @@ fn usage_summary_reflects_passed_weekly_reset() {
 }
 
 #[test]
+fn a_codex_account_needing_a_login_says_so_in_codex_terms() {
+    let listing = ccswap_core::codex::CodexListing {
+        accounts: vec![ccswap_core::codex::ListedCodexAccount {
+            number: 1,
+            email: "c@x.com".into(),
+            alias: None,
+            plan: "plus".into(),
+            account_id: "acct-c".into(),
+            active: false,
+        }],
+    };
+    let entry = UsageEntry {
+        sentinel: Some(Sentinel::ReloginRequired),
+        ..Default::default()
+    };
+    let accounts = codex_accounts(&listing, &HashMap::from([(1, entry)]));
+    assert_eq!(
+        accounts[0].display,
+        DisplayUsage::Note(
+            "re-login needed — Codex could not refresh its token; run: ccswap codex login".into()
+        )
+    );
+}
+
+#[test]
 fn usage_summary_scoped_reflects_passed_weekly_reset() {
     let u = json!({"scoped": [{"name": "Fable", "pct": 100.0, "resets_at": iso(-86400.0)}]});
     assert_eq!(summary(u), "Fable 0% (6d 0h)");

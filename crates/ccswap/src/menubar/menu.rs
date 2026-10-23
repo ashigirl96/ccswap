@@ -23,6 +23,10 @@ pub enum Command {
     },
     Remove(String),
     RefreshCredentials,
+    CodexSwitchTo(String),
+    CodexAddFromLogin,
+    CodexLogin,
+    CodexRemove(String),
     OpenLog,
     ToggleAccountName,
     TitlePct(&'static str),
@@ -202,6 +206,23 @@ pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
     if menu.is_empty() {
         menu.push(Entry::label(NO_ACCOUNTS));
     }
+    let codex = &input.snapshot.codex;
+    if !codex.is_empty() {
+        menu.extend([Entry::Separator, Entry::label("Codex")]);
+    }
+    for (i, a) in codex.iter().enumerate() {
+        if i > 0 {
+            menu.push(Entry::Separator);
+        }
+        menu.push(
+            Entry::action(
+                format_account_label(a, input.now),
+                Command::CodexSwitchTo(a.number.clone()),
+            )
+            .check(a.is_active)
+            .card(account_card(a, input.now)),
+        );
+    }
     menu.extend([
         Entry::Separator,
         Entry::action("Rotate to next", Command::Switch(None)),
@@ -211,16 +232,15 @@ pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
             Command::Switch(Some(Strategy::NextAvailable)),
         ),
         Entry::Separator,
-        Entry::submenu(
-            "Add account",
-            vec![
-                Entry::action("From current login", Command::AddFromLogin),
-                Entry::action("From setup-token…", Command::AddFromToken),
-            ],
-        ),
+        add_menu(codex.is_empty()),
         disable_menu(input.snapshot),
         remove_menu(input.snapshot),
         Entry::action("Refresh current credentials", Command::RefreshCredentials),
+    ]);
+    if !codex.is_empty() {
+        menu.push(codex_menu(codex));
+    }
+    menu.extend([
         history_menu(input.history),
         Entry::Separator,
         settings_menu(input.settings, input.threshold),
@@ -228,6 +248,46 @@ pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
         Entry::action("Quit", Command::Quit),
     ]);
     menu
+}
+
+/// Without Codex accounts the Codex submenu is hidden, so its add items live here
+/// for adding the first one.
+fn add_menu(without_codex: bool) -> Entry {
+    let mut entries = vec![
+        Entry::action("From current login", Command::AddFromLogin),
+        Entry::action("From setup-token…", Command::AddFromToken),
+    ];
+    if without_codex {
+        entries.extend([
+            Entry::Separator,
+            Entry::action(
+                "Add Codex account from current login",
+                Command::CodexAddFromLogin,
+            ),
+            Entry::action("Log in to a new Codex account…", Command::CodexLogin),
+        ]);
+    }
+    Entry::submenu("Add account", entries)
+}
+
+fn codex_menu(accounts: &[MenuAccount]) -> Entry {
+    let remove = accounts
+        .iter()
+        .map(|a| {
+            Entry::action(
+                format!("{}  {}", a.number, a.name()),
+                Command::CodexRemove(a.number.clone()),
+            )
+        })
+        .collect();
+    Entry::submenu(
+        "Codex accounts",
+        vec![
+            Entry::action("Add from current login", Command::CodexAddFromLogin),
+            Entry::action("Log in to a new account…", Command::CodexLogin),
+            Entry::submenu("Remove account", remove),
+        ],
+    )
 }
 
 fn disable_menu(snapshot: &MenuSnapshot) -> Entry {

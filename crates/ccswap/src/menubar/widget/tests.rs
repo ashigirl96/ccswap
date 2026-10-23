@@ -30,6 +30,15 @@ fn snapshot(accounts: Vec<MenuAccount>) -> MenuSnapshot {
     }
 }
 
+fn feed_with_codex(accounts: Vec<MenuAccount>, codex: Vec<MenuAccount>) -> Value {
+    let snapshot = MenuSnapshot {
+        accounts,
+        codex,
+        ..Default::default()
+    };
+    feed(&snapshot, 90, 60, NOW)
+}
+
 fn feed_of(accounts: Vec<MenuAccount>) -> Value {
     feed(&snapshot(accounts), 90, 60, NOW)
 }
@@ -68,6 +77,66 @@ fn feed_carries_version_threshold_and_write_time() {
     assert_eq!(out["written_at"], NOW);
     assert_eq!(out["threshold"], 90);
     assert_eq!(out["accounts"], json!([]));
+}
+
+#[test]
+fn codex_accounts_are_listed_after_claude_in_the_same_shape() {
+    let usage = json!({"five_hour": {"pct": 30.0, "resets_at": iso(NOW + 600.0)}});
+    let mut plus = account("1", "", DisplayUsage::Measured(usage));
+    plus.email = "me@openai.example".into();
+    plus.is_active = true;
+    let team = account("2", "team", DisplayUsage::Note("log in again".into()));
+    let out = feed_with_codex(
+        vec![account("1", "work", DisplayUsage::Unavailable)],
+        vec![plus, team],
+    );
+    assert_eq!(out["accounts"][0]["label"], "work");
+    assert_eq!(
+        out["codex"],
+        json!([
+            {
+                "number": "1",
+                "label": "me",
+                "alias": null,
+                "email": "me@openai.example",
+                "active": true,
+                "disabled": false,
+                "note": null,
+                "windows": [
+                    {"name": "Current session", "pct": 30.0, "resets_at": NOW + 600.0},
+                ],
+            },
+            {
+                "number": "2",
+                "label": "team",
+                "alias": "team",
+                "email": "someone@example.com",
+                "active": false,
+                "disabled": false,
+                "note": "log in again",
+                "windows": [],
+            },
+        ])
+    );
+}
+
+#[test]
+fn without_codex_accounts_the_feed_has_no_codex_key() {
+    let out = feed_with_codex(
+        vec![account("1", "work", DisplayUsage::Unavailable)],
+        Vec::new(),
+    );
+    let mut keys: Vec<&str> = out
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["accounts", "stale_after", "threshold", "v", "written_at"]
+    );
 }
 
 #[test]
@@ -133,9 +202,38 @@ fn a_fresh_request_yields_its_account_and_is_consumed() {
         &dir,
         &format!(r#"{{"switch_to": "2", "at": {}}}"#, NOW - 5.0),
     );
-    assert_eq!(take_request(&path, NOW), Some("2".into()));
+    assert_eq!(
+        take_request(&path, NOW),
+        Some(Command::SwitchTo("2".into()))
+    );
     assert!(!path.exists());
     assert_eq!(take_request(&path, NOW), None);
+}
+
+#[test]
+fn a_codex_request_switches_the_codex_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = request(
+        &dir,
+        &format!(r#"{{"switch_to": "3", "provider": "codex", "at": {NOW}}}"#),
+    );
+    assert_eq!(
+        take_request(&path, NOW),
+        Some(Command::CodexSwitchTo("3".into()))
+    );
+}
+
+#[test]
+fn a_claude_provider_request_switches_the_claude_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = request(
+        &dir,
+        &format!(r#"{{"switch_to": "3", "provider": "claude", "at": {NOW}}}"#),
+    );
+    assert_eq!(
+        take_request(&path, NOW),
+        Some(Command::SwitchTo("3".into()))
+    );
 }
 
 #[test]
@@ -146,6 +244,9 @@ fn stale_or_malformed_requests_are_dropped() {
         format!(r#"{{"switch_to": "../2", "at": {NOW}}}"#),
         format!(r#"{{"switch_to": "", "at": {NOW}}}"#),
         r#"{"switch_to": "2"}"#.to_string(),
+        format!(r#"{{"switch_to": "2", "provider": "gemini", "at": {NOW}}}"#),
+        format!(r#"{{"switch_to": "2", "provider": 1, "at": {NOW}}}"#),
+        format!(r#"{{"switch_to": "../2", "provider": "codex", "at": {NOW}}}"#),
         "not json".to_string(),
     ] {
         let path = request(&dir, &body);

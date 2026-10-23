@@ -20,8 +20,15 @@
 //! - Use timestamps relative to now; the clock is never faked.
 //! - [`TestEnv::cmd`] adds env vars, stdin or `.sudo()`.
 //! - `CLAUDE_CONFIG_DIR` is unset unless [`TestEnv::use_custom_config_dir`] is called.
+//! - Codex: `CODEX_HOME` is unset (live auth is `~/.codex/auth.json`) unless
+//!   [`TestEnv::use_custom_codex_home`] is called; see `support/codex.rs`.
 
 #![allow(dead_code)]
+
+mod codex;
+
+#[allow(unused_imports)]
+pub use codex::{CodexAuth, CodexCall, FakeCodex};
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -40,7 +47,8 @@ pub const ACTIVE_OAUTH_SERVICE: &str = "Claude Code-credentials";
 pub const MANAGED_KEY_SERVICE: &str = "Claude Code";
 
 pub const SECURITY_ENV: &str = "CCSWAP_SECURITY_PATH";
-pub const HTTP_ENVS: [(&str, &str); 3] = [
+pub const HTTP_ENVS: [(&str, &str); 4] = [
+    ("CCSWAP_CODEX_API_BASE_URL", ""),
     ("CCSWAP_API_BASE_URL", ""),
     ("CCSWAP_OAUTH_TOKEN_URL", "/v1/oauth/token"),
     ("CCSWAP_UPDATE_CHECK_URL", "/update-check"),
@@ -61,8 +69,10 @@ pub struct TestEnv {
     root: tempfile::TempDir,
     home: PathBuf,
     config_dir: Option<PathBuf>,
+    codex_home: Option<PathBuf>,
     security: FakeSecurity,
     claude: FakeClaude,
+    codex: FakeCodex,
     launchctl: FakeLaunchctl,
     http: StubServer,
 }
@@ -84,14 +94,17 @@ impl TestEnv {
         mkdir_private(&home.join(".claude"));
         let security = FakeSecurity::install(&base.join("fake-security"));
         let claude = FakeClaude::install(&base.join("fake-claude"));
+        let codex = FakeCodex::install(&base.join("fake-codex"));
         let launchctl = FakeLaunchctl::install(&base.join("fake-launchctl"));
         let http = StubServer::start();
         TestEnv {
             root,
             home,
             config_dir: None,
+            codex_home: None,
             security,
             claude,
+            codex,
             launchctl,
             http,
         }
@@ -143,6 +156,10 @@ impl TestEnv {
 
     pub fn launchctl(&self) -> &FakeLaunchctl {
         &self.launchctl
+    }
+
+    pub fn codex(&self) -> &FakeCodex {
+        &self.codex
     }
 
     pub fn claude_bin_dir(&self) -> &Path {
@@ -240,8 +257,9 @@ impl TestEnv {
         vars.insert(
             "PATH".into(),
             format!(
-                "{}:{}:{inherited_path}",
+                "{}:{}:{}:{inherited_path}",
                 self.claude.bin_dir.display(),
+                self.codex.bin_dir.display(),
                 self.launchctl.bin_dir.display()
             ),
         );
@@ -257,6 +275,9 @@ impl TestEnv {
         }
         if let Some(dir) = &self.config_dir {
             vars.insert("CLAUDE_CONFIG_DIR".into(), dir.display().to_string());
+        }
+        if let Some(dir) = &self.codex_home {
+            vars.insert("CODEX_HOME".into(), dir.display().to_string());
         }
         vars
     }
@@ -287,6 +308,10 @@ pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(
         Some(found) if found.starts_with(root) => {}
         found => return Err(format!("launchctl on PATH is not the fake: {found:?}")),
     }
+    match on_path("codex") {
+        Some(found) if found.starts_with(root) => {}
+        found => return Err(format!("codex on PATH is not the fake: {found:?}")),
+    }
     match on_path("claude") {
         Some(found) if !found.starts_with(root) => {
             return Err(format!("claude on PATH is not the fake: {found:?}"));
@@ -296,6 +321,8 @@ pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(
     for name in [
         "CLAUDE_CONFIG_DIR",
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CODEX_HOME",
+        "CCSWAP_TEST_CODEX_SWITCH_HOOK",
         "XDG_DATA_HOME",
     ] {
         if vars.contains_key(name) {

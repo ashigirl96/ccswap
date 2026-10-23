@@ -134,6 +134,9 @@ impl Cli {
             eprintln!("{warning}");
         }
         presentation::probe_cli_background(&self.env, &Paths::new(&self.env), &args);
+        if args.first().is_some_and(|v| v == "codex") {
+            return crate::codex_cmd::run(&self.prog, &self.env, &args[1..]);
+        }
         if args.first().is_some_and(|v| v == "config") {
             return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
         }

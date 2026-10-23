@@ -1,7 +1,8 @@
-//! One binary hard-linked as `security`, `claude` and `launchctl`; the name it
+//! One binary linked as `security`, `claude`, `codex` and `launchctl`; the name it
 //! is run under picks the fake, and `<bin dir>/../state` holds its state.
 
 mod claude;
+mod codex;
 mod launchctl;
 #[allow(dead_code)]
 #[path = "../../ccswap-core/src/pyjson.rs"]
@@ -49,6 +50,7 @@ fn main() {
     let reply = std::panic::catch_unwind(|| match name.as_str() {
         "security" => security::main(&state, &args),
         "claude" => claude::main(&state, &args),
+        "codex" => codex::main(&state, &args),
         "launchctl" => launchctl::main(&state, &args),
         other => Reply {
             exit: 2,

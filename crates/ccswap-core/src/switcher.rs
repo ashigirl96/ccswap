@@ -11,6 +11,7 @@ use crate::anthropic_client::{self, AnthropicClient, Profile};
 use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
+use crate::identifier::{self, Picker};
 use crate::locks::{self, STORE_LOCK_TIMEOUT, StoreLock};
 use crate::log;
 use crate::paths::Paths;
@@ -602,24 +603,15 @@ impl Switcher<'_> {
         }
         store::read_sequence_migrated(self.paths)?;
 
-        let mut identifier = identifier.to_string();
-        if !store::is_slot_number(&identifier) {
-            let data = self.roster()?;
-            let is_alias = store::find_account_by_alias(&data, &identifier).is_some();
-            if !is_alias && !store::is_valid_email(&identifier) {
-                return Err(Error::new(
-                    ErrorKind::ValidationError,
-                    format!("Invalid account identifier: {identifier}"),
-                ));
-            }
-            if !json && !is_alias {
-                match self.choose_among_same_email(&data, &identifier, console) {
-                    Choice::Unambiguous => {}
-                    Choice::Picked(num) => identifier = num,
-                    Choice::Cancelled => return Ok(None),
-                }
-            }
-        }
+        let candidates = store::identifier_candidates(&self.roster()?);
+        let picker = (!json).then_some(Picker {
+            console: &mut *console,
+            style: self.style,
+            action: "switch to",
+        });
+        let Some(identifier) = identifier::screen(&candidates, identifier, picker)? else {
+            return Ok(None);
+        };
 
         let data = self.roster()?;
         let target =
@@ -691,44 +683,6 @@ impl Switcher<'_> {
             );
         }
         Ok(Some(report))
-    }
-
-    fn choose_among_same_email(
-        &self,
-        data: &JsonObject,
-        email: &str,
-        console: &mut dyn Console,
-    ) -> Choice {
-        let matches: Vec<(&String, &Value)> = store::accounts(data)
-            .into_iter()
-            .flatten()
-            .filter(|(_, r)| r.get("email").and_then(Value::as_str) == Some(email))
-            .collect();
-        if matches.len() < 2 {
-            return Choice::Unambiguous;
-        }
-        console.line(&format!("Multiple accounts found for '{email}':"));
-        for (num, record) in &matches {
-            let org = record
-                .get("organizationName")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            console.line(&format!(
-                "  {num}: {email} {}",
-                self.style
-                    .muted(&format!("[{}]", crate::accounts::display_tag(org)))
-            ));
-        }
-        let choice = console
-            .prompt("Enter account number to switch to: ")
-            .map(|c| c.trim().to_string())
-            .unwrap_or_default();
-        if store::is_slot_number(&choice) && matches.iter().any(|(num, _)| **num == choice) {
-            Choice::Picked(choice)
-        } else {
-            console.line(&self.style.dimmed("Cancelled"));
-            Choice::Cancelled
-        }
     }
 
     /// `force` activates the target's stored login without backing up the
@@ -1545,12 +1499,6 @@ impl Switcher<'_> {
     fn roster(&self) -> Result<JsonObject> {
         Ok(store::read_sequence(self.paths)?.unwrap_or_default())
     }
-}
-
-enum Choice {
-    Unambiguous,
-    Picked(String),
-    Cancelled,
 }
 
 /// The credential to activate: the target slot's login with the live
