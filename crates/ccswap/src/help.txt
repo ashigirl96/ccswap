@@ -38,7 +38,10 @@ Commands:
 
 Codex CLI accounts (numbered apart from Claude accounts):
   {prog} codex add                  register the current Codex login
+  {prog} codex login                log in to another Codex account and add it
   {prog} codex list                 list managed Codex accounts
+  {prog} codex remove <num|email>   remove a Codex account
+  {prog} codex alias <num|email> <name>  set a Codex account's alias ("" removes it)
   {prog} codex --help               show the Codex commands and options
 
 Aliases: ls=list  rm=remove  update=upgrade

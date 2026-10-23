@@ -1,5 +1,5 @@
 //! Fake `codex`. State files under `<state>`:
-//! - `calls.jsonl`: one `{argv, codexHome, cwd}` per run.
+//! - `calls.jsonl`: one `{argv, codexHome, codexHomeExisted, cwd}` per run.
 //! - `responses.json`: `{"<argv joined by spaces>": {stdout, stderr, exit}}`, checked first.
 //! - `login.json`: queue of `{auth?, stdout, stderr, exit}`; each `login` pops one and
 //!   writes `auth` to `$CODEX_HOME/auth.json` (0600).
@@ -32,6 +32,7 @@ pub fn main(state: &Path, args: &[String]) -> Reply {
     let record = json!({
         "argv": args,
         "codexHome": codex_home.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        "codexHomeExisted": codex_home.as_ref().is_some_and(|p| p.is_dir()),
         "cwd": cwd.to_string_lossy(),
     });
     append_line(

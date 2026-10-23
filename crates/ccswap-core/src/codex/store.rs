@@ -1,10 +1,12 @@
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
+use crate::store;
 
 use super::identity::{CodexIdentity, read_identity};
 use super::ledger::{Ledger, LedgerAccount};
 use super::paths::CodexPaths;
+use super::resolve::resolve_account;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddOutcome {
@@ -113,7 +115,7 @@ impl CodexStore {
                     identity: identity.clone(),
                 });
             }
-            let number = ledger.next_number();
+            let number = self.next_free_number(ledger);
             self.write_managed(number, &live)?;
             ledger.insert(number, new_account(&identity));
             ledger.active = Some(number);
@@ -143,6 +145,60 @@ impl CodexStore {
         Ok(Some(number))
     }
 
+    /// Drops the ledger row and the managed home, never the live `auth.json`.
+    /// Resolved under the lock, so a row another process removed meanwhile is reported, not recreated.
+    pub fn remove(&self, identifier: &str) -> Result<(u32, LedgerAccount)> {
+        self.update(|ledger| {
+            let number = resolve_account(ledger, identifier)?;
+            let account = ledger
+                .accounts
+                .remove(&number)
+                .expect("resolve_account returns a present row");
+            ledger.sequence.retain(|n| *n != number);
+            if ledger.active == Some(number) {
+                ledger.active = None;
+            }
+            let home = self.paths.managed_home(number);
+            match std::fs::remove_dir_all(&home) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(Error::new(
+                        ErrorKind::CredentialWriteError,
+                        format!("Could not remove {}: {e}", home.display()),
+                    ));
+                }
+            }
+            Ok((number, account))
+        })
+    }
+
+    /// Sets the alias, or clears it when `alias` is empty; returns the number and the stored alias.
+    pub fn set_alias(&self, identifier: &str, alias: &str) -> Result<(u32, Option<String>)> {
+        let normalized = if alias.trim().is_empty() {
+            None
+        } else {
+            Some(store::normalize_alias(alias)?)
+        };
+        self.update(|ledger| {
+            let number = resolve_account(ledger, identifier)?;
+            if let Some(wanted) = &normalized
+                && let Some((other, _)) = ledger
+                    .accounts
+                    .iter()
+                    .find(|(n, a)| **n != number && a.alias.as_deref() == Some(wanted.as_str()))
+            {
+                return Err(Error::config(format!(
+                    "Alias '{wanted}' is already used by Codex account {other}"
+                )));
+            }
+            if let Some(account) = ledger.accounts.get_mut(&number) {
+                account.alias = normalized.clone();
+            }
+            Ok((number, normalized.clone()))
+        })
+    }
+
     pub fn list(&self) -> Result<CodexListing> {
         let ledger = self.ledger()?;
         let live_owner = self
@@ -164,6 +220,15 @@ impl CodexStore {
             })
             .collect();
         Ok(CodexListing { accounts })
+    }
+
+    /// The ledger's next number, skipping homes that exist without a row (a `codex login` in progress).
+    pub(super) fn next_free_number(&self, ledger: &Ledger) -> u32 {
+        let mut number = ledger.next_number();
+        while self.paths.managed_home(number).exists() {
+            number += 1;
+        }
+        number
     }
 
     fn write_ledger(&self, ledger: &Ledger) -> Result<()> {

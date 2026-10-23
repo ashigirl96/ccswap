@@ -9,6 +9,7 @@ use crate::presentation::{SCHEMA_VERSION, Style};
 use crate::usage_store::UsageEntry;
 use crate::usage_view::{format_age, format_usage_lines, insert_usage_fields, usage_entry_lines};
 
+use super::login::LoginOutcome;
 use super::store::{AddOutcome, CodexListing};
 use super::usage::WINDOWS;
 
@@ -138,6 +139,22 @@ pub fn add_lines(outcome: &AddOutcome, style: &Style) -> Vec<String> {
         )],
         AddOutcome::AlreadyManaged { number, identity } => vec![style.yellowed(&format!(
             "Codex account {} is already managed as {number}. Nothing was added.",
+            display_email(&identity.email)
+        ))],
+    }
+}
+
+pub fn login_lines(outcome: &LoginOutcome, style: &Style) -> Vec<String> {
+    match outcome {
+        LoginOutcome::Added { number, identity } => add_lines(
+            &AddOutcome::Added {
+                number: *number,
+                identity: identity.clone(),
+            },
+            style,
+        ),
+        LoginOutcome::Updated { number, identity } => vec![style.yellowed(&format!(
+            "Codex account {} is already managed as {number}. Updated its stored login.",
             display_email(&identity.email)
         ))],
     }
