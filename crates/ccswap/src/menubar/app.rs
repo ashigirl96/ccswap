@@ -309,8 +309,8 @@ impl Target {
         }
         self.detect_active_change();
         self.drain_engine_events();
-        if let Some(number) = widget::take_request(&c.widget_request_path, now_secs()) {
-            self.run_command(Command::SwitchTo(number));
+        if let Some(command) = widget::take_request(&c.widget_request_path, now_secs()) {
+            self.run_command(command);
         }
     }
 

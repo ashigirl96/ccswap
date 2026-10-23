@@ -11,6 +11,7 @@ use super::format::{
     DisplayUsage, MenuAccount, MenuSnapshot, local_part, named_pct, pct_of, resets_at_ts,
     rolled_weekly_window, scoped_windows,
 };
+use super::menu::Command;
 
 pub const DIRNAME: &str = "widget";
 pub const FEED_FILENAME: &str = "feed.json";
@@ -22,7 +23,7 @@ const MIN_STALE_AFTER_S: i64 = 300;
 const REQUEST_MAX_AGE_S: f64 = 60.0;
 
 pub fn feed(snapshot: &MenuSnapshot, threshold: i64, refresh_interval: i64, now: f64) -> Value {
-    json!({
+    let mut out = json!({
         "v": FEED_VERSION,
         "written_at": now,
         "stale_after": (refresh_interval * 3).max(MIN_STALE_AFTER_S),
@@ -32,7 +33,12 @@ pub fn feed(snapshot: &MenuSnapshot, threshold: i64, refresh_interval: i64, now:
             .iter()
             .map(|a| account(a, now))
             .collect::<Vec<_>>(),
-    })
+    });
+    // Left out when empty so a feed without Codex is exactly the v1 feed.
+    if !snapshot.codex.is_empty() {
+        out["codex"] = snapshot.codex.iter().map(|a| account(a, now)).collect();
+    }
+    out
 }
 
 fn account(a: &MenuAccount, now: f64) -> Value {
@@ -84,9 +90,9 @@ fn window(name: &str, w: &Value) -> Option<Value> {
     }))
 }
 
-/// Consumes the widget's pending switch request; the account number when it
-/// is fresh and well-formed.
-pub fn take_request(path: &Path, now: f64) -> Option<String> {
+/// Consumes the widget's pending switch request; the switch to run when it
+/// is fresh and well-formed. A request without `provider` is a Claude one.
+pub fn take_request(path: &Path, now: f64) -> Option<Command> {
     let text = std::fs::read_to_string(path).ok()?;
     let _ = std::fs::remove_file(path);
     let request: Value = serde_json::from_str(&text).ok()?;
@@ -94,7 +100,15 @@ pub fn take_request(path: &Path, now: f64) -> Option<String> {
     let number = request.get("switch_to")?.as_str()?;
     let fresh = (now - at).abs() <= REQUEST_MAX_AGE_S;
     let valid = !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit());
-    (fresh && valid).then(|| number.to_string())
+    if !(fresh && valid) {
+        return None;
+    }
+    let number = number.to_string();
+    match request.get("provider").map(Value::as_str) {
+        None | Some(Some("claude")) => Some(Command::SwitchTo(number)),
+        Some(Some("codex")) => Some(Command::CodexSwitchTo(number)),
+        Some(_) => None,
+    }
 }
 
 #[cfg(test)]

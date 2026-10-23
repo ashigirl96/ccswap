@@ -89,12 +89,18 @@ struct UsageBar: View {
 }
 
 struct AccountColumn: View {
-    let account: Feed.Account
+    let column: Feed.Column
+    private var account: Feed.Account { column.account }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.label).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(account.label).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                    if column.provider == .codex {
+                        Text("Codex").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    }
+                }
                 status
             }
             if account.disabled {
@@ -132,7 +138,7 @@ struct AccountColumn: View {
                 .frame(maxWidth: .infinity, minHeight: 32)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Palette.track))
         } else if !account.disabled {
-            Button(intent: SwitchAccountIntent(number: account.number)) {
+            Button(intent: SwitchAccountIntent(number: account.number, provider: column.provider)) {
                 switchLabel
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(account.limited ? Palette.secondary : .white)
@@ -182,14 +188,31 @@ struct CcswapWidgetView: View {
         .containerBackground(Palette.background, for: .widget)
     }
 
+    /// Claude keeps its four columns until Codex needs room; then the row
+    /// widens to five and Codex keeps at least two.
+    private func shownColumns(_ feed: Feed) -> [Feed.Column] {
+        func activeFirst(_ provider: Feed.ProviderKind) -> [Feed.Column] {
+            let accounts = feed.accounts(of: provider)
+            return (accounts.filter(\.active) + accounts.filter { !$0.active })
+                .map { Feed.Column(provider: provider, account: $0) }
+        }
+        let claude = activeFirst(.claude)
+        let codex = activeFirst(.codex)
+        if codex.isEmpty {
+            return Array(claude.prefix(4))
+        }
+        let codexShown = codex.prefix(max(2, 5 - min(claude.count, 4)))
+        return Array(claude.prefix(min(4, 5 - codexShown.count))) + codexShown
+    }
+
     private func columns(_ feed: Feed) -> some View {
-        let shown = Array((feed.accounts.filter(\.active) + feed.accounts.filter { !$0.active }).prefix(4))
+        let shown = shownColumns(feed)
         return HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(shown.enumerated()), id: \.element.id) { index, account in
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, column in
                 if index > 0 {
                     Rectangle().fill(Palette.divider).frame(width: 1)
                 }
-                AccountColumn(account: account)
+                AccountColumn(column: column)
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

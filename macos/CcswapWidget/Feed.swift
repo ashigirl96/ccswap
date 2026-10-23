@@ -6,16 +6,36 @@ struct Feed: Decodable {
     let staleAfter: Double
     let threshold: Int
     let accounts: [Account]
+    /// Absent when no Codex account is managed.
+    let codex: [Account]?
 
-    struct Account: Decodable, Identifiable {
+    enum ProviderKind: String {
+        case claude
+        case codex
+    }
+
+    struct Account: Decodable {
         let number: String
         let label: String
         let active: Bool
         let disabled: Bool
         let note: String?
         let windows: [Window]
+    }
 
-        var id: String { number }
+    /// Claude and Codex numbers are separate spaces, so a column is keyed by both.
+    struct Column: Identifiable {
+        let provider: ProviderKind
+        let account: Account
+
+        var id: String { "\(provider.rawValue)-\(account.number)" }
+    }
+
+    func accounts(of provider: ProviderKind) -> [Account] {
+        switch provider {
+        case .claude: accounts
+        case .codex: codex ?? []
+        }
     }
 
     struct Window: Decodable, Identifiable {
