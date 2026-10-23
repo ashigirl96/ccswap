@@ -1,6 +1,7 @@
 pub mod argparse;
 pub mod argv;
 pub mod config;
+pub mod namespace;
 pub mod purge;
 
 use std::io::{IsTerminal, Write};
@@ -81,19 +82,9 @@ const COMMAND_FLAGS: &[&str] = &[
     "--add-token",
 ];
 
+/// The app verbs the global parser reads; Claude Code's are in [`crate::claude::VERBS`].
 const SUBCOMMAND_FLAGS: &[(&str, &str)] = &[
     ("help", "--help"),
-    ("list", "--list"),
-    ("ls", "--list"),
-    ("status", "--status"),
-    ("add", "--add-account"),
-    ("add-token", "--add-token"),
-    ("remove", "--remove-account"),
-    ("rm", "--remove-account"),
-    ("disable", "--disable-account"),
-    ("enable", "--enable-account"),
-    ("export", "--export"),
-    ("import", "--import"),
     ("purge", "--purge"),
     ("upgrade", "--upgrade"),
     ("update", "--upgrade"),
@@ -114,14 +105,16 @@ const VERB_HELP: VerbHelp = &[
 /// which would read `remove --help` as `--remove-account` missing its value.
 fn verb_help(args: &[String]) -> Option<&'static str> {
     let (verb, rest) = args.split_first()?;
-    let (_, help) = [crate::claude::VERB_HELP, VERB_HELP, crate::ui::VERB_HELP]
+    let claude = crate::claude::VERBS
         .iter()
-        .flat_map(|table| table.iter())
+        .filter_map(|v| Some((v.names, v.help?)));
+    let (_, help) = claude
+        .chain(VERB_HELP.iter().chain(crate::ui::VERB_HELP).copied())
         .find(|(names, _)| names.contains(&verb.as_str()))?;
     rest.iter()
         .take_while(|arg| *arg != "--")
         .any(|arg| arg == "-h" || arg == "--help")
-        .then_some(*help)
+        .then_some(help)
 }
 
 pub fn prog_name(argv0: Option<&str>) -> String {
@@ -160,8 +153,8 @@ impl Cli {
         let args = match args.split_first() {
             Some((namespace, rest)) if namespace == "claude" => {
                 match crate::claude::resolve(&self.prog, rest) {
-                    crate::claude::Resolved::Bare(bare) => bare,
-                    crate::claude::Resolved::Exit(code) => return code,
+                    Ok(bare) => bare,
+                    Err(code) => return code,
                 }
             }
             _ => args,
@@ -478,8 +471,12 @@ fn translate_subcommand(args: Vec<String>) -> Vec<String> {
             .chain(rest.iter().cloned())
             .collect();
     }
-    match SUBCOMMAND_FLAGS.iter().find(|(v, _)| v == verb) {
-        Some((_, flag)) => std::iter::once(flag.to_string())
+    let flag = match SUBCOMMAND_FLAGS.iter().find(|(v, _)| v == verb) {
+        Some((_, flag)) => Some(*flag),
+        None => crate::claude::find(verb).and_then(|v| v.flag),
+    };
+    match flag {
+        Some(flag) => std::iter::once(flag.to_string())
             .chain(rest.iter().cloned())
             .collect(),
         None => args,
