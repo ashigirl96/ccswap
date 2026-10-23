@@ -113,7 +113,7 @@ impl CodexStore {
                     identity: identity.clone(),
                 });
             }
-            let number = ledger.next_number();
+            let number = self.next_free_number(ledger);
             self.write_managed(number, &live)?;
             ledger.insert(number, new_account(&identity));
             ledger.active = Some(number);
@@ -145,6 +145,15 @@ impl CodexStore {
             })
             .collect();
         Ok(CodexListing { accounts })
+    }
+
+    /// The ledger's next number, skipping homes that exist without a row (a `codex login` in progress).
+    pub(super) fn next_free_number(&self, ledger: &Ledger) -> u32 {
+        let mut number = ledger.next_number();
+        while self.paths.managed_home(number).exists() {
+            number += 1;
+        }
+        number
     }
 
     fn write_ledger(&self, ledger: &Ledger) -> Result<()> {

@@ -238,6 +238,8 @@ pub struct FakeCodex {
 pub struct CodexCall {
     pub argv: Vec<String>,
     pub codex_home: Option<String>,
+    /// `CODEX_HOME` was a directory when codex started.
+    pub codex_home_existed: bool,
     pub cwd: String,
 }
 
@@ -282,6 +284,7 @@ impl FakeCodex {
             .map(|c| CodexCall {
                 argv: serde_json::from_value(c["argv"].clone()).unwrap(),
                 codex_home: c["codexHome"].as_str().map(str::to_string),
+                codex_home_existed: c["codexHomeExisted"].as_bool().unwrap_or(false),
                 cwd: c["cwd"].as_str().unwrap().to_string(),
             })
             .collect()
