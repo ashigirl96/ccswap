@@ -2,14 +2,20 @@ usage: {prog} codex <command> [options]
 
 Manage Codex CLI (ChatGPT) accounts. Codex accounts are numbered on their own,
 apart from Claude accounts, and stored under ~/.claude-swap-backup/codex/.
+An account is named by its number, alias or email.
 
 Commands:
   {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
   {prog} codex list         list managed Codex accounts
+  {prog} codex remove <num|email>
+                            remove a Codex account; the live login is left in place
+  {prog} codex alias <num|email> <name>
+                            set a short alias; an empty name ("") removes it
 
-Aliases: ls=list
+Aliases: ls=list  rm=remove
 
 options:
   -h, --help  show this help message and exit
   --json      Emit machine-readable JSON to stdout (use with 'list')
+  -y, --yes   Remove without asking (use with 'remove')
   --debug     Enable debug logging

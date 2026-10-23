@@ -10,6 +10,8 @@ fn main_help_lists_the_codex_commands() {
     for line in [
         format!("  {PROG} codex add "),
         format!("  {PROG} codex list "),
+        format!("  {PROG} codex remove "),
+        format!("  {PROG} codex alias "),
         format!("  {PROG} codex --help "),
     ] {
         assert!(out.stdout.contains(&line), "{line:?} in\n{}", out.stdout);
@@ -24,6 +26,7 @@ fn codex_help_lists_its_commands_from_any_position() {
         vec!["codex", "-h"],
         vec!["codex", "help"],
         vec!["codex", "list", "--help"],
+        vec!["codex", "remove", "--help"],
     ] {
         let out = env.run(&args);
         out.assert_code(0);
@@ -35,6 +38,8 @@ fn codex_help_lists_its_commands_from_any_position() {
         );
         assert!(out.stdout.contains(&format!("  {PROG} codex add ")));
         assert!(out.stdout.contains(&format!("  {PROG} codex list ")));
+        assert!(out.stdout.contains(&format!("  {PROG} codex remove ")));
+        assert!(out.stdout.contains(&format!("  {PROG} codex alias ")));
     }
 }
 

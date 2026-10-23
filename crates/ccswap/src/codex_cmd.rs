@@ -1,13 +1,15 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
-use ccswap_core::codex::{CodexPaths, CodexStore, view};
+use ccswap_core::accounts::Console;
+use ccswap_core::codex::{CodexPaths, CodexStore, resolve_account, view};
 use ccswap_core::env::{Environment, is_root};
-use ccswap_core::error::Error;
+use ccswap_core::error::{Error, ErrorKind};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 
 use crate::argparse::{Action, Arity, Opt, Outcome, ParseError, Parsed, Parser};
+use crate::cli::TerminalConsole;
 
 const HELP: &str = include_str!("codex_help.txt");
 
@@ -40,6 +42,18 @@ const COMMANDS: &[Command] = &[
         opts: &[Opt::flag("--json")],
         max_positionals: 0,
         run: list,
+    },
+    Command {
+        names: &["remove", "rm"],
+        opts: &[Opt::flag("-y"), Opt::flag("--yes")],
+        max_positionals: 1,
+        run: remove,
+    },
+    Command {
+        names: &["alias"],
+        opts: &[],
+        max_positionals: 2,
+        run: alias,
     },
 ];
 
@@ -144,6 +158,66 @@ fn split_positionals(args: &[String], opts: &[Opt]) -> (Vec<String>, Vec<String>
 fn add(context: &Context, _: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {
     let outcome = context.store.add_live()?;
     Ok(view::add_lines(&outcome, &context.style))
+}
+
+fn remove(context: &Context, parsed: &Parsed, args: &[String]) -> Result<Vec<String>, Error> {
+    let [identifier] = args else {
+        return Err(Error::new(
+            ErrorKind::ValidationError,
+            "remove needs an account number or email",
+        ));
+    };
+    let style = &context.style;
+    let number = resolve_account(&context.store.ledger()?, identifier)?;
+    let listed = context
+        .store
+        .list()?
+        .accounts
+        .into_iter()
+        .find(|a| a.number == number);
+    let email = listed.as_ref().map_or("", |a| a.email.as_str());
+    let mut console = TerminalConsole;
+    if listed.as_ref().is_some_and(|a| a.active) {
+        console.line(&style.yellowed(&format!(
+            "Warning: Codex account {number} ({email}) is currently logged in. The live login stays; only ccswap's copy is removed."
+        )));
+    }
+    if !(parsed.flag("-y") || parsed.flag("--yes")) {
+        let question =
+            format!("Are you sure you want to remove Codex account {number} ({email})? [y/N] ");
+        match console.prompt(&question) {
+            Some(answer) if answer.trim().eq_ignore_ascii_case("y") => {}
+            Some(_) => return Ok(vec![style.dimmed("Cancelled")]),
+            None => return Ok(vec![format!("\n{}", style.dimmed("Cancelled"))]),
+        }
+    }
+    let (number, account) = context.store.remove(&number.to_string())?;
+    Ok(vec![format!(
+        "{} {number} ({})",
+        style.accent("Removed Codex account"),
+        account.email
+    )])
+}
+
+fn alias(context: &Context, _: &Parsed, args: &[String]) -> Result<Vec<String>, Error> {
+    let [identifier, name] = args else {
+        return Err(Error::new(
+            ErrorKind::ValidationError,
+            "alias needs an account number or email and a name (\"\" removes the alias)",
+        ));
+    };
+    let (number, alias) = context.store.set_alias(identifier, name)?;
+    Ok(vec![match alias {
+        Some(alias) => format!(
+            "{} Codex account {number} as {}",
+            context.style.accent("Aliased"),
+            context.style.accent(&alias)
+        ),
+        None => format!(
+            "{} the alias of Codex account {number}",
+            context.style.accent("Removed")
+        ),
+    }])
 }
 
 fn list(context: &Context, parsed: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {
