@@ -189,7 +189,7 @@ impl Accounts<'_> {
     /// Sets (or renames) a slot's alias; returns `(slot, normalized alias)`.
     pub fn set_alias(&self, identifier: &str, alias: &str) -> Result<(String, String)> {
         self.refuse_session_shell()?;
-        let normalized = store::normalize_alias(alias)?;
+        let normalized = identifier::normalize_alias(alias)?;
         let num = self.resolve_account(identifier)?.number;
         let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
         let mut data = store::read_sequence(self.paths)?.unwrap_or_default();

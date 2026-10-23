@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::env::Environment;
-use crate::session::which;
+use crate::path_search::which;
 
 /// Where Codex installs put `codex`, searched after `PATH`.
 const FALLBACK_DIRS: [&str; 9] = [

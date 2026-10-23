@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::anthropic_client::{self, AnthropicClient};
+use crate::console::Console;
 use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
+use crate::identifier;
 use crate::locks::{self, STORE_LOCK_TIMEOUT, StoreLock};
 use crate::mappings::MappingStore;
 use crate::paths::Paths;
@@ -17,17 +19,6 @@ use crate::usage_store::UsageStore;
 mod manage;
 mod token;
 pub use token::{AddTokenOptions, TokenInput, getpass};
-
-/// Where account operations print and ask.
-pub trait Console {
-    fn line(&mut self, text: &str);
-    /// Shows `question` and returns the reply, `None` on end of input.
-    fn prompt(&mut self, question: &str) -> Option<String>;
-    /// Like `prompt`, without echoing the reply.
-    fn secret(&mut self, question: &str) -> Option<String> {
-        self.prompt(question)
-    }
-}
 
 pub struct Accounts<'a> {
     pub paths: &'a Paths,
@@ -75,7 +66,7 @@ impl Accounts<'_> {
         let alias = options
             .alias
             .as_deref()
-            .map(store::normalize_alias)
+            .map(identifier::normalize_alias)
             .transpose()?;
         let identity = store::current_identity(self.paths)
             .ok_or_else(|| Error::config("No active Claude account found. Please log in first."))?;

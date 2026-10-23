@@ -1,10 +1,67 @@
 //! The account a user names by number, alias or email: the rules both the Claude
 //! store and the Codex store follow.
 
-use crate::accounts::Console;
+use crate::console::Console;
 use crate::error::{Error, ErrorKind, Result};
 use crate::presentation::Style;
-use crate::store::{is_slot_number, is_valid_email};
+
+/// Python's `str.isdigit()` for the identifiers users type.
+pub fn is_slot_number(identifier: &str) -> bool {
+    !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit())
+}
+
+/// `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$` under `re.match`
+/// (whose `$` also matches before one trailing newline).
+pub fn is_valid_email(email: &str) -> bool {
+    let email = email.strip_suffix('\n').unwrap_or(email);
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
+    let domain_chars_ok = domain
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
+    let Some((host, tld)) = domain.rsplit_once('.') else {
+        return false;
+    };
+    local_ok
+        && domain_chars_ok
+        && !host.is_empty()
+        && tld.len() >= 2
+        && tld.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// Lowercase and validate a proposed alias (`[a-z0-9_.-]+`, not all digits,
+/// no leading `-`). Messages echo the raw input.
+pub fn normalize_alias(raw: &str) -> Result<String> {
+    let invalid = |m: String| Err(Error::new(ErrorKind::ValidationError, m));
+    let normalized = raw.trim().to_lowercase();
+    if normalized.is_empty() {
+        return invalid("alias cannot be empty".into());
+    }
+    if normalized.chars().all(|c| c.is_ascii_digit()) {
+        return invalid(format!(
+            "alias '{raw}' cannot be purely numeric (reserved for slot numbers)"
+        ));
+    }
+    if normalized.starts_with('-') {
+        return invalid(format!(
+            "alias '{raw}' cannot start with '-' (would be read as a command flag)"
+        ));
+    }
+    if !normalized
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.-".contains(c))
+    {
+        return invalid(format!(
+            "alias '{raw}' may only contain letters, digits, '-', '_', and '.'"
+        ));
+    }
+    Ok(normalized)
+}
 
 /// One managed account as identifier resolution sees it.
 #[derive(Debug, Clone)]
@@ -113,5 +170,39 @@ pub fn screen(
     } else {
         console.line(&style.dimmed("Cancelled"));
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn email_check_matches_the_upstream_pattern() {
+        for ok in [
+            "user@example.com",
+            "a.b+c%d_e-f@sub.example.co",
+            "x@a.b.cd",
+            "x@a..cd",
+            "setup-token-3@token.local",
+            "user@example.com\n",
+        ] {
+            assert!(is_valid_email(ok), "{ok:?}");
+        }
+        for bad in [
+            "not-an-email",
+            "../../evil",
+            "a@b",
+            "@example.com",
+            "user@.com",
+            "user@example.c",
+            "user@example.c0m",
+            "us er@example.com",
+            "a@b@example.com",
+            "user@example.com\n\n",
+            "ü@example.com",
+        ] {
+            assert!(!is_valid_email(bad), "{bad:?}");
+        }
     }
 }

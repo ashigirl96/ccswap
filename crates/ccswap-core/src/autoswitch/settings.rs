@@ -156,7 +156,41 @@ impl AutoSwitchSettings {
     pub fn models(&self) -> Vec<String> {
         self.model
             .as_deref()
-            .map(crate::settings::parse_model_names)
+            .map(parse_model_names)
             .unwrap_or_default()
+    }
+}
+
+/// The `autoswitch.model` names in settings.json.
+pub fn autoswitch_models(settings: &Settings) -> Vec<String> {
+    match settings.get("autoswitch.model").map(|s| s.value) {
+        Ok(SettingValue::Text(t)) => parse_model_names(&t),
+        _ => Vec::new(),
+    }
+}
+
+/// Comma-separated names, trimmed, deduplicated case-insensitively (first
+/// spelling wins).
+pub fn parse_model_names(value: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        if !out.iter().any(|o| o.to_lowercase() == name.to_lowercase()) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_names_are_trimmed_and_deduplicated() {
+        assert_eq!(
+            parse_model_names(" Fable, fable ,Opus,,"),
+            ["Fable", "Opus"]
+        );
+        assert!(parse_model_names("").is_empty());
     }
 }

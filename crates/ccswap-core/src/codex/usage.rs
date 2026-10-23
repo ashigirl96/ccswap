@@ -12,9 +12,9 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::anthropic_client::{AnthropicClient, classify_transport, parse_retry_after};
 use crate::endpoints::Endpoints;
 use crate::fsutil;
+use crate::http_client::{self, classify_transport, parse_retry_after};
 use crate::usage::{Sentinel, now_secs};
 use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 
@@ -337,7 +337,7 @@ impl CodexUsage {
     }
 
     fn fetch_wham(&self, access_token: &str, account_id: &str) -> FetchRecord {
-        let response = AnthropicClient::agent(USAGE_TIMEOUT)
+        let response = http_client::agent(USAGE_TIMEOUT)
             .get(&self.usage_url)
             .header("Authorization", &format!("Bearer {access_token}"))
             .header("ChatGPT-Account-Id", account_id)
@@ -346,7 +346,7 @@ impl CodexUsage {
             .call();
         let mut response = match response {
             Ok(r) => r,
-            Err(e) => return FetchRecord::error(classify_transport(&e).kind, None),
+            Err(e) => return FetchRecord::error(classify_transport(&e), None),
         };
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
@@ -360,7 +360,7 @@ impl CodexUsage {
         }
         let body = match response.body_mut().read_to_vec() {
             Ok(b) => b,
-            Err(e) => return FetchRecord::error(classify_transport(&e).kind, None),
+            Err(e) => return FetchRecord::error(classify_transport(&e), None),
         };
         match serde_json::from_slice::<Value>(&body) {
             Ok(data) => FetchRecord {

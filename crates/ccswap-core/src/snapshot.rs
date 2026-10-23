@@ -214,7 +214,7 @@ fn reconcile_account(acc: &mut AccountSnapshot, prev: &AccountSnapshot, taken_at
 mod tests {
     //! Ported from upstream tests/test_tui.py::TestSnapshotSource.
     use super::*;
-    use crate::accounts::Console;
+    use crate::console::Console;
     use crate::switcher::SwitchStrategy;
     use crate::usage::now_secs as now;
     use serde_json::json;

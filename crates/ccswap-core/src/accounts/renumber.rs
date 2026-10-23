@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::{Accounts, Console, accounts_mut, sequence_mut};
 use crate::error::{Error, ErrorKind, Result};
+use crate::identifier;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::session_profile;
 use crate::store::{self, JsonObject};
@@ -86,7 +87,7 @@ impl Accounts<'_> {
         let max_slot = store::accounts(&data)
             .map(|a| {
                 a.keys()
-                    .filter(|k| store::is_slot_number(k))
+                    .filter(|k| identifier::is_slot_number(k))
                     .filter_map(|k| k.parse::<u64>().ok())
                     .max()
                     .unwrap_or(0)
@@ -498,7 +499,7 @@ impl Renumber<'_, '_> {
 fn normalize_target(raw: &str) -> Result<String> {
     let target = raw.trim();
     let digits = target.trim_start_matches('0');
-    if !store::is_slot_number(target) || digits.is_empty() {
+    if !identifier::is_slot_number(target) || digits.is_empty() {
         return Err(validation(format!(
             "Target slot must be a positive slot number, got: {} (use `swap` to trade two accounts by identifier)",
             py_repr(target)

@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::anthropic_client::credential_fingerprint;
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
+use crate::identifier;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::paths::Paths;
 use crate::pyjson;
@@ -553,7 +554,7 @@ fn validate_all(
             .and_then(Value::as_str)
             .filter(|a| !a.is_empty())
         {
-            let key = store::normalize_alias(raw_alias)
+            let key = identifier::normalize_alias(raw_alias)
                 .map_err(|e| transfer_error(format!("invalid alias for {email}: {e}")))?;
             if !seen_aliases.insert(key.clone()) {
                 return Err(transfer_error(format!("duplicate alias in export: {key}")));
@@ -593,7 +594,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
         return Err(transfer_error("account entry must be a JSON object"));
     };
     let email = match account.get("email") {
-        Some(Value::String(e)) if store::is_valid_email(e) => e.clone(),
+        Some(Value::String(e)) if identifier::is_valid_email(e) => e.clone(),
         other => {
             return Err(transfer_error(format!(
                 "invalid or missing email in imported account: {}",
@@ -629,7 +630,7 @@ fn validate_account(raw: &Value) -> Result<(&JsonObject, String, String)> {
         }
     }
     if let Some(Value::String(alias)) = account.get("alias") {
-        store::normalize_alias(alias)
+        identifier::normalize_alias(alias)
             .map_err(|e| transfer_error(format!("invalid alias for {email}: {e}")))?;
     }
     Ok((account, email, num))

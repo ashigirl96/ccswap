@@ -32,7 +32,9 @@ pub use events::{AutoSwitchEvent, EventKind, Trigger, pct_label};
 pub use host::{EngineHost, SwitchResult, SwitcherHost};
 pub use rank::{Decisions, UsageValue};
 pub use run_loop::LoopHandle;
-pub use settings::{AutoStrategy, AutoSwitchSettings, CliOverrides};
+pub use settings::{
+    AutoStrategy, AutoSwitchSettings, CliOverrides, autoswitch_models, parse_model_names,
+};
 pub use state::{STATE_FILENAME, STATE_SCHEMA_VERSION, State, StateFile};
 
 use rank::{BarInput, RankInput, Ranked, binding_recovery_ts};

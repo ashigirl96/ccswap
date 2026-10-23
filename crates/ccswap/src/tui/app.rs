@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use ccswap_core::accounts::Console;
 use ccswap_core::actions::{ActionResult, Actions, run_action};
 use ccswap_core::autoswitch::{AutoSwitchSettings, pct_label};
+use ccswap_core::console::Console;
 use ccswap_core::error::Result as CoreResult;
 use ccswap_core::ranking::Strategy;
 use ccswap_core::settings::{Kind, SettingValue, Settings, setting_spec};

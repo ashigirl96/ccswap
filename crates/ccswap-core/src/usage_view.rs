@@ -1,16 +1,13 @@
-//! Usage as `list` and `status` render it: the human lines and the
-//! schema-v1 JSON projection (upstream `switcher.py` list rendering and
+//! Usage as every provider's `list` and `status` render it: the human lines
+//! and the schema-v1 JSON projection (upstream `switcher.py` list rendering and
 //! `json_output.py`).
 
 use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
 
-use crate::accounts::display_tag;
-use crate::listing::ListReport;
 use crate::pace::{compute_pace, projected_exhaustion_ts, will_last_to_reset};
 use crate::poll_policy::SERVE_TTL_S;
-use crate::presentation::{SCHEMA_VERSION, Style};
-use crate::process_detection::InstanceGroup;
+use crate::presentation::Style;
 use crate::usage::{account_headroom, error_note, fresh_reset_strings, now_secs, truthy};
 use crate::usage_store::{DecisionValue, UsageEntry};
 
@@ -298,117 +295,6 @@ pub fn insert_usage_fields(
             row.insert("lastGoodAgeSeconds".into(), json!(round1(age)));
         }
     }
-}
-
-pub fn list_lines(report: &ListReport, style: &Style) -> Vec<String> {
-    let ListReport::Accounts(listed) = report else {
-        return Vec::new();
-    };
-    let rows = &listed.rows;
-    let mut lines = vec![style.bolded("Accounts:")];
-    for (i, row) in rows.iter().enumerate() {
-        let info = &row.info;
-        let label = if info.alias.is_empty() {
-            info.email.clone()
-        } else {
-            format!("{} ({})", style.accent(&info.alias), info.email)
-        };
-        let mut markers = String::new();
-        if info.is_active {
-            markers.push_str(&format!(" {}", style.bold_accent("(active)")));
-        }
-        if row.disabled {
-            markers.push_str(&format!(" {}", style.muted("(disabled)")));
-        }
-        lines.push(format!(
-            "  {}: {label} {}{markers}",
-            py_str(&info.number),
-            style.muted(&format!("[{}]", display_tag(&info.org_name)))
-        ));
-        lines.extend(
-            usage_entry_lines(&row.usage, style)
-                .into_iter()
-                .map(|l| format!("     {l}")),
-        );
-        lines.extend(
-            row.token_status
-                .iter()
-                .map(|l| format!("     {} {}", style.dimmed("•"), style.muted(l))),
-        );
-        if i + 1 < rows.len() {
-            lines.push(String::new());
-        }
-    }
-    let warnings: Vec<&String> = listed
-        .duplicate_warnings
-        .iter()
-        .chain(&listed.lockstep_warnings)
-        .collect();
-    if !warnings.is_empty() {
-        lines.push(String::new());
-        lines.extend(warnings.into_iter().map(|w| style.yellowed(w)));
-    }
-    if !listed.instances.is_empty() {
-        lines.push(String::new());
-        lines.push(style.bolded("Running instances:"));
-        lines.extend(listed.instances.iter().map(|g| instance_line(g, style)));
-    }
-    lines
-}
-
-fn instance_line(group: &InstanceGroup, style: &Style) -> String {
-    let mut parts = Vec::new();
-    if group.sessions > 0 {
-        let plural = if group.sessions > 1 { "s" } else { "" };
-        parts.push(format!("{} session{plural}", group.sessions));
-    }
-    if group.ide > 0 {
-        parts.push("IDE".to_string());
-    }
-    format!(
-        "  {} {}   {}  {}",
-        style.dimmed("●"),
-        style.muted(&group.label),
-        style.muted(&group.cwd),
-        style.dimmed(&format!("({})", parts.join(", ")))
-    )
-}
-
-pub fn list_json(report: &ListReport) -> Value {
-    let mut payload = json!({
-        "schemaVersion": SCHEMA_VERSION,
-        "activeAccountNumber": report.active_number().cloned().unwrap_or(Value::Null),
-        "accounts": [],
-    });
-    let ListReport::Accounts(listed) = report else {
-        return payload;
-    };
-    payload["accounts"] = listed
-        .rows
-        .iter()
-        .map(|row| {
-            let info = &row.info;
-            let mut out = Map::new();
-            out.insert("number".into(), info.number.clone());
-            out.insert("email".into(), info.email.as_str().into());
-            out.insert("organizationName".into(), info.org_name.as_str().into());
-            out.insert("organizationUuid".into(), info.org_uuid.as_str().into());
-            out.insert("isOrganization".into(), (!info.org_uuid.is_empty()).into());
-            out.insert("active".into(), info.is_active.into());
-            insert_usage_fields(&mut out, &row.usage, &info.alias, row.disabled);
-            Value::Object(out)
-        })
-        .collect();
-    if !listed.duplicate_warnings.is_empty() {
-        payload["duplicateAccountWarnings"] = json!(listed.duplicate_warnings);
-    }
-    if !listed.lockstep_warnings.is_empty() {
-        payload["lockstepUsageWarnings"] = json!(listed.lockstep_warnings);
-    }
-    if !listed.unclaimed.is_empty() {
-        payload["unclaimedCredentials"] = json!(listed.unclaimed);
-    }
-    payload
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
+use crate::identifier;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
-use crate::store;
 
 use super::identity::{CodexIdentity, read_identity};
 use super::ledger::{Ledger, LedgerAccount};
@@ -224,7 +224,7 @@ impl CodexStore {
         let normalized = if alias.trim().is_empty() {
             None
         } else {
-            Some(store::normalize_alias(alias)?)
+            Some(identifier::normalize_alias(alias)?)
         };
         self.update(|ledger| {
             let number = resolve_account(ledger, identifier)?;
