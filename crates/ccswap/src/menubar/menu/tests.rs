@@ -191,6 +191,54 @@ fn codex_entries_carry_codex_commands_apart_from_claude_ones() {
     );
 }
 
+#[test]
+fn without_codex_accounts_the_codex_add_items_sit_in_add_account() {
+    let lines = render(&MenuInput {
+        snapshot: &two_accounts(),
+        settings: &MenuBarSettings::default(),
+        history: &[],
+        threshold: 95,
+        now: NOW,
+    });
+    assert!(
+        !lines.iter().any(|l| l.contains("Codex accounts")),
+        "{lines:?}"
+    );
+    let menu = menu_for(&two_accounts());
+    let Entry::Submenu { entries, .. } = find(&menu, "Add account") else {
+        panic!()
+    };
+    assert_eq!(
+        command(entries, "Add Codex account from current login"),
+        Command::CodexAddFromLogin
+    );
+    assert_eq!(
+        command(entries, "Log in to a new Codex account…"),
+        Command::CodexLogin
+    );
+}
+
+#[test]
+fn with_codex_accounts_add_account_holds_only_claude_items() {
+    let lines = render(&MenuInput {
+        snapshot: &with_codex(),
+        settings: &MenuBarSettings::default(),
+        history: &[],
+        threshold: 95,
+        now: NOW,
+    });
+    let add = lines.iter().position(|l| l == "Add account ▸").unwrap();
+    assert_eq!(
+        lines[add..add + 4],
+        [
+            "Add account ▸",
+            "  From current login",
+            "  From setup-token…",
+            "Disable / enable account ▸",
+        ]
+    );
+}
+
 fn find<'a>(entries: &'a [Entry], title: &str) -> &'a Entry {
     entries
         .iter()
@@ -236,6 +284,9 @@ fn full_menu_matches_upstream_layout() {
             "Add account ▸",
             "  From current login",
             "  From setup-token…",
+            "  ---",
+            "  Add Codex account from current login",
+            "  Log in to a new Codex account…",
             "Disable / enable account ▸",
             "  1  work  (a@x.com)",
             "  ✓ 2  b@x.com",

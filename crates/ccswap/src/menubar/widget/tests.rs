@@ -97,6 +97,8 @@ fn codex_accounts_are_listed_after_claude_in_the_same_shape() {
             {
                 "number": "1",
                 "label": "me",
+                "alias": null,
+                "email": "me@openai.example",
                 "active": true,
                 "disabled": false,
                 "note": null,
@@ -107,6 +109,8 @@ fn codex_accounts_are_listed_after_claude_in_the_same_shape() {
             {
                 "number": "2",
                 "label": "team",
+                "alias": "team",
+                "email": "someone@example.com",
                 "active": false,
                 "disabled": false,
                 "note": "log in again",

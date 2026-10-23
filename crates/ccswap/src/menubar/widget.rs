@@ -34,10 +34,23 @@ pub fn feed(snapshot: &MenuSnapshot, threshold: i64, refresh_interval: i64, now:
             .map(|a| account(a, now))
             .collect::<Vec<_>>(),
     });
-    // Left out when empty so a feed without Codex is exactly the v1 feed.
+    // Left out when empty: a widget that predates Codex reads such a feed unchanged.
     if !snapshot.codex.is_empty() {
-        out["codex"] = snapshot.codex.iter().map(|a| account(a, now)).collect();
+        out["codex"] = snapshot
+            .codex
+            .iter()
+            .map(|a| codex_account(a, now))
+            .collect();
     }
+    out
+}
+
+fn codex_account(a: &MenuAccount, now: f64) -> Value {
+    let mut out = account(a, now);
+    out["alias"] = Some(a.alias.clone())
+        .filter(|alias| !alias.is_empty())
+        .into();
+    out["email"] = a.email.clone().into();
     out
 }
 

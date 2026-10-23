@@ -411,36 +411,33 @@ impl Target {
         self.rebuild_menu();
     }
 
-    /// Failures come back as alert text.
+    /// Runs `work` on a worker thread and reports its notice, or its failure as alert text.
+    fn spawn_report(&self, work: impl FnOnce() -> Result<Option<Notice>> + Send + 'static) {
+        let reports = self.ivars().reports.0.clone();
+        std::thread::spawn(move || {
+            let outcome = work().map_err(|e| e.to_string());
+            let _ = reports.send(Report::Action { outcome });
+        });
+    }
+
     fn spawn_action(
         &self,
         notify_switched: bool,
         action: impl FnOnce(&dyn Actions, &mut dyn Console) -> Result<()> + Send + 'static,
     ) {
-        let c = self.ivars();
-        let actions = c.actions.clone();
-        let reports = c.reports.0.clone();
-        std::thread::spawn(move || {
-            let outcome = action(actions.as_ref(), &mut SilentConsole)
+        let actions = self.ivars().actions.clone();
+        self.spawn_report(move || {
+            action(actions.as_ref(), &mut SilentConsole)
                 .map(|()| notify_switched.then(Notice::switched))
-                .map_err(|e| e.to_string());
-            let _ = reports.send(Report::Action { outcome });
         });
     }
 
-    /// Like `spawn_action`, against the Codex store; failures come back as alert text.
     fn spawn_codex(
         &self,
         action: impl FnOnce(&CodexStore) -> Result<Option<Notice>> + Send + 'static,
     ) {
-        let c = self.ivars();
-        let env = c.env.clone();
-        let reports = c.reports.0.clone();
-        std::thread::spawn(move || {
-            let store = CodexStore::new(CodexPaths::new(&env));
-            let outcome = action(&store).map_err(|e| e.to_string());
-            let _ = reports.send(Report::Action { outcome });
-        });
+        let env = self.ivars().env.clone();
+        self.spawn_report(move || action(&CodexStore::new(CodexPaths::new(&env))));
     }
 
     fn codex_login(&self) {
