@@ -41,7 +41,8 @@ pub fn dispatch(
         if identifier.is_empty() {
             Ok(())
         } else {
-            accounts.remove_account(identifier, false, console)
+            let assume_yes = parsed.flag("-y") || parsed.flag("--yes");
+            accounts.remove_account(identifier, assume_yes, console)
         }
     } else if let Some(identifier) = disable {
         accounts.set_account_disabled(identifier, true, console)

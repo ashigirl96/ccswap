@@ -41,6 +41,8 @@ const OPTS: &[Opt] = &[
     Opt::value("--alias"),
     Opt::flag("--force"),
     Opt::flag("--full"),
+    Opt::flag("-y"),
+    Opt::flag("--yes"),
     Opt::flag("--install-service"),
     Opt::flag("--uninstall-service"),
     Opt::flag("--service-status"),
@@ -584,7 +586,7 @@ impl Cli {
         if !any_command {
             return Err(format!("no command given — try '{} help'", self.prog));
         }
-        let checks: [(bool, &str); 12] = [
+        let checks: [(bool, &str); 13] = [
             (
                 p.flag("--token-status") && !p.flag("--list"),
                 "--token-status can only be used with 'list'",
@@ -632,6 +634,10 @@ impl Cli {
             (
                 p.flag("--full") && !nonempty(p, "--export"),
                 "--full can only be used with 'export'",
+            ),
+            (
+                (p.flag("-y") || p.flag("--yes")) && !has("--remove-account"),
+                "-y/--yes can only be used with 'remove'",
             ),
             (
                 (p.flag("--install-service")

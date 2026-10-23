@@ -140,6 +140,42 @@ fn remove_is_cancelled_by_anything_but_y() {
 }
 
 #[test]
+fn remove_with_yes_skips_the_prompt() {
+    for flag in ["-y", "--yes"] {
+        let env = TestEnv::new();
+        seed_three(&env);
+
+        let out = env.cmd(["remove", "2", flag]).stdin("n\n").run();
+
+        out.assert_code(0);
+        assert_eq!(out.stdout, "Removed Account-2 (b@example.com)\n", "{flag}");
+        assert!(env.sequence()["accounts"].get("2").is_none(), "{flag}");
+        assert_eq!(
+            env.security()
+                .item(BACKUP_SERVICE, "account-2-b@example.com"),
+            None,
+            "{flag}"
+        );
+    }
+}
+
+#[test]
+fn yes_is_only_for_remove() {
+    let env = TestEnv::new();
+    seed_three(&env);
+
+    let out = env.run(["disable", "2", "-y"]);
+
+    out.assert_code(2);
+    assert!(
+        out.stderr
+            .contains("-y/--yes can only be used with 'remove'"),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
 fn removing_the_active_account_warns_and_leaves_active_number() {
     let env = TestEnv::new();
     seed_three(&env);
@@ -617,6 +653,24 @@ fn alias_help_describes_the_command() {
         out.stdout
     );
     assert!(out.stdout.contains(&format!("  {p} alias 2 --unset\n")));
+}
+
+#[test]
+fn help_says_purge_removes_both_providers_data() {
+    let env = TestEnv::new();
+
+    let out = env.run(["help"]);
+
+    out.assert_code(0);
+    let line = out
+        .stdout
+        .lines()
+        .find(|l| l.starts_with(&format!("  {PROG} purge ")))
+        .unwrap_or_else(|| panic!("no purge line in\n{}", out.stdout));
+    assert!(
+        line.contains("Claude Code") && line.contains("Codex"),
+        "{line}"
+    );
 }
 
 fn purge_banner(env: &TestEnv) -> String {
