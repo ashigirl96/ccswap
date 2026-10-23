@@ -111,15 +111,6 @@ fn ambiguous_or_unknown_identifiers_are_errors_and_change_nothing() {
         out.stderr
     );
 
-    let out = env.run(["codex", "switch", "not-an-email"]);
-    out.assert_code(1);
-    assert!(
-        out.stderr
-            .contains("Invalid account identifier: not-an-email"),
-        "{}",
-        out.stderr
-    );
-
     assert_eq!(live(&env), live_a);
     assert_eq!(
         std::fs::read(env.codex_ledger_path()).unwrap(),

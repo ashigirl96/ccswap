@@ -195,6 +195,9 @@ fn codex_commands_leave_the_claude_store_and_keychain_alone() {
     env.run(["codex", "login"]).assert_code(0);
     env.run(["codex", "switch", "2"]).assert_code(0);
     env.run(["codex", "switch", "--json"]).assert_code(0);
+    env.run(["codex", "alias", "1", "work"]).assert_code(0);
+    env.run(["codex", "alias", "1", ""]).assert_code(0);
+    env.run(["codex", "remove", "1", "-y"]).assert_code(0);
 
     assert_eq!(
         std::fs::read(env.store_dir().join("sequence.json")).unwrap(),

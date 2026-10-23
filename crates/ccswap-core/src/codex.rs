@@ -3,8 +3,8 @@
 //! - [`CodexPaths`]: the live `auth.json` and the store under `~/.claude-swap-backup/codex/`.
 //! - [`identity`]: who an `auth.json` belongs to, from its tokens and id_token claims.
 //! - [`Ledger`]: `codex/accounts.json`, numbered independently of Claude slots.
+//! - [`resolve_account`]: a typed number, alias or email to an account number.
 //! - [`CodexStore`]: the operations, each ledger rewrite under the store `.lock`.
-//! - [`resolve_account`]: `<num|alias|email>` to an account number.
 //! - [`login`]: `codex login` into a fresh managed home.
 //! - [`view`]: terminal lines and `--json` envelopes.
 
