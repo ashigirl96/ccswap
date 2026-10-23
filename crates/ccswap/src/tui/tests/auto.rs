@@ -241,7 +241,10 @@ fn menu_auto_entry_opens_it() {
 fn themed(settings: Value, detected_light: Option<bool>) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
-    let mut config = AppConfig::load(&ccswap_core::settings::Settings::in_dir(dir.path()));
+    let mut config = AppConfig::load(&ccswap_core::settings::Settings::in_dir(
+        dir.path(),
+        ccswap_claude::SETTINGS,
+    ));
     config.detected_light = detected_light;
     Harness::with_config(vec![account("1", true)], config)
 }

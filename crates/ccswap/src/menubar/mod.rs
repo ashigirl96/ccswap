@@ -11,7 +11,7 @@ pub mod widget;
 
 use std::sync::Arc;
 
-use ccswap_core::actions::Actions;
+use ccswap_claude::actions::Actions;
 use ccswap_core::env::Environment;
 
 /// Blocks until the user quits; the exit code is 0 then.

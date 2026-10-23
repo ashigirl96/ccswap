@@ -3,7 +3,7 @@
 mod auto;
 mod watch;
 
-use ccswap_core::snapshot::AccountsSnapshot;
+use ccswap_claude::snapshot::AccountsSnapshot;
 use ccswap_core::usage::now_secs;
 use serde_json::json;
 
@@ -523,7 +523,10 @@ fn footer_shows_the_screen_bindings() {
     assert!(footer(&h).contains("enter Switch") && footer(&h).contains("b Best pick"));
 }
 
-fn snap(accounts: Vec<ccswap_core::snapshot::AccountSnapshot>, taken_at: f64) -> AccountsSnapshot {
+fn snap(
+    accounts: Vec<ccswap_claude::snapshot::AccountSnapshot>,
+    taken_at: f64,
+) -> AccountsSnapshot {
     AccountsSnapshot {
         active_number: Some("1".into()),
         accounts,

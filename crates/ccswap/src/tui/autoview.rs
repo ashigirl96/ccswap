@@ -1,6 +1,6 @@
-use ccswap_core::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, pct_label};
+use ccswap_claude::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, pct_label};
+use ccswap_claude::snapshot::AccountsSnapshot;
 use ccswap_core::poll_policy::binding_pct;
-use ccswap_core::snapshot::AccountsSnapshot;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
@@ -175,7 +175,7 @@ mod tests {
     //! Ported from upstream tests/test_tui.py::TestEventText.
     use super::*;
     use crate::tui::theme::{DARK, LIGHT};
-    use ccswap_core::autoswitch::{EventKind, Trigger};
+    use ccswap_claude::autoswitch::{EventKind, Trigger};
     use serde_json::json;
 
     fn switch_event() -> AutoSwitchEvent {

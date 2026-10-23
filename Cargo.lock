@@ -106,6 +106,7 @@ dependencies = [
 name = "ccswap"
 version = "0.3.0"
 dependencies = [
+ "ccswap-claude",
  "ccswap-core",
  "chrono",
  "libc",
@@ -118,6 +119,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ccswap-claude"
+version = "0.3.0"
+dependencies = [
+ "base64 0.22.1",
+ "ccswap-core",
+ "chrono",
+ "libc",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "ccswap-core"
 version = "0.3.0"
 dependencies = [
@@ -127,7 +142,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "unicode-normalization",
  "ureq",
 ]
 

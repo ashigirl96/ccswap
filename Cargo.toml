@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ccswap-core", "crates/ccswap", "crates/ccswap-test-fakes"]
+members = ["crates/ccswap-core", "crates/ccswap-claude", "crates/ccswap", "crates/ccswap-test-fakes"]
 
 [workspace.package]
 version = "0.3.0"
@@ -10,4 +10,5 @@ repository = "https://github.com/ashigirl96/ccswap"
 
 [workspace.dependencies]
 ccswap-core = { path = "crates/ccswap-core" }
+ccswap-claude = { path = "crates/ccswap-claude" }
 serde_json = { version = "1", features = ["preserve_order"] }

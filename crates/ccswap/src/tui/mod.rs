@@ -15,7 +15,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ccswap_core::actions::Actions;
+use ccswap_claude::actions::Actions;
 use ccswap_core::appearance::{self, Background};
 use ccswap_core::env::Environment;
 use ccswap_core::settings::Settings;
@@ -35,7 +35,10 @@ pub fn run(actions: Arc<dyn Actions>, env: &Environment, start: Start) -> i32 {
     // Probed even for an explicit theme so cycling to `auto` works; the
     // terminal must still be in cooked mode here.
     let detected = appearance::detect_terminal_background(env);
-    let mut config = AppConfig::load(&Settings::in_dir(&actions.backup_dir()));
+    let mut config = AppConfig::load(&Settings::in_dir(
+        &actions.backup_dir(),
+        ccswap_claude::SETTINGS,
+    ));
     config.detected_light = detected.map(|b| b == Background::Light);
     appearance::drain_stdin();
     let mut app = App::new(actions, config).with_engine_factory(engine::live_factory(env.clone()));

@@ -1,14 +1,14 @@
 use std::path::Path;
 
-use ccswap_core::accounts::{Accounts, ResolvedAccount};
-use ccswap_core::anthropic_client::AnthropicClient;
+use ccswap_claude::accounts::{Accounts, ResolvedAccount};
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::mappings::{self, MappingStore};
+use ccswap_claude::secret_store::{Keychain, SecretStore};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind, Result};
-use ccswap_core::mappings::{self, MappingStore};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
-use ccswap_core::secret_store::{Keychain, SecretStore};
 
 use crate::config_cmd::{looks_like_option, lookup, split_explicit};
 

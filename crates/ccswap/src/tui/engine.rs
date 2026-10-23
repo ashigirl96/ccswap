@@ -3,15 +3,15 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use ccswap_core::anthropic_client::AnthropicClient;
-use ccswap_core::autoswitch::{
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::autoswitch::{
     AutoSwitchEngine, AutoSwitchEvent, AutoSwitchSettings, LoopHandle, SwitcherHost,
 };
+use ccswap_claude::secret_store::{Keychain, SecretStore};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::Environment;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{Style, Theme};
-use ccswap_core::secret_store::{Keychain, SecretStore};
 
 pub trait EngineControl: Send {
     fn stop(&self);

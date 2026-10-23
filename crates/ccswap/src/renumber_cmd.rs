@@ -1,16 +1,16 @@
 //! `swap` and `move` each mirror upstream's dedicated argparse parser: two
 //! positionals and `--debug`.
 
-use ccswap_core::accounts::Accounts;
-use ccswap_core::anthropic_client::AnthropicClient;
+use ccswap_claude::accounts::Accounts;
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::secret_store::{Keychain, SecretStore};
+use ccswap_claude::store;
 use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::Error;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
-use ccswap_core::secret_store::{Keychain, SecretStore};
-use ccswap_core::store;
 
 use crate::cli::TerminalConsole;
 use crate::config_cmd::{looks_like_option, lookup, split_explicit};

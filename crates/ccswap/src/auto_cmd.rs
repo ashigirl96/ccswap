@@ -1,17 +1,17 @@
 use std::io::Write;
 use std::sync::atomic::Ordering;
 
-use ccswap_core::anthropic_client::AnthropicClient;
-use ccswap_core::autoswitch::{
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::autoswitch::{
     AutoStrategy, AutoSwitchEngine, AutoSwitchEvent, AutoSwitchSettings, CliOverrides, LoopHandle,
     SwitcherHost,
 };
+use ccswap_claude::secret_store::{Keychain, SecretStore};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 use ccswap_core::pyjson;
-use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::python_float;
 
 use crate::argparse::{Opt, Outcome, ParseError, Parsed, Parser};
@@ -172,7 +172,7 @@ mod signals {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-    use ccswap_core::autoswitch::LoopHandle;
+    use ccswap_claude::autoswitch::LoopHandle;
 
     static PIPE_WRITE: AtomicI32 = AtomicI32::new(-1);
 

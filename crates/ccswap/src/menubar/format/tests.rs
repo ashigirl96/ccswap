@@ -2,7 +2,7 @@
 //! usage log, switch history, snapshot adapter, weekly roll-forward).
 
 use super::*;
-use ccswap_core::snapshot::{AccountKind, AccountSnapshot};
+use ccswap_claude::snapshot::{AccountKind, AccountSnapshot};
 use ccswap_core::usage::Sentinel;
 use serde_json::json;
 
