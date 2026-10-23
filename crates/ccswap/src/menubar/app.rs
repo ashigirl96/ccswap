@@ -440,6 +440,14 @@ impl Target {
         self.spawn_report(move || action(&CodexStore::new(CodexPaths::new(&env))));
     }
 
+    fn codex_switch(&self, number: Option<String>) {
+        self.spawn_codex(move |store| {
+            store
+                .switch(number.as_deref())
+                .map(|outcome| outcome.switched.then(|| switch_notice(&outcome)))
+        });
+    }
+
     fn codex_login(&self) {
         let running = self.ivars().codex_login_running.clone();
         if running.swap(true, Ordering::SeqCst) {
@@ -464,11 +472,8 @@ impl Target {
     fn run_command(&self, command: Command) {
         let mtm = self.mtm();
         match command {
-            Command::CodexSwitchTo(number) => self.spawn_codex(move |store| {
-                store
-                    .switch(Some(&number))
-                    .map(|outcome| outcome.switched.then(|| switch_notice(&outcome)))
-            }),
+            Command::CodexSwitchTo(number) => self.codex_switch(Some(number)),
+            Command::CodexSwitchNext => self.codex_switch(None),
             Command::CodexAddFromLogin => {
                 self.spawn_codex(|store| store.add_live().map(|o| Some(add_notice(&o))))
             }
