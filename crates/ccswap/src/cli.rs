@@ -133,6 +133,15 @@ impl Cli {
         for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
             eprintln!("{warning}");
         }
+        let args = match args.split_first() {
+            Some((namespace, rest)) if namespace == "claude" => {
+                match crate::claude_cmd::resolve(&self.prog, rest) {
+                    crate::claude_cmd::Resolved::Bare(bare) => bare,
+                    crate::claude_cmd::Resolved::Exit(code) => return code,
+                }
+            }
+            _ => args,
+        };
         presentation::probe_cli_background(&self.env, &Paths::new(&self.env), &args);
         if args.first().is_some_and(|v| v == "codex") {
             return crate::codex_cmd::run(&self.prog, &self.env, &args[1..]);
