@@ -1,12 +1,14 @@
 # ccswap
 
-A multi-account switcher for Claude Code on macOS. It is a Rust rewrite of [claude-swap](https://github.com/realiti4/claude-swap) v0.26.0, and adds a menu bar app and a desktop widget that show every account's usage and switch between them.
+A multi-account switcher for Claude Code and Codex CLI on macOS. It is a Rust rewrite of [claude-swap](https://github.com/realiti4/claude-swap) v0.26.0, and adds Codex accounts, a menu bar app and a desktop widget that show every account's usage and switch between them.
 
 ## Menu bar
 
-<img src="docs/images/menubar.png" alt="The ccswap menu bar, showing Session, All and Fable usage bars with reset times for each account" width="400">
+<img src="docs/images/menubar.png" alt="The ccswap menu bar, listing Claude Code and Codex accounts with usage bars and reset times for each" width="400">
 
-For each account, the menu shows how much of the 5-hour session, the all-models weekly limit and the per-model weekly limits (such as Fable) is used, and when each one resets. The active account is marked `In use`. From the menu you can rotate to the next account (`Rotate to next`), jump to the account with the most quota left (`Switch to best`), or rotate while skipping accounts at their limit (`Next available`). You can also add, disable and remove accounts and browse the switch history.
+The menu has a section for Claude Code and a section for Codex; a section is hidden when it has no accounts. For each account, the menu shows how much of the 5-hour session, the all-models weekly limit and, for Claude Code, the per-model weekly limits (such as Fable) is used, and when each one resets. The active account in each section is marked `In use`, and clicking another account switches to it.
+
+Each section ends with a submenu of its actions. `Claude Code accounts` can rotate to the next account (`Rotate to next`), jump to the account with the most quota left (`Switch to best`), rotate while skipping accounts at their limit (`Next available`), and add, disable and remove accounts. `Codex accounts` can rotate to the next account, log in to a new account and add or remove accounts. `Add account` collects the add actions of both, and `Switch history` lists past switches.
 
 ```sh
 ccswap menubar --install-service   # start at login and restart on crash via launchd
@@ -15,9 +17,9 @@ ccswap menubar --service-status
 
 ## Desktop widget
 
-<img src="docs/images/widget.png" alt="The ccswap desktop widget, showing two accounts' usage side by side with a Switch button on the inactive one" width="600">
+<img src="docs/images/widget.png" alt="The ccswap desktop widget, showing Claude Code and Codex accounts side by side with a Switch button on the inactive ones" width="600">
 
-The widget lays out every account's usage side by side. Pressing `Switch` on an inactive account makes the running menu bar switch to it. The widget ships inside `ccswap.app`; register it to make it appear in the widget gallery:
+The widget lays out accounts' usage side by side, Claude Code accounts first and Codex accounts labeled `Codex`, with the active account of each leading. It shows up to four Claude Code accounts, or five columns in all once Codex accounts are managed, keeping at least two for Codex. Pressing `Switch` on an inactive account makes the running menu bar switch to it. The widget ships inside `ccswap.app`; register it to make it appear in the widget gallery:
 
 ```sh
 ccswap widget --install
@@ -39,20 +41,22 @@ To build from source, `just install` builds a universal `ccswap.app` and runs th
 
 ## CLI
 
+Claude Code accounts are managed with `ccswap claude <command>`. Every `claude` command also works without the prefix (`ccswap list`, `ccswap switch 2`).
+
 ```sh
-ccswap add                          # register the account you are logged in as
-ccswap list                         # list managed accounts and their usage
-ccswap switch                       # rotate to the next account
-ccswap switch 2                     # switch to an account by number or email
-ccswap switch --strategy best       # switch to the account with the most quota left
-ccswap run 2 -- --resume            # run claude as another account, this terminal only
-ccswap map 2 ~/work                 # map a directory to an account
-ccswap auto                         # auto-switch when nearing rate limits
+ccswap claude add                   # register the account you are logged in as
+ccswap claude list                  # list managed accounts and their usage
+ccswap claude switch                # rotate to the next account
+ccswap claude switch 2              # switch to an account by number, alias or email
+ccswap claude switch --strategy best  # switch to the account with the most quota left
+ccswap claude run 2 -- --resume     # run claude as another account, this terminal only
+ccswap claude map 2 ~/work          # map a directory to an account
+ccswap claude auto                  # auto-switch when nearing rate limits
 ccswap config set autoswitch.threshold 80
 ccswap                              # interactive TUI dashboard
 ```
 
-`ccswap help` lists every command, and `ccswap <command> --help` shows its options. `list`, `status` and `switch` emit machine-readable JSON with `--json`.
+`ccswap help` lists every command, and `ccswap <command> --help` shows its options. `claude list`, `claude status`, `claude switch`, `codex list` and `codex switch` emit machine-readable JSON with `--json`.
 
 ## Codex
 
