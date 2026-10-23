@@ -1,0 +1,6 @@
+usage: {prog} upgrade [-h]
+
+Show how to upgrade {prog} to the latest version.
+
+options:
+  -h, --help  show this help message and exit

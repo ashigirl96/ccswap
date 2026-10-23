@@ -1,0 +1,8 @@
+usage: {prog} codex list [-h] [--json] [--debug]
+
+List managed Codex accounts with their 5h and weekly usage.
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit machine-readable JSON to stdout
+  --debug     Enable debug logging

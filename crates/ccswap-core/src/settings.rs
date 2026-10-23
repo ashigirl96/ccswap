@@ -67,12 +67,12 @@ pub struct SettingSpec {
     pub section: &'static str,
     pub json_key: &'static str,
     pub kind: Kind,
-    default: Default,
+    pub default: SettingDefault,
     pub help: &'static str,
 }
 
 #[derive(Debug)]
-enum Default {
+pub enum SettingDefault {
     Float(f64),
     Int(i64),
     Bool(bool),
@@ -87,17 +87,17 @@ impl SettingSpec {
 
     pub fn default_value(&self) -> SettingValue {
         match self.default {
-            Default::Float(f) => SettingValue::Float(f),
-            Default::Int(i) => SettingValue::Int(i),
-            Default::Bool(b) => SettingValue::Bool(b),
-            Default::Text(s) => SettingValue::Text(s.into()),
-            Default::None => SettingValue::None,
+            SettingDefault::Float(f) => SettingValue::Float(f),
+            SettingDefault::Int(i) => SettingValue::Int(i),
+            SettingDefault::Bool(b) => SettingValue::Bool(b),
+            SettingDefault::Text(s) => SettingValue::Text(s.into()),
+            SettingDefault::None => SettingValue::None,
         }
     }
 
     /// Load-time coercion: clamp numbers, truthiness for bools, defaults for
     /// anything of the wrong type.
-    pub(crate) fn lenient(&self, raw: Option<&Value>) -> SettingValue {
+    pub fn lenient(&self, raw: Option<&Value>) -> SettingValue {
         let Some(raw) = raw else {
             return self.default_value();
         };
@@ -188,91 +188,47 @@ impl SettingSpec {
     }
 }
 
-/// Registry order is `config list` order.
-pub static SETTING_SPECS: &[SettingSpec] = &[
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "threshold",
-        kind: Kind::Float { lo: 50.0, hi: 99.9 },
-        default: Default::Float(90.0),
-        help: "Switch when the binding 5h/7d window reaches this pct",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "intervalSeconds",
-        kind: Kind::Float {
-            lo: 15.0,
-            hi: 3600.0,
-        },
-        default: Default::Float(60.0),
-        help: "Poll interval for the cswap auto loop, in seconds",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "cooldownSeconds",
-        kind: Kind::Float {
-            lo: 0.0,
-            hi: 86400.0,
-        },
-        default: Default::Float(300.0),
-        help: "Minimum seconds between proactive switches",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "hysteresisPct",
-        kind: Kind::Float { lo: 0.0, hi: 50.0 },
-        default: Default::Float(10.0),
-        help: "A target must beat the active account by this many pct",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "strategy",
-        kind: Kind::Choice(&["best", "consume-first"]),
-        default: Default::Text("best"),
-        help: "How auto-switch picks the target account",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "includeApiKeyAccounts",
-        kind: Kind::Bool,
-        default: Default::Bool(false),
-        help: "Allow rotating onto managed API-key accounts (bill per token)",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "unhealthyTicks",
-        kind: Kind::Int { lo: 1, hi: 100 },
-        default: Default::Int(3),
-        help: "Consecutive failed polls before an account is unhealthy",
-    },
-    SettingSpec {
-        section: "autoswitch",
-        json_key: "model",
-        kind: Kind::Text,
-        default: Default::None,
-        help: "Also switch on these models' weekly limits (e.g. Fable, Fable,Opus, or all)",
-    },
-    SettingSpec {
-        section: "ui",
-        json_key: "theme",
-        kind: Kind::Choice(&["dark", "light", "auto"]),
-        default: Default::Text("auto"),
-        help: "Color theme; auto follows the terminal background",
-    },
-];
+/// The `ui` section, which every provider's UI shares.
+pub static UI_SETTINGS: &[SettingSpec] = &[SettingSpec {
+    section: "ui",
+    json_key: "theme",
+    kind: Kind::Choice(&["dark", "light", "auto"]),
+    default: SettingDefault::Text("auto"),
+    help: "Color theme; auto follows the terminal background",
+}];
 
-/// Looks up a dotted key; unknown keys list the valid ones.
-pub fn setting_spec(dotted: &str) -> Result<&'static SettingSpec> {
-    SETTING_SPECS
-        .iter()
-        .find(|s| s.dotted() == dotted)
-        .ok_or_else(|| {
-            let keys: Vec<String> = SETTING_SPECS.iter().map(SettingSpec::dotted).collect();
+/// The sections settings.json knows, one slice per section; registry order
+/// is `config list` order.
+#[derive(Debug, Clone, Copy)]
+pub struct Registry {
+    sections: &'static [&'static [SettingSpec]],
+}
+
+impl Registry {
+    pub const fn new(sections: &'static [&'static [SettingSpec]]) -> Self {
+        Registry { sections }
+    }
+
+    pub fn specs(&self) -> impl Iterator<Item = &'static SettingSpec> + use<> {
+        self.sections.iter().flat_map(|section| section.iter())
+    }
+
+    /// Looks up a dotted key; unknown keys list the valid ones.
+    pub fn spec(&self, dotted: &str) -> Result<&'static SettingSpec> {
+        self.specs().find(|s| s.dotted() == dotted).ok_or_else(|| {
+            let keys: Vec<String> = self.specs().map(SettingSpec::dotted).collect();
             Error::config(format!(
                 "unknown setting '{dotted}'\nValid keys: {}",
                 keys.join(", ")
             ))
         })
+    }
+
+    fn section_names(&self) -> impl Iterator<Item = &'static str> + use<> {
+        self.sections
+            .iter()
+            .filter_map(|section| section.first().map(|spec| spec.section))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -286,39 +242,46 @@ pub struct EffectiveSetting {
 #[derive(Debug, Clone)]
 pub struct Settings {
     path: PathBuf,
+    registry: Registry,
 }
 
 impl Settings {
-    pub fn new(paths: &Paths) -> Self {
+    pub fn new(paths: &Paths, registry: Registry) -> Self {
         Settings {
             path: paths.settings_file(),
+            registry,
         }
     }
 
-    pub fn in_dir(backup_dir: &Path) -> Self {
+    pub fn in_dir(backup_dir: &Path, registry: Registry) -> Self {
         Settings {
             path: backup_dir.join("settings.json"),
+            registry,
         }
+    }
+
+    pub fn registry(&self) -> Registry {
+        self.registry
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// Logs what upstream's three lenient reads behind `effective_settings`
-    /// log: the raw file, then the autoswitch and ui sections.
+    /// Logs what upstream's lenient reads behind `effective_settings` log:
+    /// the raw file, then each section in registry order.
     pub fn effective(&self) -> Vec<EffectiveSetting> {
         let (raw, read_warning) = self.read_lenient_with_warning();
-        let warnings = read_warning
-            .iter()
-            .cloned()
-            .chain(self.choice_load_warnings("autoswitch"))
-            .chain(self.ui_load_warnings());
+        let warnings = read_warning.iter().cloned().chain(
+            self.registry
+                .section_names()
+                .flat_map(|section| self.choice_load_warnings(section)),
+        );
         for warning in warnings {
             crate::log::warning(warning);
         }
-        SETTING_SPECS
-            .iter()
+        self.registry
+            .specs()
             .map(|spec| {
                 let section = raw.get(spec.section).and_then(Value::as_object);
                 let stored = section.and_then(|s| s.get(spec.json_key));
@@ -332,7 +295,7 @@ impl Settings {
     }
 
     pub fn get(&self, dotted: &str) -> Result<EffectiveSetting> {
-        let spec = setting_spec(dotted)?;
+        let spec = self.registry.spec(dotted)?;
         Ok(self
             .effective()
             .into_iter()
@@ -343,7 +306,7 @@ impl Settings {
     /// Validates and writes one key (plus `schemaVersion`); never
     /// materialises other defaults into the file.
     pub fn set(&self, dotted: &str, raw_value: &str) -> Result<SettingValue> {
-        let spec = setting_spec(dotted)?;
+        let spec = self.registry.spec(dotted)?;
         let value = spec.parse(raw_value)?;
         let mut raw = self.read_for_write()?;
         stamp_schema_version(&mut raw);
@@ -360,7 +323,7 @@ impl Settings {
     /// Removes one key, and its section once empty; `false` (and no write)
     /// when it was not set.
     pub fn unset(&self, dotted: &str) -> Result<bool> {
-        let spec = setting_spec(dotted)?;
+        let spec = self.registry.spec(dotted)?;
         let mut raw = self.read_for_write()?;
         let present = raw
             .get(spec.section)
@@ -382,13 +345,6 @@ impl Settings {
         Ok(true)
     }
 
-    pub fn autoswitch_models(&self) -> Vec<String> {
-        match self.get("autoswitch.model").map(|s| s.value) {
-            Ok(SettingValue::Text(t)) => parse_model_names(&t),
-            _ => Vec::new(),
-        }
-    }
-
     /// What upstream logs while loading the `ui` section at startup, before
     /// logging is configured, so it reaches stderr on every command.
     pub fn ui_load_warnings(&self) -> Vec<String> {
@@ -405,8 +361,8 @@ impl Settings {
         let Some(Value::Object(stored)) = raw.get(section) else {
             return Vec::new();
         };
-        SETTING_SPECS
-            .iter()
+        self.registry
+            .specs()
             .filter(|spec| spec.section == section)
             .filter_map(|spec| match (stored.get(spec.json_key), spec.kind) {
                 (Some(value), Kind::Choice(choices))
@@ -691,30 +647,9 @@ fn python_utf8_error(bytes: &[u8], e: &std::str::Utf8Error) -> String {
     format!("'utf-8' codec can't decode byte 0x{byte:02x} in position {pos}: {reason}")
 }
 
-/// Comma-separated names, trimmed, deduplicated case-insensitively (first
-/// spelling wins).
-pub fn parse_model_names(value: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-        if !out.iter().any(|o| o.to_lowercase() == name.to_lowercase()) {
-            out.push(name.to_string());
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn model_names_are_trimmed_and_deduplicated() {
-        assert_eq!(
-            parse_model_names(" Fable, fable ,Opus,,"),
-            ["Fable", "Opus"]
-        );
-        assert!(parse_model_names("").is_empty());
-    }
 
     #[test]
     fn python_number_grammar() {

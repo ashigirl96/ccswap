@@ -1,0 +1,81 @@
+usage: {prog} <command> [args] [options]
+
+Multi-Account Switcher for Claude Code and Codex
+
+Claude Code accounts:
+  {prog} claude list                list managed accounts
+  {prog} claude status              show current account
+  {prog} claude switch              rotate to the next account
+  {prog} claude switch <num|email>  switch to a specific account
+  {prog} claude add                 add the current account
+  {prog} claude add-token [TOKEN|-] register a setup-token or API key
+  {prog} claude remove <num|email> [-y]
+                                    remove an account (-y skips the prompt)
+  {prog} claude disable <num|email> hold an account out of auto-rotation
+  {prog} claude enable <num|email>  return a disabled account to rotation
+  {prog} claude run <num|email> [-- ...]
+                                    run as an account, this terminal only
+  {prog} claude run                 run the current dir's mapped account
+  {prog} claude map <num|email> [path]
+                                    map a directory to an account
+  {prog} claude map                 list directory mappings
+  {prog} claude unmap [path]        remove a directory mapping
+  {prog} claude alias <num|email> <name>
+                                    set a short alias for an account
+  {prog} claude alias <num|email> --unset
+                                    remove an account's alias
+  {prog} claude alias               list all aliases
+  {prog} claude swap <a> <b>        exchange two accounts' slot numbers
+  {prog} claude move <a> <slot>     assign an account to a slot (swaps if taken)
+  {prog} claude auto                auto-switch when nearing rate limits
+  {prog} claude unclaimed [--purge ID]
+                                    list or drop stashed credential entries
+  {prog} claude export <path>       export accounts
+  {prog} claude import <path>       import accounts
+  {prog} claude --help              show the Claude Code commands and options
+  Every 'claude' command also works without the 'claude' prefix ({prog} list, {prog} switch 2, ...).
+
+Codex CLI accounts (numbered apart from Claude Code accounts):
+  {prog} codex add                  register the current Codex login
+  {prog} codex login                log in to another Codex account and add it
+  {prog} codex list                 list managed Codex accounts
+  {prog} codex switch [num|email]   switch the Codex login (next one without an argument)
+  {prog} codex remove <num|email>   remove a Codex account
+  {prog} codex alias <num|alias|email> <name>
+                                    set a Codex account's alias (--unset removes it)
+  {prog} codex --help               show the Codex commands and options
+
+App commands:
+  {prog} help                       show this help
+  {prog} tui                        interactive dashboard (also: bare {prog})
+  {prog} watch                      dashboard, opened on the live watch page
+  {prog} menubar                    macOS menu bar app
+  {prog} menubar --install-service  keep the menu bar running via launchd
+  {prog} widget --install           add the desktop widget (ccswap.app)
+  {prog} config [set KEY VALUE]     show or change settings (settings.json)
+  {prog} upgrade                    self-upgrade to latest
+  {prog} purge                      remove all ccswap data (Claude Code and Codex)
+
+Aliases: ls=list  rm=remove  update=upgrade
+
+options:
+  -h, --help  show this help message and exit
+  --version   show program's version number and exit
+  --debug     Enable debug logging
+
+'{prog} <command> --help' lists the options a command takes.
+
+Flags combine with subcommands:
+  {prog} claude switch --strategy best           # pick the account with most quota left
+  {prog} claude switch --strategy next-available # rotate, skipping rate-limited accounts
+  {prog} claude switch user@example.com
+  {prog} claude list --token-status
+  {prog} claude list --json
+  {prog} claude add --slot 3                     # add to a specific slot
+  {prog} claude add-token sk-ant-oat01-... --email me@example.com
+  {prog} claude run 2 -- --resume                # forward args after '--' to claude
+  {prog} claude auto --once                      # single auto-switch tick (cron-friendly)
+  {prog} config set autoswitch.threshold 80
+
+The original flag spellings ({prog} --switch, {prog} --list, ...) keep working.
+        

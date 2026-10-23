@@ -1,17 +1,7 @@
-mod argparse;
-mod auto_cmd;
+mod claude;
 mod cli;
-mod codex_cmd;
-mod config_cmd;
-mod launch_agent;
-mod manage_cmd;
-mod map_cmd;
-mod menubar;
-mod renumber_cmd;
-mod run_cmd;
-mod tui;
-mod unclaimed_cmd;
-mod widget_cmd;
+mod codex;
+mod ui;
 
 use ccswap_core::env::Environment;
 

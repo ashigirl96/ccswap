@@ -1,0 +1,17 @@
+usage: {prog} claude move [-h] [--debug] NUM|EMAIL|ALIAS SLOT
+
+Assign an account to a slot number. An empty slot relocates the account there and frees its old slot; an occupied slot swaps the two. Aliases, backups, and session history move with the account.
+
+positional arguments:
+  NUM|EMAIL|ALIAS  Account to move
+  SLOT             Destination slot number
+
+options:
+  -h, --help       show this help message and exit
+  --debug          Enable debug logging
+
+Examples:
+  {prog} move user@example.com 1   move an account onto shortcut 1
+  {prog} move dev 1                by alias
+  {prog} move 2 1                  by number (swaps if slot 1 is taken)
+        

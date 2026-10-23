@@ -1,0 +1,10 @@
+usage: {prog} claude unmap [-h] [--debug] [PATH]
+
+Remove a directory → account mapping (default: current directory).
+
+positional arguments:
+  PATH        Directory to unmap (default: current directory)
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging

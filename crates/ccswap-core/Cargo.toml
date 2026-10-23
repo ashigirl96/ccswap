@@ -1,6 +1,6 @@
 [package]
 name = "ccswap-core"
-description = "Core library of ccswap: store, secrets, presentation"
+description = "Provider-neutral parts of ccswap: paths, locks, HTTP, usage cache, presentation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,10 +8,7 @@ repository.workspace = true
 
 [dependencies]
 serde_json.workspace = true
-sha2 = "0.10"
-unicode-normalization = "0.1"
 libc = "0.2"
 ureq = { version = "3.3.0", features = ["platform-verifier"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-base64 = "0.22.1"
 tempfile = "3"

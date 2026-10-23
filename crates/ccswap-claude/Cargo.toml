@@ -1,0 +1,19 @@
+[package]
+name = "ccswap-claude"
+description = "Claude Code accounts of ccswap: store, secrets, switching, auto-switch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ccswap-core.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+unicode-normalization = "0.1"
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+base64 = "0.22.1"
+
+[dev-dependencies]
+tempfile = "3"

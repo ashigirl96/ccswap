@@ -1,0 +1,9 @@
+usage: {prog} claude status [-h] [--json] [--debug]
+
+Show the Claude Code account that is logged in now.
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit machine-readable JSON to stdout. See README 'JSON output
+              for scripting'.
+  --debug     Enable debug logging

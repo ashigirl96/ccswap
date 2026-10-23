@@ -1,0 +1,28 @@
+usage: {prog} config [-h] [--json] [--debug] {list,get,set,unset,path} ...
+
+Read and edit ccswap settings (settings.json in the backup root).
+
+positional arguments:
+  {list,get,set,unset,path}
+    list                Show all effective settings (the default)
+    get                 Print one setting's effective value
+    set                 Validate and persist one setting
+    unset               Remove one setting (revert to the default)
+    path                Print the settings.json location
+
+options:
+  -h, --help            show this help message and exit
+  --json                Emit machine-readable JSON to stdout (with list or
+                        get)
+  --debug               Enable debug logging
+
+Keys:
+{keys}
+
+Examples:
+  {prog} config                              # list effective settings
+  {prog} config get autoswitch.threshold
+  {prog} config set autoswitch.threshold 80
+  {prog} config unset autoswitch.threshold   # back to the default
+  {prog} config path                         # where settings.json lives
+

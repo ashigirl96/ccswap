@@ -1,0 +1,11 @@
+usage: {prog} claude import [-h] [--force] [--debug] PATH
+
+Import Claude Code accounts from a file written by 'export'.
+
+positional arguments:
+  PATH        File to read ('-' reads from stdin)
+
+options:
+  -h, --help  show this help message and exit
+  --force     Overwrite accounts that already exist
+  --debug     Enable debug logging

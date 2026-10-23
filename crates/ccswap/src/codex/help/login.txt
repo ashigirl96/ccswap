@@ -1,0 +1,8 @@
+usage: {prog} codex login [-h] [--debug]
+
+Log in to another Codex account with 'codex login' and add it. The current
+login is kept.
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging

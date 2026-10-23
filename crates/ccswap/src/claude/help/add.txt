@@ -1,0 +1,13 @@
+usage: {prog} claude add [-h] [--slot NUM] [--alias NAME] [--debug]
+
+Add the Claude Code account that is logged in now to the managed accounts.
+
+options:
+  -h, --help    show this help message and exit
+  --slot NUM    Add the account to this slot number
+  --alias NAME  Set a short display alias for the account
+  --debug       Enable debug logging
+
+Examples:
+  {prog} add
+  {prog} add --slot 3 --alias work

@@ -1,0 +1,17 @@
+usage: {prog} claude export [-h] [--account NUM|EMAIL] [--full] [--debug] PATH
+
+Export managed Claude Code accounts, credentials included, to a file.
+
+positional arguments:
+  PATH                 File to write ('-' writes to stdout)
+
+options:
+  -h, --help           show this help message and exit
+  --account NUM|EMAIL  Export only this account
+  --full               Include the full ~/.claude.json (default: oauthAccount
+                       only)
+  --debug              Enable debug logging
+
+Examples:
+  {prog} export accounts.json
+  {prog} export - --account 2

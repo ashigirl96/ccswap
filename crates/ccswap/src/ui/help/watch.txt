@@ -1,0 +1,7 @@
+usage: {prog} watch [-h] [--debug]
+
+Open the interactive dashboard on the live watch page.
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging

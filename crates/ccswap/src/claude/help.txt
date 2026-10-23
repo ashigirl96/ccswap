@@ -1,0 +1,45 @@
+usage: {prog} claude <command> [args] [options]
+
+Manage Claude Code accounts. Claude Code accounts are numbered on their own,
+apart from Codex accounts, and stored under ~/.claude-swap-backup/.
+An account is named by its number, alias or email.
+Every command also works without the 'claude' prefix ({prog} list, {prog} switch 2, ...).
+
+Commands:
+  {prog} claude list                list managed accounts
+  {prog} claude status              show current account
+  {prog} claude switch              rotate to the next account
+  {prog} claude switch <num|email>  switch to a specific account
+  {prog} claude add                 add the current account
+  {prog} claude add-token [TOKEN|-] register a setup-token or API key
+  {prog} claude remove <num|email> [-y]
+                                    remove an account (-y skips the prompt)
+  {prog} claude disable <num|email> hold an account out of auto-rotation
+  {prog} claude enable <num|email>  return a disabled account to rotation
+  {prog} claude run <num|email> [-- ...]
+                                    run as an account, this terminal only
+  {prog} claude run                 run the current dir's mapped account
+  {prog} claude map <num|email> [path]
+                                    map a directory to an account
+  {prog} claude map                 list directory mappings
+  {prog} claude unmap [path]        remove a directory mapping
+  {prog} claude alias <num|email> <name>
+                                    set a short alias for an account
+  {prog} claude alias <num|email> --unset
+                                    remove an account's alias
+  {prog} claude alias               list all aliases
+  {prog} claude swap <a> <b>        exchange two accounts' slot numbers
+  {prog} claude move <a> <slot>     assign an account to a slot (swaps if taken)
+  {prog} claude auto                auto-switch when nearing rate limits
+  {prog} claude unclaimed [--purge ID]
+                                    list or drop stashed credential entries
+  {prog} claude export <path>       export accounts
+  {prog} claude import <path>       import accounts
+
+Aliases: ls=list  rm=remove
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging
+
+'{prog} claude <command> --help' lists the options a command takes.

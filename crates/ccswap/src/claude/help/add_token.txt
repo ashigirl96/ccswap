@@ -1,0 +1,21 @@
+usage: {prog} claude add-token [-h] [--email EMAIL] [--slot NUM] [--debug] [TOKEN|-]
+
+Register a setup-token (from 'claude setup-token') or an API key as a managed
+account.
+
+positional arguments:
+  TOKEN|-        The token or key. '-' reads it from stdin; omit it to be
+                 prompted.
+
+options:
+  -h, --help     show this help message and exit
+  --email EMAIL  Email address for the account; defaults to
+                 setup-token-{slot}@token.local (or api-key-{slot}@token.local
+                 for API keys) since these tokens carry no real email
+                 metadata.
+  --slot NUM     Add the account to this slot number
+  --debug        Enable debug logging
+
+Examples:
+  {prog} add-token sk-ant-oat01-... --email me@example.com
+  pbpaste | {prog} add-token -
