@@ -19,6 +19,7 @@ pub mod switcher;
 pub mod transfer;
 pub mod unclaimed;
 pub mod usage_collector;
+pub mod usage_view;
 
 use ccswap_core::settings::{Registry, SettingSpec, UI_SETTINGS};
 

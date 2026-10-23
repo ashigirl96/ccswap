@@ -4,9 +4,8 @@ use std::collections::HashMap;
 
 use ccswap_claude::snapshot::AccountsSnapshot;
 use ccswap_codex::CodexListing;
-use ccswap_codex::view::sentinel_note;
 use ccswap_core::pace::compute_pace;
-use ccswap_core::usage::parse_iso;
+use ccswap_core::usage::{Sentinel, parse_iso};
 use ccswap_core::usage_store::UsageEntry;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value};
@@ -26,9 +25,10 @@ pub enum DisplayUsage {
 }
 
 impl DisplayUsage {
-    pub fn from_entry(entry: &UsageEntry) -> Self {
+    /// `sentinel_note` is the provider's wording for a usage state.
+    pub fn from_entry(entry: &UsageEntry, sentinel_note: fn(Sentinel) -> &'static str) -> Self {
         if let Some(sentinel) = entry.sentinel {
-            return DisplayUsage::Note(sentinel.note().to_string());
+            return DisplayUsage::Note(sentinel_note(sentinel).to_string());
         }
         match &entry.last_good {
             Some(usage) => DisplayUsage::Measured(usage.clone()),
@@ -101,9 +101,8 @@ pub fn codex_accounts(
                 number: account.number.to_string(),
                 email: account.email.clone(),
                 is_active: account.active,
-                display: entry.map_or(DisplayUsage::Unavailable, |e| match e.sentinel {
-                    Some(s) => DisplayUsage::Note(sentinel_note(s).to_string()),
-                    None => DisplayUsage::from_entry(e),
+                display: entry.map_or(DisplayUsage::Unavailable, |e| {
+                    DisplayUsage::from_entry(e, ccswap_codex::view::sentinel_note)
                 }),
                 last_good: entry.and_then(|e| e.last_good.clone()),
                 alias: account.alias.clone().unwrap_or_default(),
@@ -118,7 +117,8 @@ impl MenuSnapshot {
     pub fn adapt(snap: &AccountsSnapshot) -> Self {
         let mut out = MenuSnapshot::default();
         for acc in &snap.accounts {
-            let display = DisplayUsage::from_entry(&acc.usage);
+            let display =
+                DisplayUsage::from_entry(&acc.usage, ccswap_claude::usage_view::sentinel_note);
             if acc.is_active {
                 out.active_email = Some(acc.email.clone());
                 out.active_usage = display.clone();

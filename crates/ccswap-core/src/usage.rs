@@ -30,39 +30,6 @@ impl Sentinel {
             Sentinel::ForeignCredential => "foreign_credential",
         }
     }
-
-    /// The one-line note in human output.
-    pub fn note(self) -> &'static str {
-        match self {
-            Sentinel::NoCredentials => "no credentials",
-            Sentinel::TokenExpired => {
-                "token expired — refresh deferred this pass; retries automatically"
-            }
-            Sentinel::ApiKey => "API key (no quota)",
-            Sentinel::KeychainUnavailable => "keychain unavailable — locked or in use; try again",
-            Sentinel::ReloginRequired => {
-                "re-login needed — refresh token dead; log in with Claude Code, then run: ccswap add"
-            }
-            Sentinel::ForeignCredential => {
-                "live credential belongs to another account — a switch repairs it"
-            }
-        }
-    }
-}
-
-/// Friendly text for fetch-error kinds that need more than their identifier.
-pub fn error_note(kind: &str) -> Option<&'static str> {
-    Some(match kind {
-        "store-unmirrored" => {
-            "CLAUDE_SECURESTORAGE_CONFIG_DIR set — unset it or run from a normal shell"
-        }
-        "invalid_client" => "cswap's OAuth client was rejected — systemic, not this account",
-        "consume-busy" => "another cswap surface holds the slot — retries next pass",
-        "stash-unreadable" => {
-            "this slot's stashed successor is unreadable — unlock the keychain or fix the file, then retry; `ccswap unclaimed` inspects it"
-        }
-        _ => return None,
-    })
 }
 
 pub fn now_secs() -> f64 {

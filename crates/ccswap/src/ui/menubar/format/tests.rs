@@ -3,6 +3,7 @@
 
 use super::*;
 use ccswap_claude::snapshot::{AccountKind, AccountSnapshot};
+use ccswap_claude::usage_view::sentinel_note;
 use ccswap_core::usage::Sentinel;
 use serde_json::json;
 
@@ -507,16 +508,16 @@ fn entry(
 #[test]
 fn account_display_usage_sentinel_note_last_good_or_none() {
     assert_eq!(
-        DisplayUsage::from_entry(&entry(Some(Sentinel::ApiKey), None, None)),
+        DisplayUsage::from_entry(&entry(Some(Sentinel::ApiKey), None, None), sentinel_note),
         DisplayUsage::Note("API key (no quota)".into())
     );
     let lg = json!({"five_hour": {"pct": 5.0}});
     assert_eq!(
-        DisplayUsage::from_entry(&entry(None, Some(lg.clone()), None)),
+        DisplayUsage::from_entry(&entry(None, Some(lg.clone()), None), sentinel_note),
         measured(lg)
     );
     assert_eq!(
-        DisplayUsage::from_entry(&entry(None, None, None)),
+        DisplayUsage::from_entry(&entry(None, None, None), sentinel_note),
         DisplayUsage::Unavailable
     );
 }
