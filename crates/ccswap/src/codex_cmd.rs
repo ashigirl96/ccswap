@@ -32,6 +32,7 @@ struct Command {
     opts: &'static [Opt],
     max_positionals: usize,
     run: Handler,
+    help: &'static str,
 }
 
 const COMMANDS: &[Command] = &[
@@ -40,36 +41,42 @@ const COMMANDS: &[Command] = &[
         opts: &[],
         max_positionals: 0,
         run: add,
+        help: include_str!("codex_add_help.txt"),
     },
     Command {
         names: &["login"],
         opts: &[],
         max_positionals: 0,
         run: login,
+        help: include_str!("codex_login_help.txt"),
     },
     Command {
         names: &["list", "ls"],
         opts: &[Opt::flag("--json")],
         max_positionals: 0,
         run: list,
+        help: include_str!("codex_list_help.txt"),
     },
     Command {
         names: &["switch"],
         opts: &[Opt::flag("--json")],
         max_positionals: 1,
         run: switch,
+        help: include_str!("codex_switch_help.txt"),
     },
     Command {
         names: &["remove", "rm"],
         opts: &[Opt::flag("-y"), Opt::flag("--yes")],
         max_positionals: 1,
         run: remove,
+        help: include_str!("codex_remove_help.txt"),
     },
     Command {
         names: &["alias"],
         opts: &[Opt::flag("--unset")],
         max_positionals: 2,
         run: alias,
+        help: include_str!("codex_alias_help.txt"),
     },
 ];
 
@@ -85,15 +92,15 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         eprintln!("{prog} codex: error: {msg}");
         2
     };
-    let print_help = || {
-        print!("{}", HELP.replace("{prog}", prog));
+    let print_help = |help: &str| {
+        print!("{}", help.replace("{prog}", prog));
         0
     };
     let Some((verb, rest)) = argv.split_first() else {
         return usage_error(&format!("no command given — try '{prog} codex --help'"));
     };
     if matches!(verb.as_str(), "-h" | "--help" | "help") {
-        return print_help();
+        return print_help(HELP);
     }
     let Some(command) = COMMANDS.iter().find(|c| c.names.contains(&verb.as_str())) else {
         return usage_error(&format!(
@@ -103,7 +110,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let opts: Vec<Opt> = HELP_OPTS.iter().chain(command.opts).copied().collect();
     let (positionals, options) = split_positionals(rest, &opts);
     let parsed = match (Parser { opts: &opts }).parse(&options) {
-        Ok((Outcome::Help, _)) => return print_help(),
+        Ok((Outcome::Help, _)) => return print_help(command.help),
         Ok((Outcome::Version, _)) => unreachable!("codex commands take no --version"),
         Ok((Outcome::Parsed, parsed)) => parsed,
         Err(ParseError(msg)) => return usage_error(&msg),

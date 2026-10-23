@@ -1,0 +1,7 @@
+usage: {prog} tui [-h] [--debug]
+
+Open the interactive dashboard. A bare '{prog}' in a terminal opens it too.
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging

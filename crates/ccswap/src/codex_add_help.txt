@@ -1,0 +1,8 @@
+usage: {prog} codex add [-h] [--debug]
+
+Register the current Codex login ($CODEX_HOME or ~/.codex) as a managed Codex
+account.
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging

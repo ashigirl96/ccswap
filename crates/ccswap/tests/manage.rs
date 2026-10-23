@@ -164,15 +164,20 @@ fn yes_is_only_for_remove() {
     let env = TestEnv::new();
     seed_three(&env);
 
-    let out = env.run(["disable", "2", "-y"]);
+    for (args, flag) in [
+        (["disable", "2", "-y"], "-y"),
+        (["list", "--yes", "--debug"], "--yes"),
+    ] {
+        let out = env.run(args);
 
-    out.assert_code(2);
-    assert!(
-        out.stderr
-            .contains("-y/--yes can only be used with 'remove'"),
-        "{}",
-        out.stderr
-    );
+        out.assert_code(2);
+        assert!(
+            out.stderr
+                .ends_with(&format!("error: unrecognized arguments: {flag}\n")),
+            "{args:?}: {}",
+            out.stderr
+        );
+    }
 }
 
 #[test]

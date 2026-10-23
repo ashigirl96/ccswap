@@ -1,0 +1,10 @@
+usage: {prog} enable [-h] [--debug] NUM|ALIAS|EMAIL
+
+Return a disabled Claude Code account to rotation and auto-switch.
+
+positional arguments:
+  NUM|ALIAS|EMAIL  Account to enable
+
+options:
+  -h, --help       show this help message and exit
+  --debug          Enable debug logging
