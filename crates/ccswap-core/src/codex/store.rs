@@ -124,6 +124,25 @@ impl CodexStore {
         })
     }
 
+    /// Copies the live `auth.json` into its owner's managed home, so the home keeps the
+    /// tokens Codex last wrote. Returns the owner's number when it is registered.
+    pub fn sync_live_owner(&self) -> Result<Option<u32>> {
+        let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
+        let Some(live) = self.read_live()? else {
+            return Ok(None);
+        };
+        let Ok(identity) = read_identity(&live) else {
+            return Ok(None);
+        };
+        let Some(number) = self.ledger()?.find_by_account_id(&identity.account_id) else {
+            return Ok(None);
+        };
+        if self.read_managed(number)?.as_deref() != Some(live.as_slice()) {
+            self.write_managed(number, &live)?;
+        }
+        Ok(Some(number))
+    }
+
     pub fn list(&self) -> Result<CodexListing> {
         let ledger = self.ledger()?;
         let live_owner = self

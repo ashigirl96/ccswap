@@ -5,7 +5,7 @@ apart from Claude accounts, and stored under ~/.claude-swap-backup/codex/.
 
 Commands:
   {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
-  {prog} codex list         list managed Codex accounts
+  {prog} codex list         list managed Codex accounts with their 5h and weekly usage
 
 Aliases: ls=list
 
