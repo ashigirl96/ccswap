@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "ccswap"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ccswap-claude",
  "ccswap-codex",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "ccswap-claude"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "ccswap-core",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "ccswap-codex"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "ccswap-core",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "ccswap-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "libc",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "ccswap-test-fakes"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
 ]
