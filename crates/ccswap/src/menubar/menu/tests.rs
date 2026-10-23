@@ -49,7 +49,146 @@ fn two_accounts() -> MenuSnapshot {
         active_email: Some("a@x.com".into()),
         active_usage: DisplayUsage::Measured(usage.clone()),
         active_alias: Some("work".into()),
+        codex: Vec::new(),
     }
+}
+
+fn with_codex() -> MenuSnapshot {
+    let at = |s: f64| {
+        chrono::DateTime::from_timestamp((NOW + s) as i64, 0)
+            .unwrap()
+            .to_rfc3339()
+    };
+    let account = |number: &str, email: &str, alias: &str, active: bool, usage| MenuAccount {
+        number: number.into(),
+        email: email.into(),
+        is_active: active,
+        display: DisplayUsage::Measured(usage),
+        last_good: None,
+        alias: alias.into(),
+        disabled: false,
+        fetched_at: None,
+    };
+    MenuSnapshot {
+        codex: vec![
+            account(
+                "1",
+                "c@x.com",
+                "",
+                false,
+                json!({
+                    "five_hour": {"pct": 10.0, "resets_at": at(3600.0 + 5.0 * 60.0)},
+                    "seven_day": {"pct": 20.0, "resets_at": at(3.0 * 86400.0 + 2.0 * 3600.0)},
+                }),
+            ),
+            account(
+                "2",
+                "d@x.com",
+                "plus",
+                true,
+                json!({"five_hour": {"pct": 5.0}, "seven_day": {"pct": 60.0}}),
+            ),
+        ],
+        ..two_accounts()
+    }
+}
+
+fn codex_card(entries: &[Entry], number: &str) -> AccountCard {
+    entries
+        .iter()
+        .find_map(|e| match e {
+            Entry::Item {
+                command: Some(Command::CodexSwitchTo(n)),
+                card: Some(card),
+                ..
+            } if n == number => Some(card.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no Codex card for account {number}"))
+}
+
+#[test]
+fn codex_accounts_follow_the_claude_accounts_under_a_heading() {
+    let lines = render(&MenuInput {
+        snapshot: &with_codex(),
+        settings: &MenuBarSettings::default(),
+        history: &[],
+        threshold: 95,
+        now: NOW,
+    });
+    let start = lines.iter().position(|l| l == "Codex").unwrap();
+    assert_eq!(
+        lines[start - 2..start + 5],
+        [
+            "2  b@x.com  (disabled)  5h 42% · 7d 18%",
+            "---",
+            "Codex",
+            "1  c@x.com  5h 10% (1h 5m) · 7d 20% (3d 2h)",
+            "---",
+            "✓ 2  plus  (d@x.com)  5h 5% · 7d 60%",
+            "---",
+        ]
+    );
+    assert_eq!(lines[start + 5], "Rotate to next");
+    let tools = lines.iter().position(|l| l == "Codex accounts ▸").unwrap();
+    assert_eq!(lines[tools - 1], "Refresh current credentials");
+    assert_eq!(
+        lines[tools..tools + 6],
+        [
+            "Codex accounts ▸",
+            "  Add from current login",
+            "  Log in to a new account…",
+            "  Remove account ▸",
+            "    1  c@x.com",
+            "    2  plus  (d@x.com)",
+        ]
+    );
+}
+
+#[test]
+fn codex_cards_show_the_active_mark_usage_and_reset() {
+    let menu = menu_for(&with_codex());
+    let first = codex_card(&menu, "1");
+    assert_eq!(first.status, AccountStatus::Idle);
+    assert_eq!(
+        rows_of(&first),
+        [
+            ("Session".into(), "10%".into(), Some("1h 5m".into())),
+            ("All".into(), "20%".into(), Some("3d 2h".into())),
+        ]
+    );
+    assert_eq!(codex_card(&menu, "2").status, AccountStatus::Active);
+}
+
+#[test]
+fn codex_entries_carry_codex_commands_apart_from_claude_ones() {
+    let menu = menu_for(&with_codex());
+    assert_eq!(
+        command(&menu, "1  c@x.com  5h 10% (1h 5m) · 7d 20% (3d 2h)"),
+        Command::CodexSwitchTo("1".into())
+    );
+    assert_eq!(
+        command(&menu, "1  work  (a@x.com)  5h 42% · 7d 18%"),
+        Command::SwitchTo("1".into())
+    );
+    let Entry::Submenu { entries, .. } = find(&menu, "Codex accounts") else {
+        panic!()
+    };
+    assert_eq!(
+        command(entries, "Add from current login"),
+        Command::CodexAddFromLogin
+    );
+    assert_eq!(
+        command(entries, "Log in to a new account…"),
+        Command::CodexLogin
+    );
+    let Entry::Submenu { entries, .. } = find(entries, "Remove account") else {
+        panic!()
+    };
+    assert_eq!(
+        command(entries, "2  plus  (d@x.com)"),
+        Command::CodexRemove("2".into())
+    );
 }
 
 fn find<'a>(entries: &'a [Entry], title: &str) -> &'a Entry {

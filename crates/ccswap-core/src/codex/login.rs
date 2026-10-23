@@ -1,12 +1,13 @@
 //! `codex login` into a fresh managed home; Codex does the browser OAuth, ccswap never does.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
 
 use super::identity::{CodexIdentity, read_identity};
+use super::program::CodexProgram;
 use super::store::{CodexStore, new_account};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,8 @@ impl CodexStore {
     pub fn login(&self, stdio: LoginStdio) -> Result<LoginOutcome> {
         let number = self.reserve_home()?;
         let home = self.paths().managed_home(number);
-        let outcome = run_codex_login(&home, stdio).and_then(|()| self.register_login(number));
+        let outcome = run_codex_login(self.paths().codex_program(), &home, stdio)
+            .and_then(|()| self.register_login(number));
         if outcome.is_err() {
             let _ = std::fs::remove_dir_all(&home);
         }
@@ -93,8 +95,8 @@ impl CodexStore {
     }
 }
 
-fn run_codex_login(home: &Path, stdio: LoginStdio) -> Result<()> {
-    let mut command = Command::new("codex");
+fn run_codex_login(program: &CodexProgram, home: &Path, stdio: LoginStdio) -> Result<()> {
+    let mut command = program.command();
     command.arg("login").env("CODEX_HOME", home);
     if stdio == LoginStdio::Detached {
         command
