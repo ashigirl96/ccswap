@@ -3,6 +3,7 @@ pub mod actions;
 pub mod anthropic_client;
 pub mod appearance;
 pub mod autoswitch;
+pub mod codex;
 pub mod consume_gate;
 pub mod endpoints;
 pub mod env;

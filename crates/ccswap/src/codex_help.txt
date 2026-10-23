@@ -1,0 +1,15 @@
+usage: {prog} codex <command> [options]
+
+Manage Codex CLI (ChatGPT) accounts. Codex accounts are numbered on their own,
+apart from Claude accounts, and stored under ~/.claude-swap-backup/codex/.
+
+Commands:
+  {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
+  {prog} codex list         list managed Codex accounts
+
+Aliases: ls=list
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit machine-readable JSON to stdout (use with 'list')
+  --debug     Enable debug logging

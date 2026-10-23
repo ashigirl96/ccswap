@@ -36,6 +36,11 @@ Commands:
   {prog} upgrade                    self-upgrade to latest
   {prog} purge                      remove all claude-swap data
 
+Codex CLI accounts (numbered apart from Claude accounts):
+  {prog} codex add                  register the current Codex login
+  {prog} codex list                 list managed Codex accounts
+  {prog} codex --help               show the Codex commands and options
+
 Aliases: ls=list  rm=remove  update=upgrade
 
 options:

@@ -6,12 +6,14 @@ pub const SECURITY_ENV: &str = "CCSWAP_SECURITY_PATH";
 pub const API_BASE_URL_ENV: &str = "CCSWAP_API_BASE_URL";
 pub const OAUTH_TOKEN_URL_ENV: &str = "CCSWAP_OAUTH_TOKEN_URL";
 pub const UPDATE_CHECK_URL_ENV: &str = "CCSWAP_UPDATE_CHECK_URL";
+pub const CODEX_API_BASE_URL_ENV: &str = "CCSWAP_CODEX_API_BASE_URL";
 
 pub const DEFAULT_SECURITY: &str = "/usr/bin/security";
 pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
 pub const DEFAULT_OAUTH_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 pub const DEFAULT_UPDATE_CHECK_URL: &str =
     "https://api.github.com/repos/ashigirl96/ccswap/releases/latest";
+pub const DEFAULT_CODEX_API_BASE_URL: &str = "https://chatgpt.com";
 
 /// External programs and HTTP endpoints, overridable so tests can point them
 /// at doubles.
@@ -21,6 +23,7 @@ pub struct Endpoints {
     pub api_base_url: String,
     pub oauth_token_url: String,
     pub update_check_url: String,
+    pub codex_api_base_url: String,
 }
 
 impl Endpoints {
@@ -34,7 +37,14 @@ impl Endpoints {
                 .to_string(),
             oauth_token_url: pick(OAUTH_TOKEN_URL_ENV, DEFAULT_OAUTH_TOKEN_URL),
             update_check_url: pick(UPDATE_CHECK_URL_ENV, DEFAULT_UPDATE_CHECK_URL),
+            codex_api_base_url: pick(CODEX_API_BASE_URL_ENV, DEFAULT_CODEX_API_BASE_URL)
+                .trim_end_matches('/')
+                .to_string(),
         }
+    }
+
+    pub fn codex_usage_url(&self) -> String {
+        format!("{}/backend-api/wham/usage", self.codex_api_base_url)
     }
 
     pub fn usage_url(&self) -> String {
@@ -63,6 +73,10 @@ mod tests {
             e.oauth_token_url,
             "https://platform.claude.com/v1/oauth/token"
         );
+        assert_eq!(
+            e.codex_usage_url(),
+            "https://chatgpt.com/backend-api/wham/usage"
+        );
     }
 
     #[test]
@@ -72,7 +86,12 @@ mod tests {
             (API_BASE_URL_ENV, "http://127.0.0.1:9/"),
             (OAUTH_TOKEN_URL_ENV, "http://127.0.0.1:9/token"),
             (UPDATE_CHECK_URL_ENV, "http://127.0.0.1:9/latest"),
+            (CODEX_API_BASE_URL_ENV, "http://127.0.0.1:9/"),
         ]));
+        assert_eq!(
+            e.codex_usage_url(),
+            "http://127.0.0.1:9/backend-api/wham/usage"
+        );
         assert_eq!(e.security, PathBuf::from("/tmp/fake-security"));
         assert_eq!(e.usage_url(), "http://127.0.0.1:9/api/oauth/usage");
         assert_eq!(e.oauth_token_url, "http://127.0.0.1:9/token");
