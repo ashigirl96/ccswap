@@ -44,6 +44,46 @@ fn an_empty_name_removes_the_alias() {
 }
 
 #[test]
+fn unset_removes_the_alias_as_the_claude_alias_does() {
+    let env = TestEnv::new();
+    env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
+    env.run(["codex", "alias", "1", "work"]).assert_code(0);
+
+    let out = env.run(["codex", "alias", "work", "--unset"]);
+
+    out.assert_code(0);
+    assert!(
+        out.stdout.contains("the alias of Codex account 1"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(env.codex_ledger()["accounts"]["1"]["alias"], json!(null));
+}
+
+#[test]
+fn unset_takes_an_account_and_no_name() {
+    let env = TestEnv::new();
+    env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
+    env.run(["codex", "alias", "1", "work"]).assert_code(0);
+
+    let with_name = env.run(["codex", "alias", "1", "home", "--unset"]);
+    with_name.assert_code(1);
+    assert!(
+        with_name.stderr.contains("--unset does not take a name"),
+        "{}",
+        with_name.stderr
+    );
+    let without_account = env.run(["codex", "alias", "--unset"]);
+    without_account.assert_code(1);
+    assert!(
+        without_account.stderr.contains("needs an account"),
+        "{}",
+        without_account.stderr
+    );
+    assert_eq!(env.codex_ledger()["accounts"]["1"]["alias"], "work");
+}
+
+#[test]
 fn an_alias_follows_the_claude_alias_rules_and_stays_unique() {
     let env = TestEnv::new();
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
