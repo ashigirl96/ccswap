@@ -220,7 +220,8 @@ impl LaunchAgent {
                 "launchctl not found; is this macOS?",
             )
         };
-        let program = ccswap_core::session::which(&self.env, "launchctl").ok_or_else(not_found)?;
+        let program =
+            ccswap_core::path_search::which(&self.env, "launchctl").ok_or_else(not_found)?;
         let out = Command::new(program)
             .args(args)
             .output()

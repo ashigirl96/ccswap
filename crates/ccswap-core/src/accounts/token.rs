@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use super::{Accounts, Console, accounts_mut, display_tag, record_text, sequence_mut};
 use crate::error::{Error, ErrorKind, Result};
+use crate::identifier;
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::pyjson;
 use crate::secret_store::looks_like_api_key;
@@ -51,7 +52,7 @@ impl Accounts<'_> {
         let is_api_key = looks_like_api_key(token);
         let email = options.email.clone().filter(|e| !e.is_empty());
         if let Some(email) = &email
-            && !store::is_valid_email(email)
+            && !identifier::is_valid_email(email)
         {
             return Err(validation(format!("Invalid email format: {email}")));
         }

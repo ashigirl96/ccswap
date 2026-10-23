@@ -1,9 +1,11 @@
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
 
-use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, Console, TokenInput};
+use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, TokenInput};
 use ccswap_core::actions::LiveActions;
 use ccswap_core::anthropic_client::AnthropicClient;
+use ccswap_core::autoswitch::{autoswitch_models, parse_model_names};
+use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
@@ -14,12 +16,11 @@ use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 use ccswap_core::ranking::Strategy;
 use ccswap_core::secret_store::{Keychain, SecretStore};
-use ccswap_core::settings::{Settings, parse_model_names};
+use ccswap_core::settings::Settings;
 use ccswap_core::status;
 use ccswap_core::switcher::{ModelSource, SwitchStrategy, Switcher};
 use ccswap_core::transfer::Transfer;
 use ccswap_core::update_check;
-use ccswap_core::usage_view;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 use crate::launch_agent::{self, LaunchAgent};
@@ -308,7 +309,7 @@ impl Cli {
             let program = launch_agent::resolve_program(
                 std::env::args_os().next().as_deref(),
                 &std::env::current_dir().unwrap_or_default(),
-                ccswap_core::session::which(&self.env, launch_agent::PROGRAM_NAME),
+                ccswap_core::path_search::which(&self.env, launch_agent::PROGRAM_NAME),
                 || std::env::current_exe().ok(),
             );
             let installed = agent.install(program)?;
@@ -373,12 +374,9 @@ impl Cli {
         let report = status::status(paths, &self.env, &secrets, &client)?;
         if json {
             self.stdout
-                .push(pyjson::to_string_pretty(&presentation::status_json(
-                    &report,
-                )));
+                .push(pyjson::to_string_pretty(&status::status_json(&report)));
         } else {
-            self.stdout
-                .extend(presentation::status_lines(&report, style));
+            self.stdout.extend(status::status_lines(&report, style));
         }
         Ok(())
     }
@@ -398,14 +396,14 @@ impl Cli {
         let report = listing::list(paths, &self.env, &secrets, &client, options)?;
         if json {
             self.stdout
-                .push(pyjson::to_string_pretty(&usage_view::list_json(&report)));
+                .push(pyjson::to_string_pretty(&listing::list_json(&report)));
             return Ok(());
         }
         if report == ListReport::NoStore {
             TerminalConsole.line(&style.dimmed("No accounts are managed yet."));
             return self.first_run_setup(paths, style, &secrets, &client);
         }
-        self.stdout.extend(usage_view::list_lines(&report, style));
+        self.stdout.extend(listing::list_lines(&report, style));
         Ok(())
     }
 
@@ -498,7 +496,7 @@ impl Cli {
         let show_list = |console: &mut dyn Console| -> Result<(), Error> {
             let list_secrets = self.secrets(paths);
             let report = listing::list(paths, env, &list_secrets, &client, ListOptions::default())?;
-            for line in usage_view::list_lines(&report, style) {
+            for line in listing::list_lines(&report, style) {
                 console.line(&line);
             }
             Ok(())
@@ -704,7 +702,7 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
         chosen.models = parse_model_names(names);
         chosen.model_source = Some(ModelSource::Cli);
     } else {
-        chosen.models = Settings::new(paths).autoswitch_models();
+        chosen.models = autoswitch_models(&Settings::new(paths));
         chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
     }
     Some(chosen)

@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::accounts::{Accounts, AddOptions, Console};
+use crate::accounts::{Accounts, AddOptions};
 use crate::anthropic_client::{self, AnthropicClient, Profile};
+use crate::console::Console;
 use crate::env::Environment;
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;

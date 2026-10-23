@@ -14,11 +14,13 @@ use crate::consume_gate::ConsumeGate;
 use crate::env::Environment;
 use crate::paths::Paths;
 use crate::poll_policy::{PlanInputs, plan_after_fetch};
-use crate::secret_store::{ActiveCredentials, SecretStore};
+use crate::secret_store::{
+    ActiveCredentials, SecretStore, extract_access_token, looks_like_api_key,
+};
 use crate::session_profile;
 use crate::settings::{SettingValue, Settings};
 use crate::store::{self, JsonObject};
-use crate::usage::{Sentinel, static_sentinel, truthy};
+use crate::usage::{Sentinel, truthy};
 use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 
 mod active;
@@ -420,7 +422,7 @@ pub fn poll_policy_inputs(paths: &Paths) -> (f64, Vec<String>) {
         Ok(SettingValue::Int(i)) => i as f64,
         _ => 90.0,
     };
-    (threshold, settings.autoswitch_models())
+    (threshold, crate::autoswitch::autoswitch_models(&settings))
 }
 
 /// A `[0, 1)` source for poll-plan jitter.
@@ -432,4 +434,26 @@ fn jitter_source() -> impl FnMut() -> f64 {
         state ^= state << 17;
         (state >> 11) as f64 / (1u64 << 53) as f64
     }
+}
+
+pub fn static_active_sentinel(active: &ActiveCredentials) -> Option<Sentinel> {
+    let creds = active.value.as_deref().unwrap_or_default();
+    static_sentinel(creds, || {
+        active.keychain_unavailable || active.value.is_none()
+    })
+}
+
+/// The network-free verdict for a slot's credential; `unreadable` says
+/// whether its store could not be read.
+pub fn static_sentinel(creds: &str, unreadable: impl FnOnce() -> bool) -> Option<Sentinel> {
+    if looks_like_api_key(creds) {
+        return Some(Sentinel::ApiKey);
+    }
+    if creds.is_empty() || extract_access_token(creds).is_none_or(|t| t.is_empty()) {
+        if unreadable() {
+            return Some(Sentinel::KeychainUnavailable);
+        }
+        return Some(Sentinel::NoCredentials);
+    }
+    None
 }
