@@ -34,11 +34,13 @@ const USER_AGENT: &str = "ccswap";
 /// Codex itself treats a token this close to `exp` as expired.
 const EXPIRY_BUFFER_S: f64 = 300.0;
 
-/// `(label, key in the normalised usage, field of wham's rate_limit)`.
-pub const WINDOWS: [(&str, &str, &str); 2] = [
-    ("5h", "five_hour", "primary_window"),
-    ("7d", "seven_day", "secondary_window"),
+/// `(label, key in the normalised usage, window length in seconds)`.
+pub const WINDOWS: [(&str, &str, f64); 2] = [
+    ("5h", "five_hour", 18_000.0),
+    ("7d", "seven_day", 604_800.0),
 ];
+/// wham's window fields, in the order used when a window does not state its length.
+const WHAM_WINDOWS: [&str; 2] = ["primary_window", "secondary_window"];
 
 /// The credential a fetch uses: the live `auth.json` for the active account, its managed home otherwise.
 #[derive(Debug, Clone)]
@@ -371,20 +373,29 @@ impl CodexUsage {
 }
 
 /// wham's body in the Claude side's normalised shape (`five_hour` / `seven_day` with `pct`
-/// and an ISO `resets_at`). A window that is missing or malformed is left out: it is unknown.
+/// and an ISO `resets_at`). A window that is missing, malformed or of an unknown length is
+/// left out: it is unknown.
 pub fn normalize_usage(data: &Value) -> Value {
     let rate_limit = data.get("rate_limit");
     let mut out = Map::new();
-    for (_, key, field) in WINDOWS {
-        if let Some(window) = rate_limit.and_then(|r| r.get(field)).and_then(window) {
-            out.insert(key.into(), window);
+    for (position, field) in WHAM_WINDOWS.into_iter().enumerate() {
+        let Some(window) = rate_limit.and_then(|r| r.get(field)).and_then(window) else {
+            continue;
+        };
+        // Plans with only a weekly limit send it as `primary_window`, so the length decides.
+        let key = match window.get("window_s").and_then(Value::as_f64) {
+            Some(seconds) => WINDOWS.iter().find(|w| w.2 == seconds).map(|w| w.1),
+            None => Some(WINDOWS[position].1),
+        };
+        if let Some(key) = key {
+            out.entry(key).or_insert(window);
         }
     }
     Value::Object(out)
 }
 
-/// app-server's `account/rateLimits/read` result in the same shape: `primary` is the
-/// 5-hour window and `secondary` the weekly one, as in wham.
+/// app-server's `account/rateLimits/read` result in wham's shape: `primary` and
+/// `secondary` map to wham's windows of the same names.
 pub fn normalize_rate_limits(result: &Value) -> Value {
     let limits = &result["rateLimits"];
     let as_wham = |raw: &Value| {

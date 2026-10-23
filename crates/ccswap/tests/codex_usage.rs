@@ -222,6 +222,57 @@ fn missing_or_unknown_fields_read_as_unknown_windows() {
 }
 
 #[test]
+fn windows_are_placed_by_their_length_not_their_position() {
+    let env = TestEnv::new();
+    two_accounts_with_a_live(&env);
+    let t = now();
+    stub_usage_by_account(
+        &env,
+        vec![
+            (
+                "acct-a",
+                StubResponse::json(
+                    200,
+                    &json!({"rate_limit": {
+                        "primary_window": { "used_percent": 79, "reset_at": t + 6 * 86400 + 3600, "limit_window_seconds": 604800 },
+                        "secondary_window": null,
+                    }})
+                    .to_string(),
+                ),
+            ),
+            (
+                "acct-b",
+                StubResponse::json(
+                    200,
+                    &json!({"rate_limit": {
+                        "primary_window": { "used_percent": 40, "limit_window_seconds": 604800 },
+                        "secondary_window": { "used_percent": 7, "limit_window_seconds": 18000 },
+                    }})
+                    .to_string(),
+                ),
+            ),
+        ],
+    );
+
+    let out = env.run(["codex", "list"]);
+    out.assert_code(0);
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert_eq!(lines[2], "     ├ 5h: unknown", "{}", out.stdout);
+    assert!(
+        lines[3].starts_with("     └ 7d:  79%   resets "),
+        "{}",
+        out.stdout
+    );
+    assert!(lines[3].contains("  in 6d "), "{}", out.stdout);
+    assert_eq!(lines[6], "     ├ 5h:   7%", "{}", out.stdout);
+    assert_eq!(lines[7], "     └ 7d:  40%", "{}", out.stdout);
+
+    let payload = env.run(["codex", "list", "--json"]).json();
+    assert_eq!(payload["accounts"][0]["usage"]["fiveHour"], Value::Null);
+    assert_eq!(payload["accounts"][0]["usage"]["sevenDay"]["pct"], 79.0);
+}
+
+#[test]
 fn a_body_that_is_not_json_is_a_bad_response_not_a_crash() {
     let env = TestEnv::new();
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
