@@ -1,4 +1,4 @@
-usage: {prog} remove [-h] [-y] [--debug] NUM|ALIAS|EMAIL
+usage: {prog} claude remove [-h] [-y] [--debug] NUM|ALIAS|EMAIL
 
 Remove a managed Claude Code account and its stored credentials. Asks first
 unless -y is given.

@@ -7,7 +7,7 @@ use ccswap_core::presentation::{SCHEMA_VERSION, Style};
 use ccswap_core::usage::Sentinel;
 use ccswap_core::usage_store::UsageEntry;
 use ccswap_core::usage_view::{
-    format_age, format_usage_lines, insert_usage_fields, last_seen_note, usage_entry_lines,
+    format_age, format_usage_lines, insert_usage_fields, last_seen_note, unavailable_line,
 };
 use serde_json::{Map, Value, json};
 
@@ -131,16 +131,21 @@ pub fn list_lines(
     lines
 }
 
-/// [`Sentinel::note`] in Codex's terms where the Claude wording would mislead.
+/// The one-line note in human output.
 pub fn sentinel_note(sentinel: Sentinel) -> &'static str {
     match sentinel {
+        Sentinel::NoCredentials => "no credentials",
         Sentinel::TokenExpired => {
             "token expired — Codex could not refresh it this pass; retries automatically"
         }
+        Sentinel::ApiKey => "API key (no quota)",
+        Sentinel::KeychainUnavailable => "keychain unavailable — locked or in use; try again",
         Sentinel::ReloginRequired => {
             "re-login needed — Codex could not refresh its token; run: ccswap codex login"
         }
-        other => other.note(),
+        Sentinel::ForeignCredential => {
+            "live credential belongs to another account — a switch repairs it"
+        }
     }
 }
 
@@ -154,7 +159,7 @@ fn usage_lines(entry: &UsageEntry, style: &Style) -> Vec<String> {
         return out;
     }
     let Some(last_good) = entry.last_good.as_ref() else {
-        return usage_entry_lines(entry, style);
+        return vec![unavailable_line(entry, style, |_| None)];
     };
     let mut rows: Vec<String> = WINDOWS
         .iter()

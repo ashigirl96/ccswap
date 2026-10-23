@@ -17,13 +17,13 @@ pub fn dispatch(
     style: &Style,
     parsed: &Parsed,
 ) -> Option<Result<(), Error>> {
-    let remove = parsed.value("--remove-account");
-    let disable = parsed.value("--disable-account");
-    let enable = parsed.value("--enable-account");
-    let purge = parsed.flag("--purge");
-    if remove.is_none() && disable.is_none() && enable.is_none() && !purge {
-        return None;
-    }
+    let (identifier, disabled) = if let Some(identifier) = parsed.value("--remove-account") {
+        (identifier, None)
+    } else if let Some(identifier) = parsed.value("--disable-account") {
+        (identifier, Some(true))
+    } else {
+        (parsed.value("--enable-account")?, Some(false))
+    };
     let endpoints = Endpoints::new(env);
     let keychain = Keychain::new(endpoints.security.clone(), env);
     let secrets = SecretStore::new(keychain, paths.clone(), env);
@@ -36,20 +36,14 @@ pub fn dispatch(
         style,
     };
     let console = &mut TerminalConsole;
-    Some(if let Some(identifier) = remove {
+    Some(match disabled {
+        Some(disabled) => accounts.set_account_disabled(identifier, disabled, console),
         // Upstream tests `args.remove_account` for truthiness: "" does nothing.
-        if identifier.is_empty() {
-            Ok(())
-        } else {
+        None if identifier.is_empty() => Ok(()),
+        None => {
             let assume_yes = parsed.flag("-y") || parsed.flag("--yes");
             accounts.remove_account(identifier, assume_yes, console)
         }
-    } else if let Some(identifier) = disable {
-        accounts.set_account_disabled(identifier, true, console)
-    } else if let Some(identifier) = enable {
-        accounts.set_account_disabled(identifier, false, console)
-    } else {
-        accounts.purge(console)
     })
 }
 

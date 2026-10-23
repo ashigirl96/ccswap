@@ -1,4 +1,4 @@
-usage: {prog} export [-h] [--account NUM|EMAIL] [--full] [--debug] PATH
+usage: {prog} claude export [-h] [--account NUM|EMAIL] [--full] [--debug] PATH
 
 Export managed Claude Code accounts, credentials included, to a file.
 

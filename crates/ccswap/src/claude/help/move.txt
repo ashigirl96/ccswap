@@ -1,4 +1,4 @@
-usage: {prog} move [-h] [--debug] NUM|EMAIL|ALIAS SLOT
+usage: {prog} claude move [-h] [--debug] NUM|EMAIL|ALIAS SLOT
 
 Assign an account to a slot number. An empty slot relocates the account there and frees its old slot; an occupied slot swaps the two. Aliases, backups, and session history move with the account.
 

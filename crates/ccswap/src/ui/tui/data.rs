@@ -7,7 +7,7 @@ use chrono::DateTime;
 use serde_json::Value;
 
 pub fn sentinel_label(sentinel: Sentinel) -> &'static str {
-    sentinel.note()
+    ccswap_claude::usage_view::sentinel_note(sentinel)
 }
 
 fn resets_at_ts(window: Option<&Value>) -> Option<f64> {

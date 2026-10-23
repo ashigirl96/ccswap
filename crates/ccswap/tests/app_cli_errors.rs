@@ -82,7 +82,7 @@ fn help_lists_commands_and_hides_legacy_flags() {
     out.assert_code(0);
     let p = PROG;
     assert!(out.stdout.starts_with(&format!(
-        "usage: {p} <command> [args] [options]\n\nMulti-Account Switcher for Claude Code\n"
+        "usage: {p} <command> [args] [options]\n\nMulti-Account Switcher for Claude Code and Codex\n"
     )));
     assert!(out.stdout.contains(&format!("  {p} claude status ")));
     let options = out

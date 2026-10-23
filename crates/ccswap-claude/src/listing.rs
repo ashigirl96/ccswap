@@ -5,7 +5,7 @@ use ccswap_core::presentation::{SCHEMA_VERSION, Style};
 use ccswap_core::pyjson::py_str;
 use ccswap_core::usage::truthy;
 use ccswap_core::usage_store::{DecisionValue, UsageEntry};
-use ccswap_core::usage_view::{insert_usage_fields, usage_entry_lines};
+use ccswap_core::usage_view::insert_usage_fields;
 use serde_json::{Map, Value, json};
 
 use crate::accounts::display_tag;
@@ -16,6 +16,7 @@ use crate::session_profile;
 use crate::store::{self, JsonObject};
 use crate::unclaimed::UnclaimedStash;
 use crate::usage_collector::{AccountInfo, UsageCollector, build_accounts_info};
+use crate::usage_view::usage_entry_lines;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListedAccount {

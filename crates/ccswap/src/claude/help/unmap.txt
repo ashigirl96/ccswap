@@ -1,4 +1,4 @@
-usage: {prog} unmap [-h] [--debug] [PATH]
+usage: {prog} claude unmap [-h] [--debug] [PATH]
 
 Remove a directory → account mapping (default: current directory).
 

@@ -1,6 +1,6 @@
 usage: {prog} config [-h] [--json] [--debug] {list,get,set,unset,path} ...
 
-Read and edit claude-swap settings (settings.json in the backup root).
+Read and edit ccswap settings (settings.json in the backup root).
 
 positional arguments:
   {list,get,set,unset,path}

@@ -1,4 +1,4 @@
-usage: {prog} map [-h] [--debug] [NUM|EMAIL] [PATH]
+usage: {prog} claude map [-h] [--debug] [NUM|EMAIL] [PATH]
 
 Map a stored account to a directory so `ccswap run` (with no account) auto-launches it there. With no arguments, lists all mappings.
 

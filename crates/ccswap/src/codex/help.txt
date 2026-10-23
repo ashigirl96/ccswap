@@ -14,9 +14,9 @@ Commands:
                             newly started codex sessions use it
   {prog} codex remove <num|email>
                             remove a Codex account; the live login is left in place
-  {prog} codex alias <num|email> <name>
+  {prog} codex alias <num|alias|email> <name>
                             set a short alias
-  {prog} codex alias <num|email> --unset
+  {prog} codex alias <num|alias|email> --unset
                             remove an account's alias (an empty name "" also does)
 
 Aliases: ls=list  rm=remove

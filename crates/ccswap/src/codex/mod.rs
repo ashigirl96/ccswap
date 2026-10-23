@@ -14,8 +14,13 @@ use ccswap_core::pyjson;
 
 use crate::cli::TerminalConsole;
 use crate::cli::argparse::{Action, Arity, Opt, Outcome, ParseError, Parsed, Parser};
+use crate::cli::namespace::Namespace;
 
-const HELP: &str = include_str!("help.txt");
+const NAMESPACE: Namespace = Namespace {
+    name: "codex",
+    usage: "<command> [options]",
+    help: include_str!("help.txt"),
+};
 
 const HELP_OPTS: [Opt; 3] = [
     Opt::flag("-h").action(Action::Help),
@@ -87,30 +92,21 @@ struct Context {
 }
 
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
-    let usage_error = |msg: &str| {
-        eprintln!("usage: {prog} codex <command> [options]");
-        eprintln!("{prog} codex: error: {msg}");
-        2
+    let found = NAMESPACE.verb(prog, argv, |verb| {
+        COMMANDS.iter().find(|c| c.names.contains(&verb))
+    });
+    let (command, rest) = match found {
+        Ok(found) => found,
+        Err(code) => return code,
     };
-    let print_help = |help: &str| {
-        print!("{}", help.replace("{prog}", prog));
-        0
-    };
-    let Some((verb, rest)) = argv.split_first() else {
-        return usage_error(&format!("no command given — try '{prog} codex --help'"));
-    };
-    if matches!(verb.as_str(), "-h" | "--help" | "help") {
-        return print_help(HELP);
-    }
-    let Some(command) = COMMANDS.iter().find(|c| c.names.contains(&verb.as_str())) else {
-        return usage_error(&format!(
-            "unknown command '{verb}' — try '{prog} codex --help'"
-        ));
-    };
+    let usage_error = |msg: &str| NAMESPACE.usage_error(prog, msg);
     let opts: Vec<Opt> = HELP_OPTS.iter().chain(command.opts).copied().collect();
     let (positionals, options) = split_positionals(rest, &opts);
     let parsed = match (Parser { opts: &opts }).parse(&options) {
-        Ok((Outcome::Help, _)) => return print_help(command.help),
+        Ok((Outcome::Help, _)) => {
+            print!("{}", command.help.replace("{prog}", prog));
+            return 0;
+        }
         Ok((Outcome::Version, _)) => unreachable!("codex commands take no --version"),
         Ok((Outcome::Parsed, parsed)) => parsed,
         Err(ParseError(msg)) => return usage_error(&msg),

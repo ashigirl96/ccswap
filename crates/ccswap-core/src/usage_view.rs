@@ -6,9 +6,8 @@ use crate::pyjson::py_str;
 use serde_json::{Map, Value, json};
 
 use crate::pace::{compute_pace, projected_exhaustion_ts, will_last_to_reset};
-use crate::poll_policy::SERVE_TTL_S;
 use crate::presentation::Style;
-use crate::usage::{account_headroom, error_note, fresh_reset_strings, now_secs, truthy};
+use crate::usage::{account_headroom, fresh_reset_strings, now_secs, truthy};
 use crate::usage_store::{DecisionValue, UsageEntry};
 
 fn pct_cell(pct: Option<&Value>) -> String {
@@ -122,40 +121,18 @@ pub fn last_seen_note(entry: &UsageEntry) -> Option<String> {
     ))
 }
 
-/// Styled usage lines (without indent) for one account.
-pub fn usage_entry_lines(entry: &UsageEntry, style: &Style) -> Vec<String> {
-    if let Some(sentinel) = entry.sentinel {
-        let mut out = vec![style.dimmed(sentinel.note())];
-        if let Some(seen) = last_seen_note(entry)
-            && sentinel != crate::usage::Sentinel::ApiKey
-        {
-            out.push(format!("{} {}", style.dimmed("└"), style.muted(&seen)));
-        }
-        return out;
-    }
-    if let Some(last_good) = &entry.last_good {
-        let mut lines = format_usage_lines(last_good, entry.fetched_at);
-        if let (Some(last), Some(age), Some(fetched_at)) =
-            (lines.last_mut(), entry.age_s, entry.fetched_at)
-            && age > SERVE_TTL_S
-        {
-            last.push_str(&format!(" · {}", format_age(fetched_at)));
-        }
-        let n = lines.len();
-        return lines
-            .iter()
-            .enumerate()
-            .map(|(j, line)| {
-                let connector = if j == n - 1 { "└" } else { "├" };
-                format!("{} {}", style.dimmed(connector), style.muted(line))
-            })
-            .collect();
-    }
+/// `usage unavailable`, with the last error in the provider's words when
+/// `error_note` has some for its kind.
+pub fn unavailable_line(
+    entry: &UsageEntry,
+    style: &Style,
+    error_note: fn(&str) -> Option<&'static str>,
+) -> String {
     let mut detail = "usage unavailable".to_string();
     if let Some(err) = entry.last_error.as_deref().filter(|e| !e.is_empty()) {
         detail.push_str(&format!(" ({})", error_note(err).unwrap_or(err)));
     }
-    vec![style.dimmed(&detail)]
+    style.dimmed(&detail)
 }
 
 fn window_to_json(w: &Map<String, Value>) -> Value {

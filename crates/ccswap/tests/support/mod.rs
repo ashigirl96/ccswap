@@ -26,6 +26,7 @@
 #![allow(dead_code)]
 
 mod codex;
+pub mod help;
 
 #[allow(unused_imports)]
 pub use codex::{CodexAuth, CodexCall, FakeCodex};

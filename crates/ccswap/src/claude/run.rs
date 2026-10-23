@@ -55,13 +55,13 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         Err(Exit::Help) => {
             print!(
                 "{}",
-                HELP.replace("{usage}", &usage(prog))
+                HELP.replace("{usage}", &usage(&format!("{prog} claude run")))
                     .replace("{prog}", prog)
             );
             return 0;
         }
         Err(Exit::Usage(msg)) => {
-            eprintln!("{}", usage(prog));
+            eprintln!("{}", usage(&format!("{prog} run")));
             eprintln!("{prog} run: error: {msg}");
             return 2;
         }
@@ -262,16 +262,17 @@ fn is_negative_number(arg: &str) -> bool {
     }
 }
 
-/// argparse's wrapped usage: optionals after the prog, then the positional
-/// on its own line, both aligned under the first option.
-fn usage(prog: &str) -> String {
+/// argparse's wrapped usage of `command` (`ccswap run` or `ccswap claude
+/// run`): optionals after it, then the positional on its own line, both
+/// aligned under the first option.
+fn usage(command: &str) -> String {
     let prefix = "usage: ";
-    let prog_part = format!("{prog} run");
+    let prog_part = command;
     let indent = " ".repeat(prefix.len() + prog_part.len() + 1);
     let mut lines: Vec<String> = Vec::new();
     let mut line: Vec<&str> = Vec::new();
     let mut line_len = prefix.len() - 1;
-    for part in std::iter::once(prog_part.as_str()).chain(USAGE_OPTIONALS.iter().copied()) {
+    for part in std::iter::once(prog_part).chain(USAGE_OPTIONALS.iter().copied()) {
         if line_len + 1 + part.len() > USAGE_WIDTH && !line.is_empty() {
             lines.push(line.join(" "));
             line.clear();
@@ -296,7 +297,7 @@ mod tests {
     #[test]
     fn usage_wraps_like_argparse() {
         assert_eq!(
-            usage("cswap"),
+            usage("cswap run"),
             "usage: cswap run [-h] [--no-share] [--share-history | --no-share-history]\n                 [--require-session] [--debug]\n                 [NUM|EMAIL]"
         );
     }

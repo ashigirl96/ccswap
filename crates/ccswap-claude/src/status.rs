@@ -3,13 +3,14 @@ use ccswap_core::error::Result;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{SCHEMA_VERSION, Style};
 use ccswap_core::usage_store::UsageEntry;
-use ccswap_core::usage_view::{insert_usage_fields, usage_entry_lines};
+use ccswap_core::usage_view::insert_usage_fields;
 use serde_json::{Map, Value, json};
 
 use crate::anthropic_client::AnthropicClient;
 use crate::secret_store::SecretStore;
 use crate::store::{self, find_account_slot};
 use crate::usage_collector::{AccountInfo, UsageCollector};
+use crate::usage_view::usage_entry_lines;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatusReport {

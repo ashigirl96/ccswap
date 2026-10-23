@@ -1,5 +1,6 @@
 use ccswap_claude::snapshot::{AccountSnapshot, AccountsSnapshot};
-use ccswap_core::usage::{Sentinel, error_note, truthy};
+use ccswap_claude::usage_view::error_note;
+use ccswap_core::usage::{Sentinel, truthy};
 use ccswap_core::usage_store::STALE_OK_S;
 use ccswap_core::usage_view::last_seen_note;
 use ratatui::style::{Modifier, Style};

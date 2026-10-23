@@ -492,7 +492,12 @@ fn swap_argument_errors_match_argparse() {
     );
     let out = env.run(["swap", "--he"]);
     out.assert_code(0);
-    assert!(out.stdout.starts_with(&usage), "{}", out.stdout);
+    assert!(
+        out.stdout
+            .starts_with(&usage.replacen(" swap ", " claude swap ", 1)),
+        "{}",
+        out.stdout
+    );
     assert!(
         out.stdout
             .contains(&format!("  {p} swap dev user@example.com\n"))

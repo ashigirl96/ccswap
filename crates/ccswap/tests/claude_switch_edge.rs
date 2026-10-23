@@ -1040,7 +1040,7 @@ fn unclaimed_parses_its_own_arguments() {
     assert_eq!(
         out.stdout,
         format!(
-            "usage: {prog} unclaimed [-h] [--purge ID] [--debug]\n\nList stashed credential entries, or purge one by id. Purging deletes the bytes\n— recovery is /login + `{prog} add`.\n\noptions:\n  -h, --help  show this help message and exit\n  --purge ID  Delete this entry's bytes and manifest row\n  --debug     Enable debug logging\n"
+            "usage: {prog} claude unclaimed [-h] [--purge ID] [--debug]\n\nList stashed credential entries, or purge one by id. Purging deletes the bytes\n— recovery is /login + `{prog} add`.\n\noptions:\n  -h, --help  show this help message and exit\n  --purge ID  Delete this entry's bytes and manifest row\n  --debug     Enable debug logging\n"
         )
     );
 

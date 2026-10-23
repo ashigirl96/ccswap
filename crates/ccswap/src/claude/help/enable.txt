@@ -1,4 +1,4 @@
-usage: {prog} enable [-h] [--debug] NUM|ALIAS|EMAIL
+usage: {prog} claude enable [-h] [--debug] NUM|ALIAS|EMAIL
 
 Return a disabled Claude Code account to rotation and auto-switch.
 

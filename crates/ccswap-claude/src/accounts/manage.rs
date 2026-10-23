@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ccswap_core::error::{Error, ErrorKind, Result};
 use ccswap_core::identifier::{self, Picker};
 use ccswap_core::locks::{STORE_LOCK_TIMEOUT, StoreLock};
@@ -9,6 +11,18 @@ use crate::migrations::LEGACY_KEYRING_SERVICE;
 use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
 use crate::session_profile::{self, join_pids, scan_live_sessions};
 use crate::store::{self, JsonObject};
+
+/// The session profiles a purge removes, checked to have no live Claude.
+#[derive(Debug)]
+pub struct ClaudePurge {
+    session_dirs: Vec<PathBuf>,
+}
+
+impl ClaudePurge {
+    pub fn has_session_profiles(&self) -> bool {
+        !self.session_dirs.is_empty()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedAccount {
@@ -257,14 +271,11 @@ impl Accounts<'_> {
         Ok(rows)
     }
 
-    /// Removes every stored credential (both backends, plus the legacy
-    /// `account-None-*` keys), session-profile Keychain entries and the whole
-    /// store directory after confirmation. The live login is untouched.
-    pub fn purge(&self, console: &mut dyn Console) -> Result<()> {
+    /// Claude Code's share of `ccswap purge`, refused while a session-mode
+    /// Claude could still be using a profile it would remove.
+    pub fn prepare_purge(&self) -> Result<ClaudePurge> {
         self.refuse_session_shell()?;
-        let style = self.style;
-        let backup_root = self.paths.backup_root();
-        let session_dirs: Vec<std::path::PathBuf> = std::fs::read_dir(self.paths.sessions_dir())
+        let session_dirs: Vec<PathBuf> = std::fs::read_dir(self.paths.sessions_dir())
             .map(|entries| {
                 entries
                     .filter_map(|e| e.ok().map(|e| e.path()))
@@ -273,28 +284,14 @@ impl Accounts<'_> {
             })
             .unwrap_or_default();
         refuse_live_profiles(&session_dirs)?;
+        Ok(ClaudePurge { session_dirs })
+    }
 
-        console.line(&style.yellowed("This will remove ALL claude-swap data from your system:"));
-        console.line(&format!("  - Backup directory: {}", backup_root.display()));
-        console.line("  - All stored account credentials (macOS Keychain and/or files)");
-        if !session_dirs.is_empty() {
-            console.line("  - All session profiles and their Keychain entries");
-        }
-        console.line("");
-        console.line(&style.dimmed("Note: This does NOT affect your current Claude Code login."));
-        console.line("");
-        match console.prompt("Are you sure you want to purge all data? [y/N] ") {
-            Some(answer) if answer.to_lowercase() == "y" => {}
-            Some(_) => {
-                console.line(&style.dimmed("Cancelled"));
-                return Ok(());
-            }
-            None => {
-                console.line(&format!("\n{}", style.dimmed("Cancelled")));
-                return Ok(());
-            }
-        }
-
+    /// Deletes every stored credential (both backends, plus the legacy
+    /// `account-None-*` keys) and the session profiles' Keychain entries, and
+    /// returns what went. The store directory is left to the caller; the live
+    /// login is untouched.
+    pub fn purge_credentials(&self, purge: &ClaudePurge) -> Result<Vec<String>> {
         let mut removed = Vec::new();
         let keychain = self.secrets.keychain();
         if let Some(data) = store::read_sequence(self.paths)? {
@@ -331,12 +328,13 @@ impl Accounts<'_> {
             }
         }
 
-        if !session_dirs.is_empty() {
-            for dir in &session_dirs {
+        if purge.has_session_profiles() {
+            for dir in &purge.session_dirs {
                 let service = profile_service_name(&dir.to_string_lossy());
                 let _ = keychain.delete_password(&service, keychain.account());
             }
-            let names: Vec<String> = session_dirs
+            let names: Vec<String> = purge
+                .session_dirs
                 .iter()
                 .map(|d| {
                     d.file_name()
@@ -347,27 +345,7 @@ impl Accounts<'_> {
                 .collect();
             removed.push(format!("Session profiles: {}", names.join(", ")));
         }
-
-        if backup_root.exists() {
-            std::fs::remove_dir_all(&backup_root).map_err(|e| {
-                Error::config(format!("Could not remove {}: {e}", backup_root.display()))
-            })?;
-            removed.push(format!("Directory: {}", backup_root.display()));
-        }
-
-        if removed.is_empty() {
-            console.line(&format!(
-                "\n{}",
-                style.dimmed("No claude-swap data found to remove.")
-            ));
-        } else {
-            console.line(&format!("\n{}", style.accent("Removed:")));
-            for item in &removed {
-                console.line(&format!("  {} {item}", style.dimmed("-")));
-            }
-        }
-        console.line(&format!("\n{}", style.accent("Purge complete.")));
-        Ok(())
+        Ok(removed)
     }
 
     /// An ambiguous email is an error, never a prompt.
@@ -385,7 +363,7 @@ impl Accounts<'_> {
 
 /// Purging would pull a profile out from under a live Claude, and an
 /// unreadable record cannot rule one out.
-fn refuse_live_profiles(session_dirs: &[std::path::PathBuf]) -> Result<()> {
+fn refuse_live_profiles(session_dirs: &[PathBuf]) -> Result<()> {
     let mut live = Vec::new();
     let mut unreadable = Vec::new();
     for dir in session_dirs {
