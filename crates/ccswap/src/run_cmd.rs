@@ -2,15 +2,15 @@ use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 
-use ccswap_core::anthropic_client::AnthropicClient;
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::mappings::{self, DirectoryAccount};
+use ccswap_claude::secret_store::{Keychain, SecretStore};
+use ccswap_claude::session::{Launch, RunOptions, Sessions};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{self, Error};
-use ccswap_core::mappings::{self, DirectoryAccount};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
-use ccswap_core::secret_store::{Keychain, SecretStore};
-use ccswap_core::session::{Launch, RunOptions, Sessions};
 
 use crate::cli::TerminalConsole;
 use crate::config_cmd::split_explicit;

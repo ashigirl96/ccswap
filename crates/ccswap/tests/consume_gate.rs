@@ -13,11 +13,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ccswap_core::anthropic_client::credential_fingerprint;
+use ccswap_claude::anthropic_client::credential_fingerprint;
+use ccswap_claude::session_profile::{self, STALE_MARKER};
+use ccswap_claude::unclaimed::UnclaimedStash;
 use ccswap_core::env::Environment;
 use ccswap_core::paths::Paths;
-use ccswap_core::session_profile::{self, STALE_MARKER};
-use ccswap_core::unclaimed::UnclaimedStash;
 use serde_json::{Value, json};
 use support::{ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, StubResponse, TestEnv};
 

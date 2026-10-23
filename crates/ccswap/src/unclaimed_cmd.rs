@@ -1,7 +1,7 @@
+use ccswap_claude::unclaimed::UnclaimedStash;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
-use ccswap_core::unclaimed::UnclaimedStash;
 use serde_json::Value;
 
 use crate::config_cmd::{looks_like_option, lookup, split_explicit};

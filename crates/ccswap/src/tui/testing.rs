@@ -5,13 +5,13 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 
-use ccswap_core::actions::Actions;
-use ccswap_core::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, EventKind};
+use ccswap_claude::actions::Actions;
+use ccswap_claude::autoswitch::{AutoSwitchEvent, AutoSwitchSettings, EventKind};
+use ccswap_claude::snapshot::{AccountKind, AccountSnapshot, AccountsSnapshot};
+use ccswap_claude::switcher::SwitchStrategy;
 use ccswap_core::console::Console;
 use ccswap_core::error::{Error, ErrorKind, Result};
 use ccswap_core::settings::Settings;
-use ccswap_core::snapshot::{AccountKind, AccountSnapshot, AccountsSnapshot};
-use ccswap_core::switcher::SwitchStrategy;
 use ccswap_core::usage::now_secs;
 use ccswap_core::usage_store::UsageEntry;
 use ratatui::Terminal;
@@ -329,7 +329,7 @@ impl Harness {
             std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
         }
         let fake = FakeActions::new(accounts, dir.path().to_path_buf());
-        let config = AppConfig::load(&Settings::in_dir(dir.path()));
+        let config = AppConfig::load(&Settings::in_dir(dir.path(), ccswap_claude::SETTINGS));
         Self::start(fake, config, dir)
     }
 

@@ -1,4 +1,4 @@
-use ccswap_core::snapshot::{AccountSnapshot, AccountsSnapshot};
+use ccswap_claude::snapshot::{AccountSnapshot, AccountsSnapshot};
 use ccswap_core::usage::{Sentinel, error_note, truthy};
 use ccswap_core::usage_store::STALE_OK_S;
 use ccswap_core::usage_view::last_seen_note;

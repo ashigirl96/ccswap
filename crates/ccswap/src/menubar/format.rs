@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
+use ccswap_claude::snapshot::AccountsSnapshot;
 use ccswap_core::codex::{self, CodexListing};
 use ccswap_core::pace::compute_pace;
-use ccswap_core::snapshot::AccountsSnapshot;
 use ccswap_core::usage::parse_iso;
 use ccswap_core::usage_store::UsageEntry;
 use chrono::{DateTime, SecondsFormat, Utc};

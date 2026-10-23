@@ -1,25 +1,25 @@
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
 
-use ccswap_core::accounts::{self, Accounts, AddOptions, AddTokenOptions, TokenInput};
-use ccswap_core::actions::LiveActions;
-use ccswap_core::anthropic_client::AnthropicClient;
-use ccswap_core::autoswitch::{autoswitch_models, parse_model_names};
+use ccswap_claude::accounts::{self, Accounts, AddOptions, AddTokenOptions, TokenInput};
+use ccswap_claude::actions::LiveActions;
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::autoswitch::{autoswitch_models, parse_model_names};
+use ccswap_claude::listing::{self, ListOptions, ListReport};
+use ccswap_claude::migrations;
+use ccswap_claude::ranking::Strategy;
+use ccswap_claude::secret_store::{Keychain, SecretStore};
+use ccswap_claude::status;
+use ccswap_claude::switcher::{ModelSource, SwitchStrategy, Switcher};
+use ccswap_claude::transfer::Transfer;
 use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
-use ccswap_core::listing::{self, ListOptions, ListReport};
-use ccswap_core::migrations;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
-use ccswap_core::ranking::Strategy;
-use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
-use ccswap_core::status;
-use ccswap_core::switcher::{ModelSource, SwitchStrategy, Switcher};
-use ccswap_core::transfer::Transfer;
 use ccswap_core::update_check;
 
 use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
@@ -133,7 +133,9 @@ impl Cli {
     }
 
     pub fn run(&mut self, args: Vec<String>) -> i32 {
-        for warning in Settings::new(&Paths::new(&self.env)).ui_load_warnings() {
+        for warning in
+            Settings::new(&Paths::new(&self.env), ccswap_claude::SETTINGS).ui_load_warnings()
+        {
             eprintln!("{warning}");
         }
         let args = match args.split_first() {
@@ -426,7 +428,7 @@ impl Cli {
         client: &AnthropicClient,
     ) -> Result<(), Error> {
         let mut console = TerminalConsole;
-        let Some(identity) = ccswap_core::store::current_identity(paths) else {
+        let Some(identity) = ccswap_claude::store::current_identity(paths) else {
             console.line(&style.dimmed("No active Claude account found. Please log in first."));
             return Ok(());
         };
@@ -717,7 +719,7 @@ fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
         chosen.models = parse_model_names(names);
         chosen.model_source = Some(ModelSource::Cli);
     } else {
-        chosen.models = autoswitch_models(&Settings::new(paths));
+        chosen.models = autoswitch_models(&Settings::new(paths, ccswap_claude::SETTINGS));
         chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
     }
     Some(chosen)

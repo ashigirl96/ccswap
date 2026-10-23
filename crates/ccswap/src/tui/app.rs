@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use ccswap_core::actions::{ActionResult, Actions, run_action};
-use ccswap_core::autoswitch::{AutoSwitchSettings, pct_label};
+use ccswap_claude::actions::{ActionResult, Actions, run_action};
+use ccswap_claude::autoswitch::{AutoSwitchSettings, pct_label};
+use ccswap_claude::ranking::Strategy;
+use ccswap_claude::snapshot::{AccountsSnapshot, SnapshotSource, account_identity};
+use ccswap_claude::switcher::SwitchStrategy;
 use ccswap_core::console::Console;
 use ccswap_core::error::Result as CoreResult;
-use ccswap_core::ranking::Strategy;
-use ccswap_core::settings::{Kind, SettingValue, Settings, setting_spec};
-use ccswap_core::snapshot::{AccountsSnapshot, SnapshotSource, account_identity};
-use ccswap_core::switcher::SwitchStrategy;
+use ccswap_core::settings::{Kind, SettingValue, Settings};
 use ccswap_core::usage::now_secs;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::Value;
@@ -880,8 +880,10 @@ impl App {
         if self.screens.iter().any(|s| matches!(s, Screen::Auto(_))) {
             return;
         }
-        let settings =
-            AutoSwitchSettings::from_settings(&Settings::in_dir(&self.actions.backup_dir()));
+        let settings = AutoSwitchSettings::from_settings(&Settings::in_dir(
+            &self.actions.backup_dir(),
+            ccswap_claude::SETTINGS,
+        ));
         // Bars and engine agree on the file's current value.
         self.threshold_pct = Some(settings.threshold);
         self.push(Screen::Auto(AutoScreen {
@@ -1029,7 +1031,10 @@ impl App {
         let Some(auto) = self.auto_screen().filter(|a| a.adjusting) else {
             return;
         };
-        let (lo, hi) = match setting_spec("autoswitch.threshold").map(|s| s.kind) {
+        let (lo, hi) = match ccswap_claude::SETTINGS
+            .spec("autoswitch.threshold")
+            .map(|s| s.kind)
+        {
             Ok(Kind::Float { lo, hi }) => (lo, hi),
             _ => (f64::MIN, f64::MAX),
         };
@@ -1050,7 +1055,7 @@ impl App {
 
     pub fn apply_theme(&mut self, name: ThemeName) {
         self.theme_name = name;
-        let settings = Settings::in_dir(&self.actions.backup_dir());
+        let settings = Settings::in_dir(&self.actions.backup_dir(), ccswap_claude::SETTINGS);
         if let Err(e) = settings.set("ui.theme", name.as_str()) {
             self.notify_for(
                 format!("Could not save theme: {e}"),

@@ -9,11 +9,14 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use ccswap_core::actions::Actions;
-use ccswap_core::anthropic_client::AnthropicClient;
-use ccswap_core::autoswitch::{
+use ccswap_claude::actions::Actions;
+use ccswap_claude::anthropic_client::AnthropicClient;
+use ccswap_claude::autoswitch::{
     AutoSwitchEngine, AutoSwitchEvent, AutoSwitchSettings, EventKind, LoopHandle, SwitcherHost,
 };
+use ccswap_claude::secret_store::{Keychain, SecretStore};
+use ccswap_claude::snapshot::SnapshotSource;
+use ccswap_claude::switcher::SwitchStrategy;
 use ccswap_core::codex::{
     AddOutcome, CodexPaths, CodexStore, CodexUsage, LoginOutcome, LoginStdio, SwitchOutcome,
 };
@@ -25,10 +28,7 @@ use ccswap_core::fsutil;
 use ccswap_core::log;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{Style, Theme};
-use ccswap_core::secret_store::{Keychain, SecretStore};
 use ccswap_core::settings::Settings;
-use ccswap_core::snapshot::SnapshotSource;
-use ccswap_core::switcher::SwitchStrategy;
 use ccswap_core::usage::now_secs;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
@@ -586,7 +586,9 @@ impl Target {
 
     fn set_threshold(&self, pct: i64) {
         let c = self.ivars();
-        if let Err(error) = Settings::new(&c.paths).set("autoswitch.threshold", &pct.to_string()) {
+        if let Err(error) = Settings::new(&c.paths, ccswap_claude::SETTINGS)
+            .set("autoswitch.threshold", &pct.to_string())
+        {
             appkit::alert(
                 self.mtm(),
                 NOTIFICATION_TITLE,

@@ -1,7 +1,7 @@
 //! The dropdown is plain data that AppKit only renders, so it is testable
 //! without a window server.
 
-use ccswap_core::ranking::Strategy;
+use ccswap_claude::ranking::Strategy;
 
 use super::format::{
     MenuAccount, MenuSnapshot, UsageKind, UsageRow, format_account_label, usage_rows,

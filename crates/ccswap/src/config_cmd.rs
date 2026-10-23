@@ -6,7 +6,7 @@ use ccswap_core::error::Error;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
-use ccswap_core::settings::{SETTING_SPECS, Settings};
+use ccswap_core::settings::Settings;
 use serde_json::json;
 
 const HELP: &str = include_str!("config_help.txt");
@@ -52,7 +52,11 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         return 1;
     }
     crate::cli::run_store_migrations(env, &paths, args.debug);
-    match execute(&args, &Settings::new(&paths), &style) {
+    match execute(
+        &args,
+        &Settings::new(&paths, ccswap_claude::SETTINGS),
+        &style,
+    ) {
         Ok(()) => 0,
         Err(error) => {
             if args.json {
@@ -131,7 +135,7 @@ fn execute(args: &Args, settings: &Settings, style: &Style) -> Result<(), Error>
         "unset" => {
             let key = positional(0);
             if settings.unset(key)? {
-                let default = ccswap_core::settings::setting_spec(key)?.default_value();
+                let default = settings.registry().spec(key)?.default_value();
                 println!("{key} unset (default: {})", default.display());
             } else {
                 eprintln!(
@@ -150,8 +154,8 @@ fn top_usage(prog: &str) -> String {
 }
 
 fn top_help(prog: &str) -> String {
-    let keys: Vec<String> = SETTING_SPECS
-        .iter()
+    let keys: Vec<String> = ccswap_claude::SETTINGS
+        .specs()
         .map(|spec| {
             format!(
                 "  {:<34}{} (default {})",
