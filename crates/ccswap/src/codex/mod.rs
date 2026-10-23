@@ -12,10 +12,10 @@ use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 
-use crate::argparse::{Action, Arity, Opt, Outcome, ParseError, Parsed, Parser};
 use crate::cli::TerminalConsole;
+use crate::cli::argparse::{Action, Arity, Opt, Outcome, ParseError, Parsed, Parser};
 
-const HELP: &str = include_str!("codex_help.txt");
+const HELP: &str = include_str!("help.txt");
 
 const HELP_OPTS: [Opt; 3] = [
     Opt::flag("-h").action(Action::Help),
@@ -41,42 +41,42 @@ const COMMANDS: &[Command] = &[
         opts: &[],
         max_positionals: 0,
         run: add,
-        help: include_str!("codex_add_help.txt"),
+        help: include_str!("help/add.txt"),
     },
     Command {
         names: &["login"],
         opts: &[],
         max_positionals: 0,
         run: login,
-        help: include_str!("codex_login_help.txt"),
+        help: include_str!("help/login.txt"),
     },
     Command {
         names: &["list", "ls"],
         opts: &[Opt::flag("--json")],
         max_positionals: 0,
         run: list,
-        help: include_str!("codex_list_help.txt"),
+        help: include_str!("help/list.txt"),
     },
     Command {
         names: &["switch"],
         opts: &[Opt::flag("--json")],
         max_positionals: 1,
         run: switch,
-        help: include_str!("codex_switch_help.txt"),
+        help: include_str!("help/switch.txt"),
     },
     Command {
         names: &["remove", "rm"],
         opts: &[Opt::flag("-y"), Opt::flag("--yes")],
         max_positionals: 1,
         run: remove,
-        help: include_str!("codex_remove_help.txt"),
+        help: include_str!("help/remove.txt"),
     },
     Command {
         names: &["alias"],
         opts: &[Opt::flag("--unset")],
         max_positionals: 2,
         run: alias,
-        help: include_str!("codex_alias_help.txt"),
+        help: include_str!("help/alias.txt"),
     },
 ];
 

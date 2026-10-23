@@ -13,7 +13,7 @@ use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 
 use crate::cli::TerminalConsole;
-use crate::config_cmd::{looks_like_option, lookup, split_explicit};
+use crate::cli::argv::{looks_like_option, lookup, split_explicit};
 
 const OPTS: &[&str] = &["-h", "--help", "--debug"];
 
@@ -26,12 +26,12 @@ fn spec(verb: &str) -> Spec {
     if verb == "swap" {
         Spec {
             positionals: ["NUM|EMAIL|ALIAS", "NUM|EMAIL|ALIAS"],
-            help: include_str!("swap_help.txt"),
+            help: include_str!("help/swap.txt"),
         }
     } else {
         Spec {
             positionals: ["NUM|EMAIL|ALIAS", "SLOT"],
-            help: include_str!("move_help.txt"),
+            help: include_str!("help/move.txt"),
         }
     }
 }

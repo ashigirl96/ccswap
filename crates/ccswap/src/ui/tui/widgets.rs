@@ -515,8 +515,8 @@ mod tests {
     //! Ported from upstream tests/test_tui.py::{TestUsageRows,
     //! TestMiniAccountText, TestFormatting card cases}.
     use super::*;
-    use crate::tui::testing::{entry, iso_in, make_account, plain_lines};
-    use crate::tui::theme::{DARK, LIGHT};
+    use crate::ui::tui::testing::{entry, iso_in, make_account, plain_lines};
+    use crate::ui::tui::theme::{DARK, LIGHT};
     use ccswap_core::usage::now_secs;
     use ccswap_core::usage_store::UsageEntry;
     use serde_json::json;

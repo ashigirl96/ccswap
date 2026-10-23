@@ -5,10 +5,10 @@ use std::time::Instant;
 
 use ccswap_core::usage::now_secs;
 
-use crate::tui::app::{
+use crate::ui::tui::app::{
     POLL_INTERVAL_S, SNAPSHOT_AGE_NOTE_S, Screen, WATCH_SELECT_TITLE, WatchScreen,
 };
-use crate::tui::testing::{Call, Gate, Harness, Lanes, account, entry_at, make_account};
+use crate::ui::tui::testing::{Call, Gate, Harness, Lanes, account, entry_at, make_account};
 
 fn two() -> Harness {
     Harness::new(vec![account("1", true), account("2", false)])

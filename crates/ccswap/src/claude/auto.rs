@@ -14,13 +14,13 @@ use ccswap_core::presentation::Style;
 use ccswap_core::pyjson;
 use ccswap_core::settings::python_float;
 
-use crate::argparse::{Opt, Outcome, ParseError, Parsed, Parser};
+use crate::cli::argparse::{Opt, Outcome, ParseError, Parsed, Parser};
 
-const HELP: &str = include_str!("auto_help.txt");
+const HELP: &str = include_str!("help/auto.txt");
 
 const OPTS: &[Opt] = &[
-    Opt::flag("-h").action(crate::argparse::Action::Help),
-    Opt::flag("--help").action(crate::argparse::Action::Help),
+    Opt::flag("-h").action(crate::cli::argparse::Action::Help),
+    Opt::flag("--help").action(crate::cli::argparse::Action::Help),
     Opt::flag("--once"),
     Opt::flag("--json"),
     Opt::value("--interval").float(),

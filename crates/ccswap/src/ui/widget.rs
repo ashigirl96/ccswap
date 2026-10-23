@@ -5,9 +5,9 @@ use ccswap_core::env::Environment;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 
-use crate::config_cmd::{looks_like_option, lookup, split_explicit};
+use crate::cli::argv::{looks_like_option, lookup, split_explicit};
 
-const HELP: &str = include_str!("widget_help.txt");
+const HELP: &str = include_str!("help/widget.txt");
 const OPTS: &[&str] = &["-h", "--help", "--install"];
 const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 const EXTENSION: &str = "Contents/PlugIns/CcswapWidget.appex";

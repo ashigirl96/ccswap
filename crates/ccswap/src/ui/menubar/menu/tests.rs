@@ -1,7 +1,7 @@
 //! The dropdown of upstream `menubar.py::rebuild_menu`.
 
 use super::*;
-use crate::menubar::format::{DisplayUsage, MenuAccount};
+use crate::ui::menubar::format::{DisplayUsage, MenuAccount};
 use serde_json::json;
 
 const NOW: f64 = 1_000_000.0;

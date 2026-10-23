@@ -13,9 +13,9 @@ use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 
 use crate::cli::TerminalConsole;
-use crate::config_cmd::split_explicit;
+use crate::cli::argv::split_explicit;
 
-const HELP: &str = include_str!("run_help.txt");
+const HELP: &str = include_str!("help/run.txt");
 const OPTS: &[&str] = &[
     "-h",
     "--help",
@@ -121,7 +121,7 @@ fn mapped_account(
     paths: &Paths,
     style: &Style,
 ) -> error::Result<Option<String>> {
-    let cwd = crate::map_cmd::cwd();
+    let cwd = crate::claude::map::cwd();
     let key = mappings::normalize_path(Path::new(&cwd), env);
     Ok(match mappings::account_for_directory(paths, &key)? {
         DirectoryAccount::Mapped { slot, .. } => Some(slot),

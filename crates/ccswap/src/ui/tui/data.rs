@@ -70,7 +70,7 @@ pub fn ahead_of_pace(window: &Value, fetched_at: Option<f64>) -> bool {
 mod tests {
     //! Ported from upstream tests/test_tui.py::TestFormatting.
     use super::*;
-    use crate::tui::testing::iso_in;
+    use crate::ui::tui::testing::iso_in;
     use ccswap_core::usage::now_secs;
     use serde_json::json;
 

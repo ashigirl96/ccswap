@@ -2,9 +2,9 @@
 
 use serde_json::{Value, json};
 
-use crate::tui::app::{AppConfig, AutoScreen, Screen};
-use crate::tui::testing::{Harness, account, entry, make_account};
-use crate::tui::theme::{DARK, LIGHT, ThemeName};
+use crate::ui::tui::app::{AppConfig, AutoScreen, Screen};
+use crate::ui::tui::testing::{Harness, account, entry, make_account};
+use crate::ui::tui::theme::{DARK, LIGHT, ThemeName};
 
 fn two() -> Harness {
     Harness::new(vec![account("1", true), account("2", false)])
@@ -19,7 +19,11 @@ fn auto(h: &Harness) -> AutoScreen {
     h.app.auto_screen().expect("auto screen").clone()
 }
 
-fn engine<T>(h: &Harness, i: usize, f: impl FnOnce(&crate::tui::testing::FakeEngine) -> T) -> T {
+fn engine<T>(
+    h: &Harness,
+    i: usize,
+    f: impl FnOnce(&crate::ui::tui::testing::FakeEngine) -> T,
+) -> T {
     h.engines.with(|e| f(&e[i]))
 }
 
@@ -303,7 +307,7 @@ fn render_uses_the_selected_palette() {
     h.press(&["g"]);
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 40)).unwrap();
     terminal
-        .draw(|f| crate::tui::view::draw(f, &h.app))
+        .draw(|f| crate::ui::tui::view::draw(f, &h.app))
         .unwrap();
     let buffer = terminal.backend().buffer();
     assert_eq!(buffer[(0, 0)].bg, LIGHT.background);
