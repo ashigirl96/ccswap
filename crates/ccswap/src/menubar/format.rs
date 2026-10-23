@@ -1,5 +1,8 @@
 //! `{:.0}` matches Python's `:.0f` (ties to even); `f64::round` would not.
 
+use std::collections::HashMap;
+
+use ccswap_core::codex::CodexListing;
 use ccswap_core::pace::compute_pace;
 use ccswap_core::snapshot::AccountsSnapshot;
 use ccswap_core::usage::parse_iso;
@@ -68,6 +71,8 @@ pub struct MenuSnapshot {
     pub active_email: Option<String>,
     pub active_usage: DisplayUsage,
     pub active_alias: Option<String>,
+    /// Numbered apart from `accounts`; never disabled.
+    pub codex: Vec<MenuAccount>,
 }
 
 impl Default for MenuSnapshot {
@@ -77,8 +82,32 @@ impl Default for MenuSnapshot {
             active_email: None,
             active_usage: DisplayUsage::Unavailable,
             active_alias: None,
+            codex: Vec::new(),
         }
     }
+}
+
+pub fn codex_accounts(
+    listing: &CodexListing,
+    usage: &HashMap<u32, UsageEntry>,
+) -> Vec<MenuAccount> {
+    listing
+        .accounts
+        .iter()
+        .map(|account| {
+            let entry = usage.get(&account.number);
+            MenuAccount {
+                number: account.number.to_string(),
+                email: account.email.clone(),
+                is_active: account.active,
+                display: entry.map_or(DisplayUsage::Unavailable, DisplayUsage::from_entry),
+                last_good: entry.and_then(|e| e.last_good.clone()),
+                alias: account.alias.clone().unwrap_or_default(),
+                disabled: false,
+                fetched_at: entry.and_then(|e| e.fetched_at),
+            }
+        })
+        .collect()
 }
 
 impl MenuSnapshot {

@@ -15,6 +15,7 @@ pub mod identity;
 pub mod ledger;
 pub mod login;
 pub mod paths;
+pub mod program;
 pub mod resolve;
 pub mod store;
 pub mod switch;

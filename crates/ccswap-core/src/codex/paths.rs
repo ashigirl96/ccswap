@@ -3,12 +3,15 @@ use std::path::PathBuf;
 use crate::env::Environment;
 use crate::paths::Paths;
 
+use super::program::CodexProgram;
+
 pub const CODEX_HOME_ENV: &str = "CODEX_HOME";
 
 #[derive(Debug, Clone)]
 pub struct CodexPaths {
     live_home: PathBuf,
     backup_root: PathBuf,
+    program: CodexProgram,
 }
 
 impl CodexPaths {
@@ -20,12 +23,17 @@ impl CodexPaths {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| paths.home().join(".codex")),
             backup_root: paths.backup_root(),
+            program: CodexProgram::resolve(env),
         }
     }
 
     /// The `CODEX_HOME` that the user's `codex` reads.
     pub fn live_home(&self) -> &PathBuf {
         &self.live_home
+    }
+
+    pub fn codex_program(&self) -> &CodexProgram {
+        &self.program
     }
 
     pub fn live_auth(&self) -> PathBuf {

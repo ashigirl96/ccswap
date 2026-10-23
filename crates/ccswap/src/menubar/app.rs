@@ -15,6 +15,9 @@ use ccswap_core::anthropic_client::AnthropicClient;
 use ccswap_core::autoswitch::{
     AutoSwitchEngine, AutoSwitchEvent, AutoSwitchSettings, EventKind, LoopHandle, SwitcherHost,
 };
+use ccswap_core::codex::{
+    AddOutcome, CodexPaths, CodexStore, CodexUsage, LoginOutcome, LoginStdio, SwitchOutcome,
+};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::Environment;
 use ccswap_core::error::{Error, ErrorKind, Result};
@@ -38,8 +41,8 @@ use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer};
 
 use super::appkit::{self, NOTIFICATION_TITLE};
 use super::format::{
-    MenuSnapshot, SWITCH_HISTORY_LIMIT, format_title, format_usage_log, parse_switch_history,
-    usage_log_key,
+    MenuAccount, MenuSnapshot, SWITCH_HISTORY_LIMIT, codex_accounts, format_title,
+    format_usage_log, parse_switch_history, usage_log_key,
 };
 use super::menu::{Command, MenuInput, build_menu};
 use super::settings::{FILENAME, MenuBarSettings};
@@ -54,10 +57,23 @@ const KEYCHAIN_BLOCKED: &str = "Couldn't read the active credential. If the menu
 enum Report {
     Snapshot(MenuSnapshot),
     Action {
-        /// `Err` = alert text.
-        outcome: std::result::Result<(), String>,
-        notify_switched: bool,
+        /// `Err` = alert text; `Ok(Some)` = a notification to post.
+        outcome: std::result::Result<Option<Notice>, String>,
     },
+}
+
+struct Notice {
+    subtitle: &'static str,
+    message: String,
+}
+
+impl Notice {
+    fn switched() -> Self {
+        Notice {
+            subtitle: "Account switched",
+            message: SWITCHED_MESSAGE.into(),
+        }
+    }
 }
 
 type UsageLogKeys = HashMap<String, (Option<f64>, Option<f64>)>;
@@ -74,6 +90,8 @@ pub struct Controller {
     snapshot: RefCell<MenuSnapshot>,
     source: Arc<SnapshotSource>,
     refreshing: Arc<AtomicBool>,
+    /// Two `codex login`s would fight over Codex's fixed callback port.
+    codex_login_running: Arc<AtomicBool>,
     usage_logged: Arc<Mutex<UsageLogKeys>>,
     reports: (Sender<Report>, Receiver<Report>),
     events: (Sender<AutoSwitchEvent>, Receiver<AutoSwitchEvent>),
@@ -137,6 +155,7 @@ pub fn run(actions: Arc<dyn Actions>, env: Environment) -> i32 {
         paths,
         snapshot: RefCell::new(MenuSnapshot::default()),
         refreshing: Arc::new(AtomicBool::new(false)),
+        codex_login_running: Arc::new(AtomicBool::new(false)),
         usage_logged: Arc::default(),
         reports: channel(),
         events: channel(),
@@ -247,10 +266,12 @@ impl Target {
         let refreshing = c.refreshing.clone();
         let logged = c.usage_logged.clone();
         let reports = c.reports.0.clone();
+        let env = c.env.clone();
         std::thread::spawn(move || {
             match source.take(store_only) {
                 Ok(raw) => {
-                    let snapshot = MenuSnapshot::adapt(&raw);
+                    let mut snapshot = MenuSnapshot::adapt(&raw);
+                    snapshot.codex = codex_snapshot(&env);
                     log_usage(&snapshot, &logged);
                     let _ = reports.send(Report::Snapshot(snapshot));
                 }
@@ -272,14 +293,12 @@ impl Target {
                 }
                 Report::Action {
                     outcome: Err(message),
-                    ..
                 } => appkit::alert(self.mtm(), NOTIFICATION_TITLE, &message),
                 Report::Action {
-                    outcome: Ok(()),
-                    notify_switched,
+                    outcome: Ok(notice),
                 } => {
-                    if notify_switched {
-                        appkit::notify("Account switched", SWITCHED_MESSAGE);
+                    if let Some(notice) = notice {
+                        appkit::notify(notice.subtitle, &notice.message);
                     }
                     self.refresh_async();
                 }
@@ -402,17 +421,67 @@ impl Target {
         let actions = c.actions.clone();
         let reports = c.reports.0.clone();
         std::thread::spawn(move || {
-            let outcome = action(actions.as_ref(), &mut SilentConsole).map_err(|e| e.to_string());
-            let _ = reports.send(Report::Action {
-                outcome,
-                notify_switched,
-            });
+            let outcome = action(actions.as_ref(), &mut SilentConsole)
+                .map(|()| notify_switched.then(Notice::switched))
+                .map_err(|e| e.to_string());
+            let _ = reports.send(Report::Action { outcome });
+        });
+    }
+
+    /// Like `spawn_action`, against the Codex store; failures come back as alert text.
+    fn spawn_codex(
+        &self,
+        action: impl FnOnce(&CodexStore) -> Result<Option<Notice>> + Send + 'static,
+    ) {
+        let c = self.ivars();
+        let env = c.env.clone();
+        let reports = c.reports.0.clone();
+        std::thread::spawn(move || {
+            let store = CodexStore::new(CodexPaths::new(&env));
+            let outcome = action(&store).map_err(|e| e.to_string());
+            let _ = reports.send(Report::Action { outcome });
+        });
+    }
+
+    fn codex_login(&self) {
+        let running = self.ivars().codex_login_running.clone();
+        if running.swap(true, Ordering::SeqCst) {
+            appkit::alert(
+                self.mtm(),
+                NOTIFICATION_TITLE,
+                "A Codex login is already waiting for the browser.",
+            );
+            return;
+        }
+        appkit::notify(
+            "Codex login",
+            "Finish logging in in the browser that Codex opened.",
+        );
+        self.spawn_codex(move |store| {
+            let outcome = store.login(LoginStdio::Detached);
+            running.store(false, Ordering::SeqCst);
+            Ok(Some(login_notice(&outcome?)))
         });
     }
 
     fn run_command(&self, command: Command) {
         let mtm = self.mtm();
         match command {
+            Command::CodexSwitchTo(number) => self.spawn_codex(move |store| {
+                store
+                    .switch(Some(&number), &mut || {})
+                    .map(|outcome| outcome.switched.then(|| switch_notice(&outcome)))
+            }),
+            Command::CodexAddFromLogin => {
+                self.spawn_codex(|store| store.add_live().map(|o| Some(add_notice(&o))))
+            }
+            Command::CodexLogin => self.codex_login(),
+            Command::CodexRemove(number) => {
+                let message = format!("Remove Codex account {number}?");
+                if appkit::confirm(mtm, "Remove Codex account", &message, "Remove", "Cancel") {
+                    self.spawn_codex(move |store| store.remove(&number).map(|_| None));
+                }
+            }
             Command::SwitchTo(number) => {
                 self.spawn_action(true, move |a, c| a.switch_to(&number, false, c).map(drop))
             }
@@ -563,6 +632,66 @@ fn log_usage(snapshot: &MenuSnapshot, logged: &Mutex<UsageLogKeys>) {
             log::info(line);
             logged.insert(account.number.clone(), key);
         }
+    }
+}
+
+/// Empty when Codex has no accounts or the store is unreadable, so the menu shows no Codex section.
+fn codex_snapshot(env: &Environment) -> Vec<MenuAccount> {
+    let paths = CodexPaths::new(env);
+    let store = CodexStore::new(paths.clone());
+    let listing = match store.list() {
+        Ok(listing) => listing,
+        Err(error) => {
+            log::debug(format!("menubar Codex listing failed: {error}"));
+            return Vec::new();
+        }
+    };
+    let usage = CodexUsage::new(&paths, &Endpoints::new(env)).collect(&store, &listing);
+    codex_accounts(&listing, &usage)
+}
+
+fn switch_notice(outcome: &SwitchOutcome) -> Notice {
+    let mut message = format!(
+        "Now on {}. Takes effect in codex sessions started from now on.",
+        outcome.to.email
+    );
+    if outcome.daemon_dir.is_some() {
+        message.push_str(" Restart the app-server daemon: codex app-server daemon restart");
+    }
+    Notice {
+        subtitle: "Codex account switched",
+        message,
+    }
+}
+
+fn add_notice(outcome: &AddOutcome) -> Notice {
+    let message = match outcome {
+        AddOutcome::Added { number, identity } => {
+            format!("Added {} as Codex account {number}.", identity.email)
+        }
+        AddOutcome::AlreadyManaged { number, identity } => {
+            format!("{} is already Codex account {number}.", identity.email)
+        }
+    };
+    Notice {
+        subtitle: "Codex account",
+        message,
+    }
+}
+
+fn login_notice(outcome: &LoginOutcome) -> Notice {
+    let message = match outcome {
+        LoginOutcome::Added { number, identity } => {
+            format!("Added {} as Codex account {number}.", identity.email)
+        }
+        LoginOutcome::Updated { number, identity } => format!(
+            "{} is already Codex account {number}; updated its stored login.",
+            identity.email
+        ),
+    };
+    Notice {
+        subtitle: "Codex account",
+        message,
     }
 }
 
