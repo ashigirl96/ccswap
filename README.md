@@ -54,6 +54,26 @@ ccswap                              # interactive TUI dashboard
 
 `ccswap help` lists every command, and `ccswap <command> --help` shows its options. `list`, `status` and `switch` emit machine-readable JSON with `--json`.
 
+## Codex
+
+ccswap also manages Codex CLI (ChatGPT) accounts. They are numbered on their own, apart from Claude accounts, and show up in the menu bar and the widget beside the Claude ones.
+
+```sh
+ccswap codex add                    # register the current Codex login ($CODEX_HOME or ~/.codex)
+ccswap codex login                  # log in to another account with `codex login` and add it
+ccswap codex list                   # list Codex accounts with their 5-hour and weekly usage
+ccswap codex switch                 # rotate to the next Codex account
+ccswap codex switch 2               # switch by number, alias or email
+ccswap codex alias 2 work           # name an account
+ccswap codex remove 2               # forget an account; the live login stays
+```
+
+Each account's `auth.json` is kept as Codex wrote it in `~/.claude-swap-backup/codex/homes/<number>/`, with the list of accounts in `~/.claude-swap-backup/codex/accounts.json`. A switch saves the live `auth.json` back to its owner, then replaces it with the chosen account's.
+
+- A switch takes effect in codex sessions started afterwards. A codex that is already running keeps the old account in memory, and stops with a "signed in as a different account" error on its next token refresh or 401. Restart it.
+- If the Codex app-server daemon is running (`~/.codex/app-server-daemon/` exists), restart it with `codex app-server daemon restart`. ccswap prints this reminder but does not restart the daemon itself.
+- Only Codex's default file storage is supported. If `cli_auth_credentials_store` in `~/.codex/config.toml` is `keyring` or `auto`, `ccswap codex switch` refuses and changes nothing.
+
 ## Relationship to claude-swap
 
 ccswap follows claude-swap v0.26.0's behavior and reads and writes the same store in `~/.claude-swap-backup/`. Intentional differences are recorded in [docs/adr/0001-deviations-from-upstream.md](docs/adr/0001-deviations-from-upstream.md).
