@@ -35,7 +35,7 @@ fn remove_asks_first_and_a_yes_by_email_removes() {
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
 
     let out = env
-        .cmd(["codex", "remove", "A@Example.com"])
+        .cmd(["codex", "remove", "a@example.com"])
         .stdin("y\n")
         .run();
 
@@ -136,16 +136,46 @@ fn removing_an_unknown_account_fails_and_changes_nothing() {
 }
 
 #[test]
-fn an_email_in_two_workspaces_must_be_removed_by_number() {
+fn an_email_in_two_workspaces_asks_which_one_to_remove() {
     let env = TestEnv::new();
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-personal"));
-    env.seed_codex_account(2, &CodexAuth::new("a@example.com", "acct-work"));
+    env.seed_codex_account(
+        2,
+        &CodexAuth::new("a@example.com", "acct-work").plan("team"),
+    );
 
-    let out = env.run(["codex", "remove", "a@example.com", "-y"]);
-
-    out.assert_code(1);
-    assert!(out.stderr.contains("is ambiguous"), "{}", out.stderr);
+    let out = env
+        .cmd(["codex", "remove", "a@example.com", "-y"])
+        .stdin("x\n")
+        .run();
+    out.assert_code(0);
+    assert_eq!(
+        out.stdout,
+        "Multiple accounts found for 'a@example.com':\n  1: a@example.com [plus]\n  2: a@example.com [team]\nEnter account number to remove: Cancelled\n"
+    );
     assert_eq!(env.codex_ledger()["sequence"], json!([1, 2]));
+
+    let out = env
+        .cmd(["codex", "remove", "a@example.com", "-y"])
+        .stdin("2\n")
+        .run();
+    out.assert_code(0);
+    assert_eq!(env.codex_ledger()["sequence"], json!([1]));
+}
+
+#[test]
+fn a_word_that_is_neither_an_alias_nor_an_email_is_invalid() {
+    let env = TestEnv::new();
+    env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
+
+    let out = env.run(["codex", "remove", "nobody", "-y"]);
+    out.assert_code(1);
+    assert!(
+        out.stderr.contains("Invalid account identifier: nobody"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(env.codex_ledger()["sequence"], json!([1]));
 }
 
 #[test]

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::env::Environment;
 use crate::paths::Paths;
 
+use super::overrides::CodexOverrides;
 use super::program::CodexProgram;
 
 pub const CODEX_HOME_ENV: &str = "CODEX_HOME";
@@ -12,6 +13,7 @@ pub struct CodexPaths {
     live_home: PathBuf,
     backup_root: PathBuf,
     program: CodexProgram,
+    overrides: CodexOverrides,
 }
 
 impl CodexPaths {
@@ -24,6 +26,7 @@ impl CodexPaths {
                 .unwrap_or_else(|| paths.home().join(".codex")),
             backup_root: paths.backup_root(),
             program: CodexProgram::resolve(env),
+            overrides: CodexOverrides::new(env),
         }
     }
 
@@ -34,6 +37,10 @@ impl CodexPaths {
 
     pub fn codex_program(&self) -> &CodexProgram {
         &self.program
+    }
+
+    pub fn overrides(&self) -> &CodexOverrides {
+        &self.overrides
     }
 
     pub fn live_auth(&self) -> PathBuf {

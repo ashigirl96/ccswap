@@ -22,13 +22,45 @@ pub struct SwitchedAccount {
     pub email: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchReason {
+    Switched,
+    AlreadyActive,
+    OnlyOneAccount,
+}
+
+impl SwitchReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SwitchReason::Switched => "switched",
+            SwitchReason::AlreadyActive => "already-active",
+            SwitchReason::OnlyOneAccount => "only-one-account",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchStrategy {
+    /// A named target.
+    Direct,
+    /// The next account in sequence.
+    Rotation,
+}
+
+impl SwitchStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SwitchStrategy::Direct => "direct",
+            SwitchStrategy::Rotation => "rotation",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchOutcome {
     pub switched: bool,
-    /// `switched`, `already-active` or `only-one-account`.
-    pub reason: &'static str,
-    /// `direct` for a named target, `rotation` for the next in sequence.
-    pub strategy: &'static str,
+    pub reason: SwitchReason,
+    pub strategy: SwitchStrategy,
     pub from: Option<SwitchedAccount>,
     pub to: SwitchedAccount,
     /// Where an unmanaged live login was set aside.
@@ -39,12 +71,7 @@ pub struct SwitchOutcome {
 
 impl CodexStore {
     /// `identifier` is `<num|alias|email>`; `None` rotates to the next account.
-    /// `before_recheck` runs between writing the live login back and re-reading it.
-    pub fn switch(
-        &self,
-        identifier: Option<&str>,
-        before_recheck: &mut dyn FnMut(),
-    ) -> Result<SwitchOutcome> {
+    pub fn switch(&self, identifier: Option<&str>) -> Result<SwitchOutcome> {
         ensure_file_credentials_store(&self.paths().live_config())?;
         let daemon_dir =
             Some(self.paths().live_home().join("app-server-daemon")).filter(|dir| dir.is_dir());
@@ -59,8 +86,8 @@ impl CodexStore {
                 .and_then(|bytes| read_identity(&bytes).ok())
                 .and_then(|id| ledger.find_by_account_id(&id.account_id));
             let (target, strategy) = match identifier {
-                Some(identifier) => (resolve_account(ledger, identifier)?, "direct"),
-                None => (next_in_sequence(ledger, live_owner), "rotation"),
+                Some(identifier) => (resolve_account(ledger, identifier)?, SwitchStrategy::Direct),
+                None => (next_in_sequence(ledger, live_owner), SwitchStrategy::Rotation),
             };
             let to = SwitchedAccount {
                 number: Some(target),
@@ -68,9 +95,9 @@ impl CodexStore {
             };
             if live_owner == Some(target) {
                 let reason = if identifier.is_none() && ledger.accounts.len() < 2 {
-                    "only-one-account"
+                    SwitchReason::OnlyOneAccount
                 } else {
-                    "already-active"
+                    SwitchReason::AlreadyActive
                 };
                 return Ok(SwitchOutcome {
                     switched: false,
@@ -91,7 +118,7 @@ impl CodexStore {
                     ),
                 )
             })?;
-            let (from, unclaimed) = self.settle_live(ledger, before_recheck)?;
+            let (from, unclaimed) = self.settle_live(ledger)?;
             let live_home = self.paths().live_home();
             fsutil::atomic_write_private(live_home, &self.paths().live_auth(), &target_bytes)
                 .map_err(|e| {
@@ -103,7 +130,7 @@ impl CodexStore {
             ledger.active = Some(target);
             Ok(SwitchOutcome {
                 switched: true,
-                reason: "switched",
+                reason: SwitchReason::Switched,
                 strategy,
                 from,
                 to,
@@ -114,11 +141,7 @@ impl CodexStore {
     }
 
     /// Saves the live login to its owner (or `unclaimed/`) until a re-read shows it unchanged.
-    fn settle_live(
-        &self,
-        ledger: &Ledger,
-        before_recheck: &mut dyn FnMut(),
-    ) -> Result<(Option<SwitchedAccount>, Vec<PathBuf>)> {
+    fn settle_live(&self, ledger: &Ledger) -> Result<(Option<SwitchedAccount>, Vec<PathBuf>)> {
         let mut unclaimed = Vec::new();
         let mut live = self.read_live()?;
         for _ in 0..MAX_SETTLE_ATTEMPTS {
@@ -133,7 +156,7 @@ impl CodexStore {
                 Some(number) => self.write_managed(number, bytes)?,
                 None => unclaimed.push(self.stash_unclaimed(bytes)?),
             }
-            before_recheck();
+            self.run_switch_hook();
             let again = self.read_live()?;
             if again == live {
                 let from = SwitchedAccount {
@@ -151,6 +174,15 @@ impl CodexStore {
                 self.paths().live_auth().display()
             ),
         ))
+    }
+
+    fn run_switch_hook(&self) {
+        if let Some(hook) = &self.paths().overrides().switch_hook {
+            let _ = std::process::Command::new(hook)
+                .arg("ccswap-switch-hook")
+                .env("CODEX_HOME", self.paths().live_home())
+                .status();
+        }
     }
 
     fn stash_unclaimed(&self, bytes: &[u8]) -> Result<PathBuf> {

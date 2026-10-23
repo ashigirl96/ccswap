@@ -1,64 +1,63 @@
-//! A Codex account number from what the user typed, by the Claude side's rules
-//! (`store::resolve_account_identifier`): a number, then an alias, then an email.
+//! A Codex account number from what the user typed, by the rules the Claude store
+//! follows (`crate::identifier`).
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::store::is_slot_number;
+use crate::identifier::{self, Candidate, Found};
 
 use super::ledger::Ledger;
 
-/// An email shared by several accounts (workspaces) is an error, never a guess.
-pub fn resolve_account(ledger: &Ledger, identifier: &str) -> Result<u32> {
-    if is_slot_number(identifier) {
-        return identifier
-            .parse::<u32>()
-            .ok()
-            .filter(|n| ledger.accounts.contains_key(n))
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorKind::AccountNotFoundError,
-                    format!("Codex account {identifier} does not exist"),
-                )
-            });
-    }
-    let wanted = identifier.trim().to_lowercase();
-    if let Some((number, _)) = ledger.accounts.iter().find(|(_, a)| {
-        a.alias
-            .as_deref()
-            .is_some_and(|alias| alias.to_lowercase() == wanted)
-    }) {
-        return Ok(*number);
-    }
-    let matches: Vec<(u32, &str)> = ledger
+/// The accounts as identifier resolution sees them, tagged by plan.
+pub fn identifier_candidates(ledger: &Ledger) -> Vec<Candidate> {
+    ledger
         .ordered()
         .into_iter()
-        .filter(|(_, a)| !a.email.is_empty() && a.email.to_lowercase() == wanted)
-        .map(|(n, a)| (n, a.plan.as_str()))
-        .collect();
-    match matches.as_slice() {
-        [] => Err(Error::new(
-            ErrorKind::AccountNotFoundError,
-            format!("No Codex account found with identifier: {identifier}"),
-        )),
-        [(number, _)] => Ok(*number),
-        many => {
+        .map(|(number, account)| Candidate {
+            number: number.to_string(),
+            email: Some(account.email.clone()).filter(|e| !e.is_empty()),
+            alias: account.alias.clone().unwrap_or_default(),
+            tag: if account.plan.is_empty() {
+                "unknown plan".into()
+            } else {
+                account.plan.clone()
+            },
+        })
+        .collect()
+}
+
+/// An email shared by several accounts (workspaces) is an error, never a guess.
+pub fn resolve_account(ledger: &Ledger, identifier: &str) -> Result<u32> {
+    let candidates = identifier_candidates(ledger);
+    let number = match identifier::find(&candidates, identifier) {
+        Found::Number(number) => number,
+        Found::One(candidate) => candidate.number.clone(),
+        Found::Missing => {
+            return Err(Error::new(
+                ErrorKind::AccountNotFoundError,
+                format!("No Codex account found with identifier: {identifier}"),
+            ));
+        }
+        Found::Ambiguous(many) => {
             let details: Vec<String> = many
                 .iter()
-                .map(|(n, plan)| {
-                    let plan = if plan.is_empty() {
-                        "unknown plan"
-                    } else {
-                        plan
-                    };
-                    format!("{n} [{plan}]")
-                })
+                .map(|c| format!("{} [{}]", c.number, c.tag))
                 .collect();
-            Err(Error::config(format!(
+            return Err(Error::config(format!(
                 "Email '{identifier}' is ambiguous — matches Codex accounts: {}. Use the account number instead (e.g., ccswap codex switch {}).",
                 details.join(", "),
-                many[0].0
-            )))
+                many[0].number
+            )));
         }
-    }
+    };
+    number
+        .parse::<u32>()
+        .ok()
+        .filter(|n| ledger.accounts.contains_key(n))
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::AccountNotFoundError,
+                format!("Codex account {number} does not exist"),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -92,7 +91,8 @@ mod tests {
         ]);
         assert_eq!(resolve_account(&l, "2").unwrap(), 2);
         assert_eq!(resolve_account(&l, "WORK").unwrap(), 2);
-        assert_eq!(resolve_account(&l, "A@example.com").unwrap(), 1);
+        assert_eq!(resolve_account(&l, "a@example.com").unwrap(), 1);
+        assert!(resolve_account(&l, "A@example.com").is_err());
         let missing = resolve_account(&l, "3").unwrap_err();
         assert_eq!(missing.kind, ErrorKind::AccountNotFoundError);
         assert_eq!(missing.to_string(), "Codex account 3 does not exist");

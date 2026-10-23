@@ -5,6 +5,7 @@ use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::fsutil;
+use crate::identifier::{self, Candidate, Found};
 use crate::paths::Paths;
 
 pub type JsonObject = Map<String, Value>;
@@ -280,31 +281,15 @@ pub fn resolve_account_identifier(
     data: Option<&JsonObject>,
     identifier: &str,
 ) -> Result<Option<String>> {
-    if is_slot_number(identifier) {
-        return Ok(Some(identifier.to_string()));
-    }
-    let Some(data) = data else {
-        return Ok(None);
-    };
-    if let Some(num) = find_account_by_alias(data, identifier) {
-        return Ok(Some(num));
-    }
-    let matches = slots_with_email(data, identifier);
-    match matches.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some(one.clone())),
-        many => {
+    let candidates = data.map(identifier_candidates).unwrap_or_default();
+    match identifier::find(&candidates, identifier) {
+        Found::Number(num) => Ok(Some(num)),
+        Found::One(candidate) => Ok(Some(candidate.number.clone())),
+        Found::Missing => Ok(None),
+        Found::Ambiguous(many) => {
             let details: Vec<String> = many
                 .iter()
-                .map(|num| {
-                    let name = accounts(data)
-                        .and_then(|a| a.get(num))
-                        .and_then(|r| r.get("organizationName"))
-                        .and_then(Value::as_str)
-                        .filter(|n| !n.is_empty())
-                        .unwrap_or("personal");
-                    format!("{num} [{name}]")
-                })
+                .map(|c| format!("{} [{}]", c.number, c.tag))
                 .collect();
             Err(Error::config(format!(
                 "Email '{identifier}' is ambiguous — matches accounts: {}. Use account number instead (e.g., ccswap --switch-to 1).",
@@ -312,6 +297,25 @@ pub fn resolve_account_identifier(
             )))
         }
     }
+}
+
+/// The slots as identifier resolution sees them, tagged by organization.
+pub fn identifier_candidates(data: &JsonObject) -> Vec<Candidate> {
+    let text =
+        |record: &Value, key: &str| record.get(key).and_then(Value::as_str).map(str::to_string);
+    accounts(data)
+        .into_iter()
+        .flatten()
+        .map(|(num, record)| Candidate {
+            number: num.clone(),
+            email: text(record, "email"),
+            alias: text(record, "alias").unwrap_or_default(),
+            tag: crate::accounts::display_tag(
+                &text(record, "organizationName").unwrap_or_default(),
+            )
+            .to_string(),
+        })
+        .collect()
 }
 
 pub fn slots_with_email(data: &JsonObject, email: &str) -> Vec<String> {

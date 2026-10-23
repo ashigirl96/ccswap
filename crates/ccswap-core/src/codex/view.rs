@@ -17,28 +17,47 @@ use super::store::{AddOutcome, CodexListing};
 use super::switch::{SwitchOutcome, SwitchedAccount};
 use super::usage::WINDOWS;
 
+/// What both the terminal lines and the `--json` envelope say about a switch.
+struct SwitchSummary {
+    /// `Switched to` or `Already on`.
+    verb: &'static str,
+    target: String,
+    warnings: Vec<String>,
+}
+
+impl SwitchSummary {
+    fn new(outcome: &SwitchOutcome) -> Self {
+        SwitchSummary {
+            verb: if outcome.switched {
+                "Switched to"
+            } else {
+                "Already on"
+            },
+            target: switched_label(&outcome.to),
+            warnings: outcome
+                .unclaimed
+                .iter()
+                .map(|p| {
+                    format!(
+                        "The live Codex login is not a managed account; saved it to {}",
+                        p.display()
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
 pub fn switch_lines(outcome: &SwitchOutcome, style: &Style) -> Vec<String> {
+    let summary = SwitchSummary::new(outcome);
+    let headline = format!("{} {}", style.accent(summary.verb), summary.target);
     if !outcome.switched {
-        return vec![format!(
-            "{} {}",
-            style.accent("Already on"),
-            switched_label(&outcome.to)
-        )];
+        return vec![headline];
     }
-    let mut lines = Vec::new();
-    for path in &outcome.unclaimed {
-        lines.push(style.yellowed(&format!(
-            "The live Codex login is not a managed account; saved it to {}",
-            path.display()
-        )));
-    }
-    lines.push(format!(
-        "{} {}",
-        style.accent("Switched to"),
-        switched_label(&outcome.to)
-    ));
+    let mut lines: Vec<String> = summary.warnings.iter().map(|w| style.yellowed(w)).collect();
+    lines.push(headline);
     lines.push(style.dimmed(
-        "Takes effect in codex sessions started from now on; running ones keep the previous account.",
+        "Takes effect in codex sessions started from now on. A codex already running stops with a \"signed in as a different account\" error on its next token refresh or 401; restart it.",
     ));
     if let Some(dir) = &outcome.daemon_dir {
         lines.push(style.dimmed(&format!(
@@ -52,30 +71,16 @@ pub fn switch_lines(outcome: &SwitchOutcome, style: &Style) -> Vec<String> {
 /// The Claude switch envelope (`SwitchReport::to_json`) with Codex account numbers.
 pub fn switch_json(outcome: &SwitchOutcome) -> Value {
     let reference = |a: &SwitchedAccount| json!({ "number": a.number, "email": a.email });
-    let message = if outcome.switched {
-        format!("Switched to {}", switched_label(&outcome.to))
-    } else {
-        format!("Already on {}", switched_label(&outcome.to))
-    };
-    let warnings: Vec<String> = outcome
-        .unclaimed
-        .iter()
-        .map(|p| {
-            format!(
-                "The live Codex login is not a managed account; saved it to {}",
-                p.display()
-            )
-        })
-        .collect();
+    let summary = SwitchSummary::new(outcome);
     json!({
         "schemaVersion": SCHEMA_VERSION,
         "switched": outcome.switched,
         "from": outcome.from.as_ref().map_or(Value::Null, reference),
         "to": reference(&outcome.to),
-        "strategy": outcome.strategy,
-        "reason": outcome.reason,
-        "message": message,
-        "warnings": warnings,
+        "strategy": outcome.strategy.as_str(),
+        "reason": outcome.reason.as_str(),
+        "message": format!("{} {}", summary.verb, summary.target),
+        "warnings": summary.warnings,
     })
 }
 

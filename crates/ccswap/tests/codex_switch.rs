@@ -47,7 +47,7 @@ fn switch_by_email_or_alias_picks_that_account() {
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
     let b = env.seed_codex_account(2, &CodexAuth::new("b@example.com", "acct-b"));
 
-    env.run(["codex", "switch", "B@example.com"]).assert_code(0);
+    env.run(["codex", "switch", "b@example.com"]).assert_code(0);
     assert_eq!(live(&env), b);
 
     let mut ledger = env.codex_ledger();
@@ -72,27 +72,68 @@ fn bare_switch_rotates_to_the_next_account_in_sequence() {
     assert_eq!(live(&env), a);
 }
 
-#[test]
-fn ambiguous_or_unknown_identifiers_are_errors_and_change_nothing() {
-    let env = TestEnv::new();
+fn seed_shared_email(env: &TestEnv) -> (String, String) {
     let live_a = env.seed_codex_login(&CodexAuth::new("a@example.com", "acct-a"));
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
     env.seed_codex_account(2, &CodexAuth::new("b@example.com", "acct-b-personal"));
-    env.seed_codex_account(
+    let work = env.seed_codex_account(
         3,
         &CodexAuth::new("b@example.com", "acct-b-work").plan("team"),
     );
+    (live_a, work)
+}
+
+#[test]
+fn an_email_in_two_workspaces_asks_which_one_in_a_terminal() {
+    let env = TestEnv::new();
+    let (live_a, work) = seed_shared_email(&env);
     let ledger_before = std::fs::read(env.codex_ledger_path()).unwrap();
 
-    let out = env.run(["codex", "switch", "b@example.com"]);
-    out.assert_code(1);
-    assert!(
-        out.stderr.contains(
-            "Email 'b@example.com' is ambiguous — matches Codex accounts: 2 [plus], 3 [team]"
-        ),
-        "{}",
-        out.stderr
+    let out = env
+        .cmd(["codex", "switch", "b@example.com"])
+        .stdin("7\n")
+        .run();
+    out.assert_code(0);
+    assert_eq!(
+        out.stdout,
+        "Multiple accounts found for 'b@example.com':\n  2: b@example.com [plus]\n  3: b@example.com [team]\nEnter account number to switch to: Cancelled\n"
     );
+    assert_eq!(live(&env), live_a);
+    assert_eq!(
+        std::fs::read(env.codex_ledger_path()).unwrap(),
+        ledger_before
+    );
+
+    let out = env
+        .cmd(["codex", "switch", "b@example.com"])
+        .stdin("3\n")
+        .run();
+    out.assert_code(0);
+    assert_eq!(live(&env), work);
+}
+
+#[test]
+fn an_email_in_two_workspaces_is_an_error_under_json() {
+    let env = TestEnv::new();
+    let (live_a, _) = seed_shared_email(&env);
+
+    let out = env.run(["codex", "switch", "b@example.com", "--json"]);
+    out.assert_code(1);
+    assert_eq!(
+        out.json(),
+        json!({"schemaVersion": 1, "error": {
+            "type": "ConfigError",
+            "message": "Email 'b@example.com' is ambiguous — matches Codex accounts: 2 [plus], 3 [team]. Use the account number instead (e.g., ccswap codex switch 2).",
+        }})
+    );
+    assert_eq!(live(&env), live_a);
+}
+
+#[test]
+fn unknown_or_malformed_identifiers_are_errors_and_change_nothing() {
+    let env = TestEnv::new();
+    let (live_a, _) = seed_shared_email(&env);
+    let ledger_before = std::fs::read(env.codex_ledger_path()).unwrap();
 
     let out = env.run(["codex", "switch", "9"]);
     out.assert_code(1);
@@ -102,11 +143,28 @@ fn ambiguous_or_unknown_identifiers_are_errors_and_change_nothing() {
         out.stderr
     );
 
-    let out = env.run(["codex", "switch", "nobody@example.com"]);
+    for missing in ["nobody@example.com", "A@example.com"] {
+        let out = env.run(["codex", "switch", missing]);
+        out.assert_code(1);
+        assert!(
+            out.stderr.contains(&format!(
+                "No Codex account found with identifier: {missing}"
+            )),
+            "{}",
+            out.stderr
+        );
+    }
+
+    let out = env.run(["codex", "switch", "nobody", "--json"]);
+    out.assert_code(1);
+    assert_eq!(
+        out.json()["error"],
+        json!({"type": "ValidationError", "message": "Invalid account identifier: nobody"})
+    );
+    let out = env.run(["codex", "switch", "nobody"]);
     out.assert_code(1);
     assert!(
-        out.stderr
-            .contains("No Codex account found with identifier: nobody@example.com"),
+        out.stderr.contains("Invalid account identifier: nobody"),
         "{}",
         out.stderr
     );
@@ -264,6 +322,13 @@ fn the_restart_hint_appears_only_when_the_app_server_daemon_directory_exists() {
     out.assert_code(0);
     assert!(
         out.stdout.contains("codex sessions started from now on"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains(
+            "A codex already running stops with a \"signed in as a different account\" error on its next token refresh or 401; restart it."
+        ),
         "{}",
         out.stdout
     );

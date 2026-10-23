@@ -1,10 +1,13 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
 use ccswap_core::accounts::Console;
-use ccswap_core::codex::{CodexPaths, CodexStore, CodexUsage, LoginStdio, resolve_account, view};
+use ccswap_core::codex::{
+    CodexPaths, CodexStore, CodexUsage, LoginStdio, identifier_candidates, resolve_account, view,
+};
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
+use ccswap_core::identifier::{self, Picker};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
@@ -74,28 +77,6 @@ struct Context {
     store: CodexStore,
     usage: CodexUsage,
     style: Style,
-    switch_hook: Option<String>,
-}
-
-/// Debug builds only: a program `switch` runs (as `<hook> ccswap-switch-hook`, with
-/// `CODEX_HOME` set) between writing the live login back and re-reading it, so tests
-/// can rewrite the live `auth.json` the way a refreshing Codex would.
-const SWITCH_HOOK_ENV: &str = "CCSWAP_TEST_CODEX_SWITCH_HOOK";
-
-/// Debug builds only: milliseconds a `codex app-server` pass may take, so a test of the
-/// timeout does not wait out the real one.
-const APP_SERVER_TIMEOUT_ENV: &str = "CCSWAP_TEST_CODEX_APP_SERVER_TIMEOUT_MS";
-
-fn codex_usage(env: &Environment, paths: &CodexPaths) -> CodexUsage {
-    let usage = CodexUsage::new(paths, &Endpoints::new(env));
-    match env
-        .non_empty(APP_SERVER_TIMEOUT_ENV)
-        .filter(|_| cfg!(debug_assertions))
-        .and_then(|ms| ms.parse().ok())
-    {
-        Some(ms) => usage.with_app_server_timeout(std::time::Duration::from_millis(ms)),
-        None => usage,
-    }
 }
 
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
@@ -144,12 +125,9 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     ccswap_core::log::setup(&paths.backup_root(), parsed.flag("--debug"));
     let codex_paths = CodexPaths::new(env);
     let context = Context {
-        usage: codex_usage(env, &codex_paths),
+        usage: CodexUsage::new(&codex_paths, &Endpoints::new(env)),
         store: CodexStore::new(codex_paths),
         style,
-        switch_hook: env
-            .non_empty(SWITCH_HOOK_ENV)
-            .filter(|_| cfg!(debug_assertions)),
     };
     match (command.run)(&context, &parsed, &positionals) {
         Ok(lines) => {
@@ -209,7 +187,19 @@ fn remove(context: &Context, parsed: &Parsed, args: &[String]) -> Result<Vec<Str
         ));
     };
     let style = &context.style;
-    let number = resolve_account(&context.store.ledger()?, identifier)?;
+    let mut console = TerminalConsole;
+    let ledger = context.store.ledger()?;
+    let picker = Picker {
+        console: &mut console,
+        style,
+        action: "remove",
+    };
+    let Some(identifier) =
+        identifier::screen(&identifier_candidates(&ledger), identifier, Some(picker))?
+    else {
+        return Ok(Vec::new());
+    };
+    let number = resolve_account(&ledger, &identifier)?;
     let listed = context
         .store
         .list()?
@@ -217,7 +207,6 @@ fn remove(context: &Context, parsed: &Parsed, args: &[String]) -> Result<Vec<Str
         .into_iter()
         .find(|a| a.number == number);
     let email = listed.as_ref().map_or("", |a| a.email.as_str());
-    let mut console = TerminalConsole;
     if listed.as_ref().is_some_and(|a| a.active) {
         console.line(&style.yellowed(&format!(
             "Warning: Codex account {number} ({email}) is currently logged in. The live login stays; only ccswap's copy is removed."
@@ -293,18 +282,23 @@ fn switch(
     parsed: &Parsed,
     positionals: &[String],
 ) -> Result<Vec<String>, Error> {
-    let live_home = context.store.paths().live_home().clone();
-    let mut before_recheck = || {
-        if let Some(hook) = &context.switch_hook {
-            let _ = std::process::Command::new(hook)
-                .arg("ccswap-switch-hook")
-                .env("CODEX_HOME", &live_home)
-                .status();
+    let identifier = match positionals.first() {
+        None => None,
+        Some(identifier) => {
+            let mut console = TerminalConsole;
+            let picker = (!parsed.flag("--json")).then_some(Picker {
+                console: &mut console,
+                style: &context.style,
+                action: "switch to",
+            });
+            let candidates = identifier_candidates(&context.store.ledger()?);
+            match identifier::screen(&candidates, identifier, picker)? {
+                Some(identifier) => Some(identifier),
+                None => return Ok(Vec::new()),
+            }
         }
     };
-    let outcome = context
-        .store
-        .switch(positionals.first().map(String::as_str), &mut before_recheck)?;
+    let outcome = context.store.switch(identifier.as_deref())?;
     if parsed.flag("--json") {
         return Ok(vec![pyjson::to_string_pretty(&view::switch_json(&outcome))]);
     }

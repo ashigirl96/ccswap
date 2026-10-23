@@ -469,7 +469,7 @@ impl Target {
         match command {
             Command::CodexSwitchTo(number) => self.spawn_codex(move |store| {
                 store
-                    .switch(Some(&number), &mut || {})
+                    .switch(Some(&number))
                     .map(|outcome| outcome.switched.then(|| switch_notice(&outcome)))
             }),
             Command::CodexAddFromLogin => {

@@ -9,6 +9,7 @@ pub mod endpoints;
 pub mod env;
 pub mod error;
 pub mod fsutil;
+pub mod identifier;
 pub mod listing;
 pub mod locks;
 pub mod log;

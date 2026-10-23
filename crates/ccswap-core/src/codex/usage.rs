@@ -113,14 +113,8 @@ impl CodexUsage {
             store: UsageStore::new(&paths.usage_cache_dir()),
             usage_url: endpoints.codex_usage_url(),
             paths: paths.clone(),
-            app_server_timeout: app_server::DEFAULT_TIMEOUT,
+            app_server_timeout: paths.overrides().app_server_timeout,
         }
-    }
-
-    /// How long one `codex app-server` pass may take before it is killed.
-    pub fn with_app_server_timeout(mut self, timeout: Duration) -> Self {
-        self.app_server_timeout = timeout;
-        self
     }
 
     /// One entry per listed account. Syncs the live `auth.json` into its owner's home first,

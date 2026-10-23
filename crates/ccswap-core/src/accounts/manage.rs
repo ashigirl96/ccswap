@@ -1,8 +1,9 @@
 use crate::pyjson::py_str;
 use serde_json::Value;
 
-use super::{Accounts, Console, accounts_mut, display_tag, sequence_mut};
+use super::{Accounts, Console, accounts_mut, sequence_mut};
 use crate::error::{Error, ErrorKind, Result};
+use crate::identifier::{self, Picker};
 use crate::locks::{STORE_LOCK_TIMEOUT, StoreLock};
 use crate::migrations::LEGACY_KEYRING_SERVICE;
 use crate::secret_store::{BACKUP_SERVICE, SecretStore, profile_service_name};
@@ -32,42 +33,17 @@ impl Accounts<'_> {
         store::read_sequence_migrated(self.paths)?;
         let style = self.style;
 
-        let mut identifier = identifier.to_string();
-        if !store::is_slot_number(&identifier) {
-            let data = store::read_sequence(self.paths)?;
-            let is_alias = data
-                .as_ref()
-                .and_then(|d| store::find_account_by_alias(d, &identifier))
-                .is_some();
-            if !is_alias && !store::is_valid_email(&identifier) {
-                return Err(Error::new(
-                    ErrorKind::ValidationError,
-                    format!("Invalid account identifier: {identifier}"),
-                ));
-            }
-            if !is_alias && let Some(data) = &data {
-                let matches = store::slots_with_email(data, &identifier);
-                if matches.len() > 1 {
-                    console.line(&format!("Multiple accounts found for '{identifier}':"));
-                    for num in &matches {
-                        let tag = text_field(data, num, "organizationName");
-                        console.line(&format!(
-                            "  {num}: {identifier} {}",
-                            style.muted(&format!("[{}]", display_tag(&tag)))
-                        ));
-                    }
-                    let choice = console
-                        .prompt("Enter account number to remove: ")
-                        .unwrap_or_default();
-                    let choice = choice.trim();
-                    if !store::is_slot_number(choice) || !matches.iter().any(|m| m == choice) {
-                        console.line(&style.dimmed("Cancelled"));
-                        return Ok(());
-                    }
-                    identifier = choice.to_string();
-                }
-            }
-        }
+        let candidates = store::read_sequence(self.paths)?
+            .map(|data| store::identifier_candidates(&data))
+            .unwrap_or_default();
+        let picker = Picker {
+            console: &mut *console,
+            style,
+            action: "remove",
+        };
+        let Some(identifier) = identifier::screen(&candidates, identifier, Some(picker))? else {
+            return Ok(());
+        };
 
         let data = store::read_sequence(self.paths)?.unwrap_or_default();
         let num = resolve_existing(&data, &identifier)?;
