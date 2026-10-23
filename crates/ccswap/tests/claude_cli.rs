@@ -1,6 +1,7 @@
 mod support;
 
 use serde_json::{Value, json};
+use support::help::{CLAUDE_VERBS, group, lists, options};
 use support::{KEYCHAIN_ACCOUNT, Output, PROG, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
@@ -141,99 +142,6 @@ fn claude_remove_with_yes_skips_the_prompt() {
     }
 }
 
-const CLAUDE_VERBS: [&str; 18] = [
-    "add",
-    "add-token",
-    "list",
-    "status",
-    "switch",
-    "remove",
-    "disable",
-    "enable",
-    "alias",
-    "swap",
-    "move",
-    "run",
-    "map",
-    "unmap",
-    "auto",
-    "unclaimed",
-    "export",
-    "import",
-];
-
-const APP_COMMANDS: [&str; 8] = [
-    "help", "tui", "watch", "menubar", "widget", "config", "upgrade", "purge",
-];
-
-/// The command lines between `heading` and the next blank line.
-fn group<'a>(help: &'a str, heading: &str) -> Vec<&'a str> {
-    help.lines()
-        .skip_while(|line| !line.starts_with(heading))
-        .skip(1)
-        .take_while(|line| !line.is_empty())
-        .collect()
-}
-
-fn lists(lines: &[&str], command: &str) -> bool {
-    lines.iter().any(|line| {
-        line.starts_with(&format!("  {PROG} {command} ")) || *line == format!("  {PROG} {command}")
-    })
-}
-
-#[test]
-fn main_help_groups_commands_by_claude_code_codex_and_app() {
-    let env = TestEnv::new();
-    let out = env.run(["help"]);
-    out.assert_code(0);
-    let help = out.stdout.as_str();
-    let headings = ["Claude Code accounts", "Codex CLI accounts", "App commands"];
-    let positions: Vec<usize> = headings
-        .iter()
-        .map(|h| {
-            help.find(&format!("\n{h}"))
-                .unwrap_or_else(|| panic!("{h:?} in\n{help}"))
-        })
-        .collect();
-    assert!(
-        positions.is_sorted(),
-        "{headings:?} out of order in\n{help}"
-    );
-
-    let claude = group(help, headings[0]);
-    for verb in CLAUDE_VERBS {
-        assert!(
-            lists(&claude, &format!("claude {verb}")),
-            "claude {verb} in {claude:#?}"
-        );
-        assert!(!lists(&claude, verb), "bare {verb} in {claude:#?}");
-    }
-    assert!(lists(&claude, "claude --help"), "{claude:#?}");
-    assert!(
-        claude
-            .iter()
-            .any(|line| line.contains("without the 'claude' prefix")),
-        "{claude:#?}"
-    );
-
-    let codex = group(help, headings[1]);
-    for verb in ["add", "login", "list", "switch", "remove", "alias"] {
-        assert!(
-            lists(&codex, &format!("codex {verb}")),
-            "codex {verb} in {codex:#?}"
-        );
-    }
-
-    let app = group(help, headings[2]);
-    for command in APP_COMMANDS {
-        assert!(lists(&app, command), "{command} in {app:#?}");
-    }
-    assert!(
-        !app.iter()
-            .any(|line| line.contains(" claude ") || line.contains(" codex "))
-    );
-}
-
 #[test]
 fn claude_help_lists_only_the_claude_code_commands() {
     let env = TestEnv::new();
@@ -297,22 +205,6 @@ fn unknown_verbs_point_at_their_namespace_help() {
     );
 }
 
-/// The option names in a help's `options:` section.
-fn options(help: &str) -> Vec<String> {
-    help.lines()
-        .skip_while(|line| *line != "options:")
-        .skip(1)
-        .take_while(|line| !line.is_empty())
-        .filter(|line| line.starts_with("  -"))
-        .flat_map(|line| {
-            line.split_whitespace()
-                .take_while(|word| word.starts_with('-'))
-                .map(|word| word.trim_end_matches(',').to_string())
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
 #[test]
 fn each_claude_verb_help_lists_only_its_own_options() {
     let cases: &[(&str, &[&str])] = &[
@@ -361,88 +253,6 @@ fn each_claude_verb_help_lists_only_its_own_options() {
             assert_eq!(options(&out.stdout), *expected, "{verb} {flag}");
             assert!(!out.stdout.contains("use with"), "{verb}: {}", out.stdout);
         }
-    }
-}
-
-#[test]
-fn overall_helps_list_only_the_options_every_command_takes() {
-    let env = TestEnv::new();
-    let cases: &[(&[&str], &[&str])] = &[
-        (&["help"], &["-h", "--help", "--version", "--debug"]),
-        (&["claude", "--help"], &["-h", "--help", "--debug"]),
-        (&["codex", "--help"], &["-h", "--help", "--debug"]),
-    ];
-    for (args, expected) in cases {
-        let out = env.run(*args);
-        out.assert_code(0);
-        assert_eq!(options(&out.stdout), *expected, "{args:?}");
-    }
-}
-
-#[test]
-fn no_help_says_which_command_an_option_is_for() {
-    let env = TestEnv::new();
-    let mut helps: Vec<Vec<&str>> = vec![
-        vec!["help"],
-        vec!["claude", "--help"],
-        vec!["codex", "--help"],
-    ];
-    helps.extend(
-        CLAUDE_VERBS
-            .iter()
-            .map(|verb| vec!["claude", verb, "--help"]),
-    );
-    helps.extend(
-        ["add", "login", "list", "switch", "remove", "alias"]
-            .iter()
-            .map(|verb| vec!["codex", verb, "--help"]),
-    );
-    helps.extend(
-        ["tui", "watch", "menubar", "widget", "upgrade", "purge"]
-            .iter()
-            .map(|command| vec![command, "--help"]),
-    );
-    for args in helps {
-        let out = env.run(&args);
-        out.assert_code(0);
-        for note in ["use with", "With '", "With bare '"] {
-            assert!(
-                !out.stdout.contains(note),
-                "{args:?} says {note:?}:\n{}",
-                out.stdout
-            );
-        }
-    }
-}
-
-#[test]
-fn app_command_help_lists_only_its_own_options() {
-    let env = TestEnv::new();
-    let cases: &[(&str, &[&str])] = &[
-        (
-            "menubar",
-            &[
-                "-h",
-                "--help",
-                "--install-service",
-                "--uninstall-service",
-                "--service-status",
-                "--debug",
-            ],
-        ),
-        ("tui", &["-h", "--help", "--debug"]),
-        ("purge", &["-h", "--help", "--debug"]),
-    ];
-    for (command, expected) in cases {
-        let out = env.run([command, "--help"]);
-        out.assert_code(0);
-        assert!(
-            out.stdout
-                .starts_with(&format!("usage: {PROG} {command} [-h]")),
-            "{}",
-            out.stdout
-        );
-        assert_eq!(options(&out.stdout), *expected, "{command}");
     }
 }
 
