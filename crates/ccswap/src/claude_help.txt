@@ -12,7 +12,8 @@ Commands:
   {prog} claude switch <num|email>  switch to a specific account
   {prog} claude add                 add the current account
   {prog} claude add-token [TOKEN|-] register a setup-token or API key
-  {prog} claude remove <num|email>  remove an account
+  {prog} claude remove <num|email> [-y]
+                                    remove an account (-y skips the prompt)
   {prog} claude disable <num|email> hold an account out of auto-rotation
   {prog} claude enable <num|email>  return a disabled account to rotation
   {prog} claude run <num|email> [-- ...]
@@ -68,3 +69,4 @@ options:
                         without backing up the current login first
   --full                Include full ~/.claude.json in export (default:
                         oauthAccount only)
+  -y, --yes             Remove without asking (use with 'remove')

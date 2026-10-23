@@ -122,6 +122,25 @@ fn claude_list_json_matches_bare_list_json_and_the_original_flag() {
     }
 }
 
+#[test]
+fn claude_remove_with_yes_skips_the_prompt() {
+    for flag in ["-y", "--yes"] {
+        let env = seeded();
+
+        let out = env.cmd(["claude", "remove", "2", flag]).stdin("n\n").run();
+
+        out.assert_code(0);
+        assert_eq!(out.stdout, "Removed Account-2 (b@example.com)\n", "{flag}");
+        assert!(env.sequence()["accounts"].get("2").is_none(), "{flag}");
+        assert_eq!(
+            env.security()
+                .item(BACKUP_SERVICE, "account-2-b@example.com"),
+            None,
+            "{flag}"
+        );
+    }
+}
+
 const CLAUDE_VERBS: [&str; 18] = [
     "add",
     "add-token",
