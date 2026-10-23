@@ -151,7 +151,7 @@ impl AnthropicClient {
 
     /// Verifies TLS against the macOS trust store, as upstream's
     /// `truststore` does, so locally trusted roots apply.
-    fn agent(timeout: Duration) -> ureq::Agent {
+    pub(crate) fn agent(timeout: Duration) -> ureq::Agent {
         let tls = ureq::tls::TlsConfig::builder()
             .root_certs(ureq::tls::RootCerts::PlatformVerifier)
             .build();
@@ -381,7 +381,7 @@ fn log_usage_failure(context: &str, failure: &UsageFailure, retry_after_s: Optio
     ));
 }
 
-fn classify_transport(e: &ureq::Error) -> UsageFailure {
+pub(crate) fn classify_transport(e: &ureq::Error) -> UsageFailure {
     let timed_out = match e {
         ureq::Error::Timeout(_) => true,
         ureq::Error::Io(io) => io.kind() == std::io::ErrorKind::TimedOut,
@@ -391,7 +391,7 @@ fn classify_transport(e: &ureq::Error) -> UsageFailure {
 }
 
 /// Python `max(0.0, float(raw.strip()))`; the HTTP-date form is ignored.
-fn parse_retry_after(raw: &str) -> Option<f64> {
+pub(crate) fn parse_retry_after(raw: &str) -> Option<f64> {
     let t = raw.trim().to_ascii_lowercase();
     let value: f64 = match t.as_str() {
         "inf" | "+inf" | "infinity" | "+infinity" => f64::INFINITY,

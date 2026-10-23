@@ -8,7 +8,7 @@ Commands:
   {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
   {prog} codex login        log in to another account with 'codex login' and add it
                             (the current login is kept)
-  {prog} codex list         list managed Codex accounts
+  {prog} codex list         list managed Codex accounts with their 5h and weekly usage
   {prog} codex switch [num|alias|email]
                             make an account the live Codex login (next in sequence without an argument);
                             newly started codex sessions use it

@@ -1,7 +1,7 @@
 mod support;
 
 use serde_json::json;
-use support::{CodexAuth, TestEnv};
+use support::{CodexAuth, StubResponse, TestEnv};
 
 fn two_accounts_with_b_live(env: &TestEnv) {
     env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a").plan("plus"));
@@ -10,6 +10,15 @@ fn two_accounts_with_b_live(env: &TestEnv) {
     ledger["accounts"]["2"]["alias"] = "work".into();
     env.seed_codex_ledger(ledger);
     env.seed_codex_login(&CodexAuth::new("b@example.com", "acct-b").tag("refreshed"));
+    env.http().respond(
+        "GET",
+        "/backend-api/wham/usage",
+        StubResponse::json(
+            200,
+            r#"{"rate_limit": {"primary_window": {"used_percent": 10},
+                               "secondary_window": {"used_percent": 20}}}"#,
+        ),
+    );
 }
 
 #[test]
@@ -22,7 +31,14 @@ fn list_shows_number_email_alias_plan_and_marks_the_live_account() {
     out.assert_code(0);
     assert_eq!(
         out.stdout,
-        "Codex accounts:\n  1: a@example.com [plus]\n  2: work (b@example.com) [team] (active)\n"
+        "Codex accounts:\n\
+         \x20 1: a@example.com [plus]\n\
+         \x20    ├ 5h:  10%\n\
+         \x20    └ 7d:  20%\n\
+         \n\
+         \x20 2: work (b@example.com) [team] (active)\n\
+         \x20    ├ 5h:  10%\n\
+         \x20    └ 7d:  20%\n"
     );
 }
 
@@ -34,14 +50,23 @@ fn list_json_uses_the_claude_envelope() {
     let out = env.run(["codex", "ls", "--json"]);
 
     out.assert_code(0);
+    let mut payload = out.json();
+    for account in payload["accounts"].as_array_mut().unwrap() {
+        let account = account.as_object_mut().unwrap();
+        assert!(account.remove("usageFetchedAt").is_some());
+        assert!(account.remove("usageAgeSeconds").is_some());
+    }
+    let usage = json!({ "fiveHour": { "pct": 10.0 }, "sevenDay": { "pct": 20.0 } });
     assert_eq!(
-        out.json(),
+        payload,
         json!({
             "schemaVersion": 1,
             "activeAccountNumber": 2,
             "accounts": [
-                { "number": 1, "email": "a@example.com", "accountId": "acct-a", "plan": "plus", "active": false },
-                { "number": 2, "email": "b@example.com", "accountId": "acct-b", "plan": "team", "active": true, "alias": "work" },
+                { "number": 1, "email": "a@example.com", "accountId": "acct-a", "plan": "plus", "active": false,
+                  "usageStatus": "ok", "usage": usage },
+                { "number": 2, "email": "b@example.com", "accountId": "acct-b", "plan": "team", "active": true,
+                  "usageStatus": "ok", "usage": usage, "alias": "work" },
             ],
         })
     );

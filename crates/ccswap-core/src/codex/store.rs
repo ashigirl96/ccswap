@@ -126,6 +126,25 @@ impl CodexStore {
         })
     }
 
+    /// Copies the live `auth.json` into its owner's managed home, so the home keeps the
+    /// tokens Codex last wrote. Returns the owner's number when it is registered.
+    pub fn sync_live_owner(&self) -> Result<Option<u32>> {
+        let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
+        let Some(live) = self.read_live()? else {
+            return Ok(None);
+        };
+        let Ok(identity) = read_identity(&live) else {
+            return Ok(None);
+        };
+        let Some(number) = self.ledger()?.find_by_account_id(&identity.account_id) else {
+            return Ok(None);
+        };
+        if self.read_managed(number)?.as_deref() != Some(live.as_slice()) {
+            self.write_managed(number, &live)?;
+        }
+        Ok(Some(number))
+    }
+
     /// Drops the ledger row and the managed home, never the live `auth.json`.
     /// Resolved under the lock, so a row another process removed meanwhile is reported, not recreated.
     pub fn remove(&self, identifier: &str) -> Result<(u32, LedgerAccount)> {

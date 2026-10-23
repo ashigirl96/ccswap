@@ -209,5 +209,12 @@ fn codex_commands_leave_the_claude_store_and_keychain_alone() {
         "{:?}",
         env.security().calls()
     );
-    assert!(env.http().requests().is_empty());
+    assert!(
+        env.http()
+            .requests()
+            .iter()
+            .all(|r| r.path() == "/backend-api/wham/usage"),
+        "{:?}",
+        env.http().requests()
+    );
 }

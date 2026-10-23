@@ -1,7 +1,8 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
 use ccswap_core::accounts::Console;
-use ccswap_core::codex::{CodexPaths, CodexStore, LoginStdio, resolve_account, view};
+use ccswap_core::codex::{CodexPaths, CodexStore, CodexUsage, LoginStdio, resolve_account, view};
+use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, ErrorKind};
 use ccswap_core::paths::Paths;
@@ -71,6 +72,7 @@ const COMMANDS: &[Command] = &[
 
 struct Context {
     store: CodexStore,
+    usage: CodexUsage,
     style: Style,
     switch_hook: Option<String>,
 }
@@ -124,8 +126,10 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
         return 1;
     }
     ccswap_core::log::setup(&paths.backup_root(), parsed.flag("--debug"));
+    let codex_paths = CodexPaths::new(env);
     let context = Context {
-        store: CodexStore::new(CodexPaths::new(env)),
+        usage: CodexUsage::new(&codex_paths, &Endpoints::new(env)),
+        store: CodexStore::new(codex_paths),
         style,
         switch_hook: env
             .non_empty(SWITCH_HOOK_ENV)
@@ -259,10 +263,13 @@ fn survive_ctrl_c() {
 
 fn list(context: &Context, parsed: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {
     let listing = context.store.list()?;
+    let usage = context.usage.collect(&context.store, &listing);
     if parsed.flag("--json") {
-        return Ok(vec![pyjson::to_string_pretty(&view::list_json(&listing))]);
+        return Ok(vec![pyjson::to_string_pretty(&view::list_json(
+            &listing, &usage,
+        ))]);
     }
-    Ok(view::list_lines(&listing, &context.style))
+    Ok(view::list_lines(&listing, &usage, &context.style))
 }
 
 fn switch(
