@@ -1,29 +1,25 @@
+pub mod argparse;
+pub mod argv;
+pub mod config;
+
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
 
-use ccswap_claude::accounts::{self, Accounts, AddOptions, AddTokenOptions, TokenInput};
+use ccswap_claude::accounts;
 use ccswap_claude::actions::LiveActions;
-use ccswap_claude::anthropic_client::AnthropicClient;
-use ccswap_claude::autoswitch::{autoswitch_models, parse_model_names};
-use ccswap_claude::listing::{self, ListOptions, ListReport};
 use ccswap_claude::migrations;
-use ccswap_claude::ranking::Strategy;
 use ccswap_claude::secret_store::{Keychain, SecretStore};
-use ccswap_claude::status;
-use ccswap_claude::switcher::{ModelSource, SwitchStrategy, Switcher};
-use ccswap_claude::transfer::Transfer;
 use ccswap_core::console::Console;
 use ccswap_core::endpoints::Endpoints;
 use ccswap_core::env::{Environment, is_root};
-use ccswap_core::error::{Error, ErrorKind};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::{self, Style};
 use ccswap_core::pyjson;
 use ccswap_core::settings::Settings;
 use ccswap_core::update_check;
 
-use crate::argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
-use crate::launch_agent::{self, LaunchAgent};
+use crate::ui::launch_agent::{self, LaunchAgent};
+use argparse::{Action, Opt, Outcome, ParseError, Parsed, Parser};
 
 const HELP: &str = include_str!("help.txt");
 
@@ -105,30 +101,21 @@ const SUBCOMMAND_FLAGS: &[(&str, &str)] = &[
     ("menubar", "--menubar"),
 ];
 
-const VERB_HELP: &[(&[&str], &str)] = &[
-    (&["list", "ls"], include_str!("list_help.txt")),
-    (&["status"], include_str!("status_help.txt")),
-    (&["switch"], include_str!("switch_help.txt")),
-    (&["add"], include_str!("add_help.txt")),
-    (&["add-token"], include_str!("add_token_help.txt")),
-    (&["remove", "rm"], include_str!("remove_help.txt")),
-    (&["disable"], include_str!("disable_help.txt")),
-    (&["enable"], include_str!("enable_help.txt")),
-    (&["export"], include_str!("export_help.txt")),
-    (&["import"], include_str!("import_help.txt")),
-    (&["purge"], include_str!("purge_help.txt")),
-    (&["upgrade", "update"], include_str!("upgrade_help.txt")),
-    (&["tui"], include_str!("tui_help.txt")),
-    (&["watch"], include_str!("watch_help.txt")),
-    (&["menubar"], include_str!("menubar_help.txt")),
+/// The verbs the global parser reads, with the help their `--help` prints.
+pub type VerbHelp = &'static [(&'static [&'static str], &'static str)];
+
+const VERB_HELP: VerbHelp = &[
+    (&["purge"], include_str!("help/purge.txt")),
+    (&["upgrade", "update"], include_str!("help/upgrade.txt")),
 ];
 
 /// The help of a verb given `-h`/`--help`. Checked before the global parse,
 /// which would read `remove --help` as `--remove-account` missing its value.
 fn verb_help(args: &[String]) -> Option<&'static str> {
     let (verb, rest) = args.split_first()?;
-    let (_, help) = VERB_HELP
+    let (_, help) = [crate::claude::VERB_HELP, VERB_HELP, crate::ui::VERB_HELP]
         .iter()
+        .flat_map(|table| table.iter())
         .find(|(names, _)| names.contains(&verb.as_str()))?;
     rest.iter()
         .take_while(|arg| *arg != "--")
@@ -171,43 +158,43 @@ impl Cli {
         }
         let args = match args.split_first() {
             Some((namespace, rest)) if namespace == "claude" => {
-                match crate::claude_cmd::resolve(&self.prog, rest) {
-                    crate::claude_cmd::Resolved::Bare(bare) => bare,
-                    crate::claude_cmd::Resolved::Exit(code) => return code,
+                match crate::claude::resolve(&self.prog, rest) {
+                    crate::claude::Resolved::Bare(bare) => bare,
+                    crate::claude::Resolved::Exit(code) => return code,
                 }
             }
             _ => args,
         };
         presentation::probe_cli_background(&self.env, &Paths::new(&self.env), &args);
         if args.first().is_some_and(|v| v == "codex") {
-            return crate::codex_cmd::run(&self.prog, &self.env, &args[1..]);
+            return crate::codex::run(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "config") {
-            return crate::config_cmd::run(&self.prog, &self.env, &args[1..]);
+            return config::run(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "run") {
-            return crate::run_cmd::run(&self.prog, &self.env, &args[1..]);
+            return crate::claude::run::run(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "alias") {
-            return crate::manage_cmd::run_alias(&self.prog, &self.env, &args[1..]);
+            return crate::claude::manage::run_alias(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "auto") {
-            return crate::auto_cmd::run(&self.prog, &self.env, &args[1..]);
+            return crate::claude::auto::run(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "map") {
-            return crate::map_cmd::run_map(&self.prog, &self.env, &args[1..]);
+            return crate::claude::map::run_map(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "unmap") {
-            return crate::map_cmd::run_unmap(&self.prog, &self.env, &args[1..]);
+            return crate::claude::map::run_unmap(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "widget") {
-            return crate::widget_cmd::run(&self.prog, &self.env, &args[1..]);
+            return crate::ui::widget::run(&self.prog, &self.env, &args[1..]);
         }
         if args.first().is_some_and(|v| v == "unclaimed") {
-            return crate::unclaimed_cmd::run(&self.prog, &self.env, &args[1..]);
+            return crate::claude::unclaimed::run(&self.prog, &self.env, &args[1..]);
         }
         if let Some(verb @ ("swap" | "move")) = args.first().map(String::as_str) {
-            return crate::renumber_cmd::run(&self.prog, &self.env, verb, &args[1..]);
+            return crate::claude::renumber::run(&self.prog, &self.env, verb, &args[1..]);
         }
         let mut args = args;
         let opened_as_app = args.is_empty() && launched_as_app(&self.env);
@@ -264,12 +251,12 @@ impl Cli {
         }
         run_store_migrations(&self.env, &paths, parsed.flag("--debug"));
         for (flag, start) in [
-            ("--tui", crate::tui::Start::Dashboard),
-            ("--watch", crate::tui::Start::Watch),
+            ("--tui", crate::ui::tui::Start::Dashboard),
+            ("--watch", crate::ui::tui::Start::Watch),
         ] {
             if parsed.flag(flag) {
                 let actions = Arc::new(LiveActions::new(self.env.clone()));
-                return crate::tui::run(actions, &self.env, start);
+                return crate::ui::tui::run(actions, &self.env, start);
             }
         }
         if parsed.flag("--menubar") {
@@ -284,7 +271,7 @@ impl Cli {
                 || parsed.flag("--uninstall-service")
                 || parsed.flag("--service-status")
             {
-                return match self.menubar_service(&parsed, &style) {
+                return match crate::ui::service::run(&self.prog, &self.env, &parsed, &style) {
                     Ok(()) => 0,
                     Err(error) => {
                         if json {
@@ -304,28 +291,17 @@ impl Cli {
                 return 0;
             }
             let actions = Arc::new(LiveActions::new(self.env.clone()));
-            return crate::menubar::run(actions, self.env.clone());
+            return crate::ui::menubar::run(actions, self.env.clone());
         }
-        let result = if parsed.flag("--status") {
-            self.status(&paths, &style, json)
-        } else if parsed.flag("--list") {
-            self.list(&paths, &style, json, parsed.flag("--token-status"))
-        } else if parsed.flag("--add-account") {
-            self.add(&paths, &style, &parsed)
-        } else if let Some(destination) = parsed.value("--export") {
-            self.export(&paths, destination, &parsed)
-        } else if let Some(source) = parsed.value("--import") {
-            self.import(&paths, source, parsed.flag("--force"))
-        } else if let Some(token) = parsed.value("--add-token") {
-            self.add_token(&paths, &style, token, &parsed)
-        } else if parsed.flag("--switch") || nonempty(&parsed, "--switch-to") {
-            self.switch(&paths, &style, &parsed)
-        } else if let Some(result) = crate::manage_cmd::dispatch(&self.env, &paths, &style, &parsed)
-        {
-            result
-        } else {
-            Ok(())
-        };
+        let result = crate::claude::accounts::dispatch(
+            &self.prog,
+            &self.env,
+            &paths,
+            &style,
+            &parsed,
+            &mut self.stdout,
+        )
+        .unwrap_or(Ok(()));
         match result {
             Ok(()) => {
                 for line in self.stdout.drain(..) {
@@ -354,278 +330,6 @@ impl Cli {
                 1
             }
         }
-    }
-
-    fn menubar_service(&self, parsed: &Parsed, style: &Style) -> Result<(), Error> {
-        let agent = LaunchAgent::new(&self.env);
-        if parsed.flag("--install-service") {
-            let program = launch_agent::resolve_program(
-                std::env::args_os().next().as_deref(),
-                &std::env::current_dir().unwrap_or_default(),
-                ccswap_core::path_search::which(&self.env, launch_agent::PROGRAM_NAME),
-                || std::env::current_exe().ok(),
-            );
-            let installed = agent.install(program)?;
-            println!("Menu bar service installed ({}).", installed.label);
-            println!("  plist: {}", installed.plist.display());
-            println!("  logs:  {}", installed.stderr_log.display());
-            println!(
-                "{}",
-                style.dimmed(&format!(
-                    "It starts at login from now on. Re-run this after a {} upgrade to point launchd at the new build.",
-                    self.prog
-                ))
-            );
-            return Ok(());
-        }
-        if parsed.flag("--uninstall-service") {
-            let removed = agent.uninstall()?;
-            if removed.was_loaded || removed.removed_plist {
-                println!("Menu bar service removed.");
-            } else {
-                println!("Menu bar service was not installed.");
-            }
-            return Ok(());
-        }
-        let status = agent.status()?;
-        if !status.installed && !status.loaded {
-            println!("Menu bar service is not installed.");
-            println!(
-                "{}",
-                style.dimmed(&format!(
-                    "Install it with: {} menubar --install-service",
-                    self.prog
-                ))
-            );
-            return Ok(());
-        }
-        let state = status
-            .state
-            .clone()
-            .unwrap_or_else(|| if status.loaded { "loaded" } else { "stopped" }.to_string());
-        let pid = status
-            .pid
-            .filter(|p| *p != 0)
-            .map(|p| format!(" (pid {p})"))
-            .unwrap_or_default();
-        println!("Menu bar service: {state}{pid}");
-        println!("  plist: {}", status.plist.display());
-        if !status.installed {
-            println!(
-                "{}",
-                style.dimmed("launchd still has it loaded, but the plist is gone.")
-            );
-        }
-        Ok(())
-    }
-
-    fn status(&mut self, paths: &Paths, style: &Style, json: bool) -> Result<(), Error> {
-        let endpoints = Endpoints::new(&self.env);
-        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
-        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
-        let client = AnthropicClient::new(endpoints);
-        let report = status::status(paths, &self.env, &secrets, &client)?;
-        if json {
-            self.stdout
-                .push(pyjson::to_string_pretty(&status::status_json(&report)));
-        } else {
-            self.stdout.extend(status::status_lines(&report, style));
-        }
-        Ok(())
-    }
-
-    fn list(
-        &mut self,
-        paths: &Paths,
-        style: &Style,
-        json: bool,
-        token_status: bool,
-    ) -> Result<(), Error> {
-        let endpoints = Endpoints::new(&self.env);
-        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
-        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
-        let client = AnthropicClient::new(endpoints);
-        let options = ListOptions { token_status, json };
-        let report = listing::list(paths, &self.env, &secrets, &client, options)?;
-        if json {
-            self.stdout
-                .push(pyjson::to_string_pretty(&listing::list_json(&report)));
-            return Ok(());
-        }
-        if report == ListReport::NoStore {
-            TerminalConsole.line(&style.dimmed("No accounts are managed yet."));
-            return self.first_run_setup(paths, style, &secrets, &client);
-        }
-        self.stdout.extend(listing::list_lines(&report, style));
-        Ok(())
-    }
-
-    fn first_run_setup(
-        &mut self,
-        paths: &Paths,
-        style: &Style,
-        secrets: &SecretStore,
-        client: &AnthropicClient,
-    ) -> Result<(), Error> {
-        let mut console = TerminalConsole;
-        let Some(identity) = ccswap_claude::store::current_identity(paths) else {
-            console.line(&style.dimmed("No active Claude account found. Please log in first."));
-            return Ok(());
-        };
-        let answer = console
-            .prompt(&format!(
-                "No managed accounts found. Add current account ({}) to managed list? [Y/n] ",
-                identity.email
-            ))
-            .ok_or_else(|| Error::new(ErrorKind::ClaudeSwitchError, "EOF when reading a line"))?;
-        if answer.to_lowercase() == "n" {
-            console.line(&style.dimmed(&format!(
-                "Setup cancelled. You can run '{} --add-account' later.",
-                self.prog
-            )));
-            return Ok(());
-        }
-        let accounts = Accounts {
-            paths,
-            env: &self.env,
-            secrets,
-            client,
-            style,
-        };
-        accounts.add_account(&AddOptions::default(), &mut console)
-    }
-
-    fn add(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
-        let endpoints = Endpoints::new(&self.env);
-        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
-        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
-        let client = AnthropicClient::new(endpoints);
-        let accounts = Accounts {
-            paths,
-            env: &self.env,
-            secrets: &secrets,
-            client: &client,
-            style,
-        };
-        let options = AddOptions {
-            slot: parsed.value("--slot").and_then(|s| s.trim().parse().ok()),
-            alias: parsed.value("--alias").map(str::to_string),
-            assume_yes: false,
-        };
-        accounts.add_account(&options, &mut TerminalConsole)
-    }
-
-    fn secrets(&self, paths: &Paths) -> SecretStore {
-        let keychain = Keychain::new(Endpoints::new(&self.env).security, &self.env);
-        SecretStore::new(keychain, paths.clone(), &self.env)
-    }
-
-    /// An empty destination selects nothing, as upstream's truthiness dispatch does.
-    fn export(&mut self, paths: &Paths, destination: &str, parsed: &Parsed) -> Result<(), Error> {
-        if destination.is_empty() {
-            return Ok(());
-        }
-        let secrets = self.secrets(paths);
-        let transfer = Transfer {
-            paths,
-            secrets: &secrets,
-        };
-        if let Some(envelope) = transfer.export(
-            destination,
-            parsed.value("--account"),
-            parsed.flag("--full"),
-            &mut |line| eprintln!("{line}"),
-        )? {
-            self.stdout.push(envelope);
-        }
-        Ok(())
-    }
-
-    fn switch(&mut self, paths: &Paths, style: &Style, parsed: &Parsed) -> Result<(), Error> {
-        let strategy = switch_strategy(paths, parsed);
-        let secrets = self.secrets(paths);
-        let client = AnthropicClient::new(Endpoints::new(&self.env));
-        let env = &self.env;
-        let show_list = |console: &mut dyn Console| -> Result<(), Error> {
-            let list_secrets = self.secrets(paths);
-            let report = listing::list(paths, env, &list_secrets, &client, ListOptions::default())?;
-            for line in listing::list_lines(&report, style) {
-                console.line(&line);
-            }
-            Ok(())
-        };
-        let switcher = Switcher {
-            paths,
-            env: &self.env,
-            secrets: &secrets,
-            client: &client,
-            style,
-            listing: Some(&show_list),
-        };
-        let json = parsed.flag("--json");
-        let report = match parsed.value("--switch-to") {
-            Some(target) => {
-                switcher.switch_to(target, json, parsed.flag("--force"), &mut TerminalConsole)?
-            }
-            None => switcher.switch_next(strategy.as_ref(), json, &mut TerminalConsole)?,
-        };
-        if let Some(report) = report.filter(|_| json) {
-            let mut payload = report.to_json();
-            if let Some(s) = strategy.as_ref().filter(|s| !s.models.is_empty()) {
-                payload["models"] = s.models.clone().into();
-                payload["modelSource"] = s.model_source.map(ModelSource::as_str).into();
-            }
-            self.stdout.push(pyjson::to_string_pretty(&payload));
-        }
-        Ok(())
-    }
-
-    fn import(&mut self, paths: &Paths, source: &str, force: bool) -> Result<(), Error> {
-        if source.is_empty() {
-            return Ok(());
-        }
-        let secrets = self.secrets(paths);
-        let transfer = Transfer {
-            paths,
-            secrets: &secrets,
-        };
-        transfer.import(
-            source,
-            force,
-            &mut || std::io::read_to_string(std::io::stdin()),
-            &mut |line| eprintln!("{line}"),
-        )
-    }
-
-    fn add_token(
-        &mut self,
-        paths: &Paths,
-        style: &Style,
-        token: &str,
-        parsed: &Parsed,
-    ) -> Result<(), Error> {
-        let endpoints = Endpoints::new(&self.env);
-        let keychain = Keychain::new(endpoints.security.clone(), &self.env);
-        let secrets = SecretStore::new(keychain, paths.clone(), &self.env);
-        let client = AnthropicClient::new(endpoints);
-        let accounts = Accounts {
-            paths,
-            env: &self.env,
-            secrets: &secrets,
-            client: &client,
-            style,
-        };
-        let input = match token {
-            "-" => TokenInput::Stdin,
-            "" => TokenInput::Prompt,
-            value => TokenInput::Value(value.to_string()),
-        };
-        let options = AddTokenOptions {
-            email: parsed.value("--email").map(str::to_string),
-            slot: parsed.value("--slot").and_then(|s| s.trim().parse().ok()),
-            assume_yes: false,
-        };
-        accounts.add_token(input, &options, &mut TerminalConsole)
     }
 
     /// Flag-combination checks, in upstream's order.
@@ -745,20 +449,8 @@ impl Console for TerminalConsole {
     }
 }
 
-fn nonempty(p: &Parsed, name: &str) -> bool {
+pub(crate) fn nonempty(p: &Parsed, name: &str) -> bool {
     p.value(name).is_some_and(|v| !v.is_empty())
-}
-
-fn switch_strategy(paths: &Paths, parsed: &Parsed) -> Option<SwitchStrategy> {
-    let mut chosen = SwitchStrategy::new(Strategy::parse(parsed.value("--strategy")?)?);
-    if let Some(names) = parsed.value("--model") {
-        chosen.models = parse_model_names(names);
-        chosen.model_source = Some(ModelSource::Cli);
-    } else {
-        chosen.models = autoswitch_models(&Settings::new(paths, ccswap_claude::SETTINGS));
-        chosen.model_source = (!chosen.models.is_empty()).then_some(ModelSource::Setting);
-    }
-    Some(chosen)
 }
 
 /// LaunchServices sets this for the app it opens; a shell inherits its

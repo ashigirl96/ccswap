@@ -4,9 +4,9 @@ use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 use serde_json::Value;
 
-use crate::config_cmd::{looks_like_option, lookup, split_explicit};
+use crate::cli::argv::{looks_like_option, lookup, split_explicit};
 
-const HELP: &str = include_str!("unclaimed_help.txt");
+const HELP: &str = include_str!("help/unclaimed.txt");
 const OPTS: &[&str] = &["-h", "--help", "--purge", "--debug"];
 
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {

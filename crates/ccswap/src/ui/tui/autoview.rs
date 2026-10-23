@@ -174,7 +174,7 @@ pub fn summary_spans(
 mod tests {
     //! Ported from upstream tests/test_tui.py::TestEventText.
     use super::*;
-    use crate::tui::theme::{DARK, LIGHT};
+    use crate::ui::tui::theme::{DARK, LIGHT};
     use ccswap_claude::autoswitch::{EventKind, Trigger};
     use serde_json::json;
 

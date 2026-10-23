@@ -7,9 +7,9 @@ use ccswap_core::error::Error;
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 
-use crate::argparse::Parsed;
 use crate::cli::TerminalConsole;
-use crate::config_cmd::{looks_like_option, lookup, split_explicit};
+use crate::cli::argparse::Parsed;
+use crate::cli::argv::{looks_like_option, lookup, split_explicit};
 
 pub fn dispatch(
     env: &Environment,
@@ -53,7 +53,7 @@ pub fn dispatch(
     })
 }
 
-const ALIAS_HELP: &str = include_str!("alias_help.txt");
+const ALIAS_HELP: &str = include_str!("help/alias.txt");
 const ALIAS_OPTS: &[&str] = &["-h", "--help", "--unset", "--debug"];
 
 pub fn run_alias(prog: &str, env: &Environment, argv: &[String]) -> i32 {

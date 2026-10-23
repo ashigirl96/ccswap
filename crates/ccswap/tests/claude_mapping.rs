@@ -1,7 +1,7 @@
 //! Ported from upstream cli.py `_map_command` / `_unmap_command` / bare
 //! `_run_command`; MappingStore's own cases (tests/test_mappings.py) are unit
 //! tests in ccswap-core's `mappings`.
-//! Upstream loses pre-exec stdout under a pipe (see tests/session.rs), so the
+//! Upstream loses pre-exec stdout under a pipe (see tests/claude_session.rs), so the
 //! bare-run notices are asserted for ccswap only.
 
 mod support;

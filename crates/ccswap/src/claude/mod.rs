@@ -1,6 +1,29 @@
 //! `ccswap claude <verb>`: the bare verbs under the Claude Code namespace.
 
-const HELP: &str = include_str!("claude_help.txt");
+pub mod accounts;
+pub mod auto;
+pub mod manage;
+pub mod map;
+pub mod renumber;
+pub mod run;
+pub mod unclaimed;
+
+use crate::cli::VerbHelp;
+
+const HELP: &str = include_str!("help.txt");
+
+pub const VERB_HELP: VerbHelp = &[
+    (&["list", "ls"], include_str!("help/list.txt")),
+    (&["status"], include_str!("help/status.txt")),
+    (&["switch"], include_str!("help/switch.txt")),
+    (&["add"], include_str!("help/add.txt")),
+    (&["add-token"], include_str!("help/add_token.txt")),
+    (&["remove", "rm"], include_str!("help/remove.txt")),
+    (&["disable"], include_str!("help/disable.txt")),
+    (&["enable"], include_str!("help/enable.txt")),
+    (&["export"], include_str!("help/export.txt")),
+    (&["import"], include_str!("help/import.txt")),
+];
 
 const VERBS: &[&str] = &[
     "add",

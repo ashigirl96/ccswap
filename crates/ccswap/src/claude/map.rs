@@ -10,10 +10,10 @@ use ccswap_core::error::{Error, ErrorKind, Result};
 use ccswap_core::paths::Paths;
 use ccswap_core::presentation::Style;
 
-use crate::config_cmd::{looks_like_option, lookup, split_explicit};
+use crate::cli::argv::{looks_like_option, lookup, split_explicit};
 
-const MAP_HELP: &str = include_str!("map_help.txt");
-const UNMAP_HELP: &str = include_str!("unmap_help.txt");
+const MAP_HELP: &str = include_str!("help/map.txt");
+const UNMAP_HELP: &str = include_str!("help/unmap.txt");
 const OPTS: &[&str] = &["-h", "--help", "--debug"];
 
 struct Args {
