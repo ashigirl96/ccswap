@@ -276,7 +276,11 @@ impl CodexUsage {
         };
         let failed =
             |kind: &str| FetchRecord::error(format!("{APP_SERVER_ERROR_PREFIX}{kind}"), None);
-        match app_server::read_rate_limits(&home, self.app_server_timeout) {
+        match app_server::read_rate_limits(
+            self.paths.codex_program(),
+            &home,
+            self.app_server_timeout,
+        ) {
             Ok(result) => FetchRecord {
                 usage: Some(normalize_rate_limits(&result)),
                 ..Default::default()

@@ -5,11 +5,13 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+use super::program::CodexProgram;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a finished app-server gets to exit on its own after stdin closes.
@@ -27,8 +29,13 @@ pub enum AppServerError {
 }
 
 /// The `account/rateLimits/read` result, read with `home` as `CODEX_HOME`.
-pub fn read_rate_limits(home: &Path, timeout: Duration) -> Result<Value, AppServerError> {
-    let mut child = Command::new("codex")
+pub fn read_rate_limits(
+    program: &CodexProgram,
+    home: &Path,
+    timeout: Duration,
+) -> Result<Value, AppServerError> {
+    let mut child = program
+        .command()
         .args(["-s", "read-only", "-a", "never", "app-server"])
         .env("CODEX_HOME", home)
         .stdin(Stdio::piped())
