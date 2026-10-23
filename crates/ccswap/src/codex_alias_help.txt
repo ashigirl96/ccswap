@@ -1,0 +1,17 @@
+usage: {prog} codex alias [-h] [--unset] [--debug] NUM|ALIAS|EMAIL [NAME]
+
+Set or remove a short display alias for a Codex account. Once set, the alias
+names the account anywhere a number or email does.
+
+positional arguments:
+  NUM|ALIAS|EMAIL  Account to alias
+  NAME             Alias to set (an empty name "" removes it)
+
+options:
+  -h, --help       show this help message and exit
+  --unset          Remove the account's alias
+  --debug          Enable debug logging
+
+Examples:
+  {prog} codex alias 2 personal
+  {prog} codex alias 2 --unset

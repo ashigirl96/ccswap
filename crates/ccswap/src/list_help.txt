@@ -1,0 +1,16 @@
+usage: {prog} list [-h] [--token-status] [--json] [--debug]
+
+List managed Claude Code accounts with their 5h and 7d usage.
+
+options:
+  -h, --help      show this help message and exit
+  --token-status  Show source-labelled OAuth token diagnostics (cannot be
+                  combined with --json)
+  --json          Emit machine-readable JSON to stdout. See README 'JSON
+                  output for scripting'.
+  --debug         Enable debug logging
+
+Examples:
+  {prog} list
+  {prog} list --token-status
+  {prog} list --json

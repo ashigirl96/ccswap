@@ -23,7 +23,6 @@ Aliases: ls=list  rm=remove
 
 options:
   -h, --help  show this help message and exit
-  --json      Emit machine-readable JSON to stdout (use with 'list' or 'switch')
-  -y, --yes   Remove without asking (use with 'remove')
-  --unset     Remove the alias (use with 'alias')
   --debug     Enable debug logging
+
+'{prog} codex <command> --help' lists the options a command takes.
