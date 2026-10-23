@@ -6,10 +6,13 @@ apart from Claude accounts, and stored under ~/.claude-swap-backup/codex/.
 Commands:
   {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
   {prog} codex list         list managed Codex accounts
+  {prog} codex switch [num|alias|email]
+                            make an account the live Codex login (next in sequence without an argument);
+                            newly started codex sessions use it
 
 Aliases: ls=list
 
 options:
   -h, --help  show this help message and exit
-  --json      Emit machine-readable JSON to stdout (use with 'list')
+  --json      Emit machine-readable JSON to stdout (use with 'list' or 'switch')
   --debug     Enable debug logging

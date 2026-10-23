@@ -4,15 +4,20 @@
 //! - [`identity`]: who an `auth.json` belongs to, from its tokens and id_token claims.
 //! - [`Ledger`]: `codex/accounts.json`, numbered independently of Claude slots.
 //! - [`CodexStore`]: the operations, each ledger rewrite under the store `.lock`.
+//! - [`resolve_account`]: `<num|alias|email>` to an account number.
 //! - [`view`]: terminal lines and `--json` envelopes.
 
 pub mod identity;
 pub mod ledger;
 pub mod paths;
+pub mod resolve;
 pub mod store;
+pub mod switch;
 pub mod view;
 
 pub use identity::{CodexIdentity, read_identity};
 pub use ledger::{Ledger, LedgerAccount};
 pub use paths::CodexPaths;
+pub use resolve::resolve_account;
 pub use store::{AddOutcome, CodexListing, CodexStore, ListedCodexAccount};
+pub use switch::{SwitchOutcome, SwitchedAccount};

@@ -7,6 +7,8 @@
 //!   `app-server` speaks newline-delimited JSON-RPC on stdio, writes `auth` to
 //!   `$CODEX_HOME/auth.json` on the first request after `initialize`, and logs each
 //!   request to `app_server_requests.jsonl`.
+//! - `switch_hook.json`: queue of auth texts; each `ccswap-switch-hook` (the hook ccswap's
+//!   debug build runs mid-switch) pops one and writes it to `$CODEX_HOME/auth.json`.
 
 use std::io::{BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -45,6 +47,7 @@ pub fn main(state: &Path, args: &[String]) -> Reply {
     match subcommand(args) {
         Some("login") => login(state, codex_home.as_deref()),
         Some("app-server") => app_server(state, codex_home.as_deref()),
+        Some("ccswap-switch-hook") => switch_hook(state, codex_home.as_deref()),
         other => failure(&format!("fake codex: nothing scripted for {other:?}")),
     }
 }
@@ -86,6 +89,22 @@ fn login(state: &Path, codex_home: Option<&Path>) -> Reply {
         write_auth(home, auth);
     }
     Reply::from_json(&reply)
+}
+
+/// Plays a Codex that refreshes mid-switch: pops one `auth` and writes it as the live login.
+fn switch_hook(state: &Path, codex_home: Option<&Path>) -> Reply {
+    let path = state.join("switch_hook.json");
+    let mut queue = read_json(&path).unwrap_or_else(|| json!([]));
+    let Some(replies) = queue.as_array_mut().filter(|q| !q.is_empty()) else {
+        return Reply::from_json(&json!({}));
+    };
+    let auth = replies.remove(0);
+    std::fs::write(&path, pyjson::to_string_compact(&queue)).expect("write switch_hook.json");
+    let (Some(auth), Some(home)) = (auth.as_str(), codex_home) else {
+        return failure("fake codex: switch hook without auth or CODEX_HOME");
+    };
+    write_auth(home, auth);
+    Reply::from_json(&json!({}))
 }
 
 fn app_server(state: &Path, codex_home: Option<&Path>) -> Reply {

@@ -322,6 +322,7 @@ pub fn check_isolation(vars: &BTreeMap<String, String>, root: &Path) -> Result<(
         "CLAUDE_CONFIG_DIR",
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CODEX_HOME",
+        "CCSWAP_TEST_CODEX_SWITCH_HOOK",
         "XDG_DATA_HOME",
     ] {
         if vars.contains_key(name) {

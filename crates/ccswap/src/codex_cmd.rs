@@ -41,12 +41,24 @@ const COMMANDS: &[Command] = &[
         max_positionals: 0,
         run: list,
     },
+    Command {
+        names: &["switch"],
+        opts: &[Opt::flag("--json")],
+        max_positionals: 1,
+        run: switch,
+    },
 ];
 
 struct Context {
     store: CodexStore,
     style: Style,
+    switch_hook: Option<String>,
 }
+
+/// Debug builds only: a program `switch` runs (as `<hook> ccswap-switch-hook`, with
+/// `CODEX_HOME` set) between writing the live login back and re-reading it, so tests
+/// can rewrite the live `auth.json` the way a refreshing Codex would.
+const SWITCH_HOOK_ENV: &str = "CCSWAP_TEST_CODEX_SWITCH_HOOK";
 
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let usage_error = |msg: &str| {
@@ -95,6 +107,9 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let context = Context {
         store: CodexStore::new(CodexPaths::new(env)),
         style,
+        switch_hook: env
+            .non_empty(SWITCH_HOOK_ENV)
+            .filter(|_| cfg!(debug_assertions)),
     };
     match (command.run)(&context, &parsed, &positionals) {
         Ok(lines) => {
@@ -152,4 +167,27 @@ fn list(context: &Context, parsed: &Parsed, _: &[String]) -> Result<Vec<String>,
         return Ok(vec![pyjson::to_string_pretty(&view::list_json(&listing))]);
     }
     Ok(view::list_lines(&listing, &context.style))
+}
+
+fn switch(
+    context: &Context,
+    parsed: &Parsed,
+    positionals: &[String],
+) -> Result<Vec<String>, Error> {
+    let live_home = context.store.paths().live_home().clone();
+    let mut before_recheck = || {
+        if let Some(hook) = &context.switch_hook {
+            let _ = std::process::Command::new(hook)
+                .arg("ccswap-switch-hook")
+                .env("CODEX_HOME", &live_home)
+                .status();
+        }
+    };
+    let outcome = context
+        .store
+        .switch(positionals.first().map(String::as_str), &mut before_recheck)?;
+    if parsed.flag("--json") {
+        return Ok(vec![pyjson::to_string_pretty(&view::switch_json(&outcome))]);
+    }
+    Ok(view::switch_lines(&outcome, &context.style))
 }

@@ -276,6 +276,21 @@ impl FakeCodex {
         std::fs::write(self.state.join("app_server.json"), script.to_string()).unwrap();
     }
 
+    /// Queues live logins the fake writes when `switch` runs its mid-switch hook; pass
+    /// [`switch_hook_env`](Self::switch_hook_env) to that run.
+    pub fn rewrite_live_during_switch(&self, auth: &str) {
+        self.update_json("switch_hook.json", json!([]), |queue| {
+            queue.as_array_mut().unwrap().push(auth.into());
+        });
+    }
+
+    pub fn switch_hook_env(&self) -> (&'static str, String) {
+        (
+            "CCSWAP_TEST_CODEX_SWITCH_HOOK",
+            self.bin_dir.join("codex").display().to_string(),
+        )
+    }
+
     pub fn calls(&self) -> Vec<CodexCall> {
         read_jsonl(&self.state.join("calls.jsonl"))
             .into_iter()

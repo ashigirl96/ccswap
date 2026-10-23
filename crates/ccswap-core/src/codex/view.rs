@@ -5,6 +5,74 @@ use serde_json::{Map, Value, json};
 use crate::presentation::{SCHEMA_VERSION, Style};
 
 use super::store::{AddOutcome, CodexListing};
+use super::switch::{SwitchOutcome, SwitchedAccount};
+
+pub fn switch_lines(outcome: &SwitchOutcome, style: &Style) -> Vec<String> {
+    if !outcome.switched {
+        return vec![format!(
+            "{} {}",
+            style.accent("Already on"),
+            switched_label(&outcome.to)
+        )];
+    }
+    let mut lines = Vec::new();
+    for path in &outcome.unclaimed {
+        lines.push(style.yellowed(&format!(
+            "The live Codex login is not a managed account; saved it to {}",
+            path.display()
+        )));
+    }
+    lines.push(format!(
+        "{} {}",
+        style.accent("Switched to"),
+        switched_label(&outcome.to)
+    ));
+    lines.push(style.dimmed(
+        "Takes effect in codex sessions started from now on; running ones keep the previous account.",
+    ));
+    if let Some(dir) = &outcome.daemon_dir {
+        lines.push(style.dimmed(&format!(
+            "The Codex app-server daemon ({}) keeps the previous account until restarted: codex app-server daemon restart",
+            dir.display()
+        )));
+    }
+    lines
+}
+
+/// The Claude switch envelope (`SwitchReport::to_json`) with Codex account numbers.
+pub fn switch_json(outcome: &SwitchOutcome) -> Value {
+    let reference = |a: &SwitchedAccount| json!({ "number": a.number, "email": a.email });
+    let message = if outcome.switched {
+        format!("Switched to {}", switched_label(&outcome.to))
+    } else {
+        format!("Already on {}", switched_label(&outcome.to))
+    };
+    let warnings: Vec<String> = outcome
+        .unclaimed
+        .iter()
+        .map(|p| {
+            format!(
+                "The live Codex login is not a managed account; saved it to {}",
+                p.display()
+            )
+        })
+        .collect();
+    json!({
+        "schemaVersion": SCHEMA_VERSION,
+        "switched": outcome.switched,
+        "from": outcome.from.as_ref().map_or(Value::Null, reference),
+        "to": reference(&outcome.to),
+        "strategy": outcome.strategy,
+        "reason": outcome.reason,
+        "message": message,
+        "warnings": warnings,
+    })
+}
+
+fn switched_label(account: &SwitchedAccount) -> String {
+    let number = account.number.map_or("None".into(), |n| n.to_string());
+    format!("Codex account {number} ({})", display_email(&account.email))
+}
 
 pub fn list_lines(listing: &CodexListing, style: &Style) -> Vec<String> {
     if listing.accounts.is_empty() {
