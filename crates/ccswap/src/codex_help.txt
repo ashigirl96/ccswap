@@ -5,6 +5,8 @@ apart from Claude accounts, and stored under ~/.claude-swap-backup/codex/.
 
 Commands:
   {prog} codex add          register the current Codex login ($CODEX_HOME or ~/.codex)
+  {prog} codex login        log in to another account with 'codex login' and add it
+                            (the current login is kept)
   {prog} codex list         list managed Codex accounts
   {prog} codex switch [num|alias|email]
                             make an account the live Codex login (next in sequence without an argument);

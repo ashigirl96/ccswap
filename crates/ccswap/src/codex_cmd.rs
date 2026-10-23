@@ -1,6 +1,6 @@
 //! `ccswap codex <command>`. Never touches the Claude store, Keychain or its migrations.
 
-use ccswap_core::codex::{CodexPaths, CodexStore, view};
+use ccswap_core::codex::{CodexPaths, CodexStore, LoginStdio, view};
 use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::Error;
 use ccswap_core::paths::Paths;
@@ -34,6 +34,12 @@ const COMMANDS: &[Command] = &[
         opts: &[],
         max_positionals: 0,
         run: add,
+    },
+    Command {
+        names: &["login"],
+        opts: &[],
+        max_positionals: 0,
+        run: login,
     },
     Command {
         names: &["list", "ls"],
@@ -159,6 +165,22 @@ fn split_positionals(args: &[String], opts: &[Opt]) -> (Vec<String>, Vec<String>
 fn add(context: &Context, _: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {
     let outcome = context.store.add_live()?;
     Ok(view::add_lines(&outcome, &context.style))
+}
+
+fn login(context: &Context, _: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {
+    survive_ctrl_c();
+    let outcome = context.store.login(LoginStdio::Inherit)?;
+    Ok(view::login_lines(&outcome, &context.style))
+}
+
+/// Ctrl-C still stops `codex login`, and ccswap lives on to remove the new home.
+fn survive_ctrl_c() {
+    // A handler, unlike SIG_IGN, resets to the default in the exec'd child.
+    extern "C" fn ignore(_: libc::c_int) {}
+    let handler: extern "C" fn(libc::c_int) = ignore;
+    unsafe {
+        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
+    }
 }
 
 fn list(context: &Context, parsed: &Parsed, _: &[String]) -> Result<Vec<String>, Error> {

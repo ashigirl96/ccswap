@@ -190,7 +190,9 @@ fn codex_commands_leave_the_claude_store_and_keychain_alone() {
     env.run(["codex", "add"]).assert_code(0);
     env.run(["codex", "list"]).assert_code(0);
     env.run(["codex", "list", "--json"]).assert_code(0);
-    env.seed_codex_account(2, &CodexAuth::new("b@example.com", "acct-b"));
+    env.codex()
+        .script_login(Some(&CodexAuth::new("b@example.com", "acct-b").render()), 0);
+    env.run(["codex", "login"]).assert_code(0);
     env.run(["codex", "switch", "2"]).assert_code(0);
     env.run(["codex", "switch", "--json"]).assert_code(0);
 
