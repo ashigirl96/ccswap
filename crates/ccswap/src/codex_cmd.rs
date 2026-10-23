@@ -82,6 +82,22 @@ struct Context {
 /// can rewrite the live `auth.json` the way a refreshing Codex would.
 const SWITCH_HOOK_ENV: &str = "CCSWAP_TEST_CODEX_SWITCH_HOOK";
 
+/// Debug builds only: milliseconds a `codex app-server` pass may take, so a test of the
+/// timeout does not wait out the real one.
+const APP_SERVER_TIMEOUT_ENV: &str = "CCSWAP_TEST_CODEX_APP_SERVER_TIMEOUT_MS";
+
+fn codex_usage(env: &Environment, paths: &CodexPaths) -> CodexUsage {
+    let usage = CodexUsage::new(paths, &Endpoints::new(env));
+    match env
+        .non_empty(APP_SERVER_TIMEOUT_ENV)
+        .filter(|_| cfg!(debug_assertions))
+        .and_then(|ms| ms.parse().ok())
+    {
+        Some(ms) => usage.with_app_server_timeout(std::time::Duration::from_millis(ms)),
+        None => usage,
+    }
+}
+
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     let usage_error = |msg: &str| {
         eprintln!("usage: {prog} codex <command> [options]");
@@ -128,7 +144,7 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     ccswap_core::log::setup(&paths.backup_root(), parsed.flag("--debug"));
     let codex_paths = CodexPaths::new(env);
     let context = Context {
-        usage: CodexUsage::new(&codex_paths, &Endpoints::new(env)),
+        usage: codex_usage(env, &codex_paths),
         store: CodexStore::new(codex_paths),
         style,
         switch_hook: env

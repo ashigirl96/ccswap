@@ -3,10 +3,11 @@
 //! - `responses.json`: `{"<argv joined by spaces>": {stdout, stderr, exit}}`, checked first.
 //! - `login.json`: queue of `{auth?, stdout, stderr, exit}`; each `login` pops one and
 //!   writes `auth` to `$CODEX_HOME/auth.json` (0600).
-//! - `app_server.json`: `{auth?, results: {method: result}, errors: {method: {code, message}}}`;
+//! - `app_server.json`: `{auth?, results: {method: result}, errors: {method: {code, message}}, hang?}`;
 //!   `app-server` speaks newline-delimited JSON-RPC on stdio, writes `auth` to
 //!   `$CODEX_HOME/auth.json` on the first request after `initialize`, and logs each
-//!   request to `app_server_requests.jsonl`.
+//!   request to `app_server_requests.jsonl`. With `hang`, it spawns `sleep`, appends its
+//!   own pid and the child's to `app_server_pids.jsonl`, and never answers.
 //! - `switch_hook.json`: queue of auth texts; each `ccswap-switch-hook` (the hook ccswap's
 //!   debug build runs mid-switch) pops one and writes it to `$CODEX_HOME/auth.json`.
 
@@ -110,6 +111,9 @@ fn switch_hook(state: &Path, codex_home: Option<&Path>) -> Reply {
 
 fn app_server(state: &Path, codex_home: Option<&Path>) -> Reply {
     let script = read_json(&state.join("app_server.json")).unwrap_or_else(|| json!({}));
+    if script["hang"].as_bool() == Some(true) {
+        hang(state);
+    }
     let mut pending_auth = script["auth"].as_str().map(str::to_string);
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -148,6 +152,26 @@ fn app_server(state: &Path, codex_home: Option<&Path>) -> Reply {
         exit: 0,
         stdout: String::new(),
         stderr: String::new(),
+    }
+}
+
+/// Plays a wedged server that also started a child of its own: records both pids, never returns.
+#[allow(
+    clippy::zombie_processes,
+    reason = "the caller kills this whole process group"
+)]
+fn hang(state: &Path) -> ! {
+    let pids = state.join("app_server_pids.jsonl");
+    append_line(&pids, &std::process::id().to_string());
+    let child = std::process::Command::new("sleep")
+        .arg("600")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn sleep");
+    append_line(&pids, &child.id().to_string());
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
     }
 }
 

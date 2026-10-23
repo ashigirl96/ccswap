@@ -7,8 +7,10 @@
 //! - [`CodexStore`]: the operations, each ledger rewrite under the store `.lock`.
 //! - [`login`]: `codex login` into a fresh managed home.
 //! - [`usage`]: the 5-hour and weekly windows from `wham/usage`, cached like the Claude side's.
+//! - [`app_server`]: the same windows from `codex app-server`, for a login whose token expired.
 //! - [`view`]: terminal lines and `--json` envelopes.
 
+pub mod app_server;
 pub mod identity;
 pub mod ledger;
 pub mod login;

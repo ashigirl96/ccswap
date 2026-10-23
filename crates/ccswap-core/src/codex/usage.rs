@@ -2,22 +2,29 @@
 //! same [`UsageStore`] the Claude side uses (TTL, backoff, 429 handling).
 //!
 //! ccswap never refreshes a Codex token: the refresh token rotates, and a refresh by ccswap
-//! would leave Codex's copy `refresh_token_reused`. An expired access token goes through
-//! [`CodexUsage::fetch_expired`] instead.
+//! would leave Codex's copy `refresh_token_reused`. An expired access token is handed to
+//! `codex app-server` in the login's own home instead, which refreshes it and writes it back.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::anthropic_client::{AnthropicClient, classify_transport, parse_retry_after};
 use crate::endpoints::Endpoints;
 use crate::usage::{Sentinel, now_secs};
 use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 
+use super::app_server::{self, AppServerError};
 use super::identity::jwt_claims;
 use super::paths::CodexPaths;
 use super::store::{CodexListing, CodexStore};
+
+/// The kind a dead login is recorded under, so the store's dead-token quarantine applies.
+const DEAD_LOGIN_ERROR: &str = "invalid_grant";
+/// Prefix of the error kinds an app-server pass that did not refresh leaves.
+const APP_SERVER_ERROR_PREFIX: &str = "app-server-";
 
 const USAGE_TIMEOUT: Duration = Duration::from_secs(5);
 const FETCH_STAGGER: Duration = Duration::from_millis(250);
@@ -77,9 +84,27 @@ fn access_token(auth: &[u8], fallback_account_id: &str) -> AccessToken {
     }
 }
 
+/// The refresh token's hash: a new login changes it, an access-token refresh may too.
+fn login_fingerprint(auth: &[u8]) -> Option<String> {
+    let auth: Value = serde_json::from_slice(auth).ok()?;
+    let token = auth["tokens"]["refresh_token"]
+        .as_str()
+        .filter(|t| !t.is_empty())?;
+    let digest = Sha256::digest(token.as_bytes());
+    Some(format!(
+        "sha256:{}",
+        digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    ))
+}
+
 pub struct CodexUsage {
     store: UsageStore,
     usage_url: String,
+    paths: CodexPaths,
+    app_server_timeout: Duration,
 }
 
 impl CodexUsage {
@@ -87,7 +112,15 @@ impl CodexUsage {
         CodexUsage {
             store: UsageStore::new(&paths.usage_cache_dir()),
             usage_url: endpoints.codex_usage_url(),
+            paths: paths.clone(),
+            app_server_timeout: app_server::DEFAULT_TIMEOUT,
         }
+    }
+
+    /// How long one `codex app-server` pass may take before it is killed.
+    pub fn with_app_server_timeout(mut self, timeout: Duration) -> Self {
+        self.app_server_timeout = timeout;
+        self
     }
 
     /// One entry per listed account. Syncs the live `auth.json` into its owner's home first,
@@ -112,22 +145,35 @@ impl CodexUsage {
             .collect();
         let mut sentinels: HashMap<String, Sentinel> = HashMap::new();
         let mut credentials = Vec::new();
-        for account in &listing.accounts {
+        let mut expired = HashSet::new();
+        for (account, (num, identity)) in listing.accounts.iter().zip(&identities) {
             let auth = if account.active {
                 live.clone()
             } else {
                 codex.read_managed(account.number).ok().flatten()
             };
-            match auth.filter(|a| access_token(a, "") != AccessToken::Missing) {
-                Some(auth) => credentials.push(CodexCredential {
-                    number: account.number,
-                    active: account.active,
-                    auth,
-                }),
-                None => {
-                    sentinels.insert(account.number.to_string(), Sentinel::NoCredentials);
+            let Some(auth) = auth.filter(|a| access_token(a, "") != AccessToken::Missing) else {
+                sentinels.insert(num.clone(), Sentinel::NoCredentials);
+                continue;
+            };
+            let strike = self.store.dead_token_strike(num, identity);
+            if strike.strikes > 0 {
+                if strike.token_dead(login_fingerprint(&auth).as_deref()) {
+                    sentinels.insert(num.clone(), Sentinel::ReloginRequired);
+                    continue;
                 }
+                let _ = self
+                    .store
+                    .clear_dead_token(&[(num.clone(), identity.clone())]);
             }
+            if access_token(&auth, "") == AccessToken::Expired {
+                expired.insert(num.clone());
+            }
+            credentials.push(CodexCredential {
+                number: account.number,
+                active: account.active,
+                auth,
+            });
         }
 
         let requested: Vec<String> = credentials.iter().map(|c| c.number.to_string()).collect();
@@ -142,9 +188,11 @@ impl CodexUsage {
                 .store
                 .record(&records, &identities, Some(&claim_map), &HashMap::new())
                 .unwrap_or_default();
-            for (num, record) in &records {
-                if let Some(s) = record.sentinel.filter(|_| accepted.contains(num)) {
+            for (num, record) in records.iter().filter(|(n, _)| accepted.contains(n)) {
+                if let Some(s) = record.sentinel {
                     sentinels.insert(num.clone(), s);
+                } else if record.error.as_deref() == Some(DEAD_LOGIN_ERROR) {
+                    sentinels.insert(num.clone(), Sentinel::ReloginRequired);
                 }
             }
         }
@@ -158,6 +206,13 @@ impl CodexUsage {
                 let mut entry = entries.remove(&num).unwrap_or_default();
                 if let Some(s) = sentinels.get(&num) {
                     entry.sentinel = Some(*s);
+                } else if expired.contains(&num)
+                    && entry
+                        .last_error
+                        .as_deref()
+                        .is_some_and(|e| e.starts_with(APP_SERVER_ERROR_PREFIX))
+                {
+                    entry.sentinel = Some(Sentinel::TokenExpired);
                 }
                 (a.number, entry)
             })
@@ -212,9 +267,37 @@ impl CodexUsage {
         }
     }
 
-    /// Where an expired access token's usage comes from; for now it only says so.
-    fn fetch_expired(&self, _credential: &CodexCredential) -> FetchRecord {
-        FetchRecord::sentinel(Sentinel::TokenExpired)
+    /// Codex refreshes the login in the home it is read from, so the active account uses the live home.
+    fn fetch_expired(&self, credential: &CodexCredential) -> FetchRecord {
+        let home = if credential.active {
+            self.paths.live_home().clone()
+        } else {
+            self.paths.managed_home(credential.number)
+        };
+        let failed =
+            |kind: &str| FetchRecord::error(format!("{APP_SERVER_ERROR_PREFIX}{kind}"), None);
+        match app_server::read_rate_limits(&home, self.app_server_timeout) {
+            Ok(result) => FetchRecord {
+                usage: Some(normalize_rate_limits(&result)),
+                ..Default::default()
+            },
+            Err(AppServerError::LoginDead(message)) => {
+                crate::log::debug(format!("Codex could not refresh a login: {message}"));
+                FetchRecord {
+                    struck_fp: login_fingerprint(&credential.auth),
+                    ..FetchRecord::error(DEAD_LOGIN_ERROR, None)
+                }
+            }
+            Err(AppServerError::Timeout) => failed("timeout"),
+            Err(AppServerError::Unavailable(message)) => {
+                crate::log::debug(format!("Could not start codex app-server: {message}"));
+                failed("unavailable")
+            }
+            Err(AppServerError::Failed(message)) => {
+                crate::log::debug(format!("codex app-server failed: {message}"));
+                failed("error")
+            }
+        }
     }
 
     fn fetch_wham(&self, access_token: &str, account_id: &str) -> FetchRecord {
@@ -264,6 +347,30 @@ pub fn normalize_usage(data: &Value) -> Value {
         }
     }
     Value::Object(out)
+}
+
+/// app-server's `account/rateLimits/read` result in the same shape: `primary` is the
+/// 5-hour window and `secondary` the weekly one, as in wham.
+pub fn normalize_rate_limits(result: &Value) -> Value {
+    let limits = &result["rateLimits"];
+    let as_wham = |raw: &Value| {
+        let mut out = Map::new();
+        for (from, to) in [("usedPercent", "used_percent"), ("resetsAt", "reset_at")] {
+            if let Some(v) = raw.get(from) {
+                out.insert(to.into(), v.clone());
+            }
+        }
+        if let Some(mins) = raw.get("windowDurationMins").and_then(number) {
+            out.insert("limit_window_seconds".into(), json!(mins * 60.0));
+        }
+        Value::Object(out)
+    };
+    normalize_usage(&json!({
+        "rate_limit": {
+            "primary_window": as_wham(&limits["primary"]),
+            "secondary_window": as_wham(&limits["secondary"]),
+        }
+    }))
 }
 
 fn window(raw: &Value) -> Option<Value> {
