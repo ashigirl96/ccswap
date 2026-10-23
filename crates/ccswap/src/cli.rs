@@ -42,8 +42,6 @@ const OPTS: &[Opt] = &[
     Opt::value("--alias"),
     Opt::flag("--force"),
     Opt::flag("--full"),
-    Opt::flag("-y"),
-    Opt::flag("--yes"),
     Opt::flag("--install-service"),
     Opt::flag("--uninstall-service"),
     Opt::flag("--service-status"),
@@ -64,6 +62,8 @@ const OPTS: &[Opt] = &[
     Opt::flag("--upgrade").exclusive(),
     Opt::optional_value("--add-token").exclusive(),
 ];
+
+const REMOVE_OPTS: &[Opt] = &[Opt::flag("-y"), Opt::flag("--yes")];
 
 const COMMAND_FLAGS: &[&str] = &[
     "--add-account",
@@ -104,6 +104,37 @@ const SUBCOMMAND_FLAGS: &[(&str, &str)] = &[
     ("watch", "--watch"),
     ("menubar", "--menubar"),
 ];
+
+const VERB_HELP: &[(&[&str], &str)] = &[
+    (&["list", "ls"], include_str!("list_help.txt")),
+    (&["status"], include_str!("status_help.txt")),
+    (&["switch"], include_str!("switch_help.txt")),
+    (&["add"], include_str!("add_help.txt")),
+    (&["add-token"], include_str!("add_token_help.txt")),
+    (&["remove", "rm"], include_str!("remove_help.txt")),
+    (&["disable"], include_str!("disable_help.txt")),
+    (&["enable"], include_str!("enable_help.txt")),
+    (&["export"], include_str!("export_help.txt")),
+    (&["import"], include_str!("import_help.txt")),
+    (&["purge"], include_str!("purge_help.txt")),
+    (&["upgrade", "update"], include_str!("upgrade_help.txt")),
+    (&["tui"], include_str!("tui_help.txt")),
+    (&["watch"], include_str!("watch_help.txt")),
+    (&["menubar"], include_str!("menubar_help.txt")),
+];
+
+/// The help of a verb given `-h`/`--help`. Checked before the global parse,
+/// which would read `remove --help` as `--remove-account` missing its value.
+fn verb_help(args: &[String]) -> Option<&'static str> {
+    let (verb, rest) = args.split_first()?;
+    let (_, help) = VERB_HELP
+        .iter()
+        .find(|(names, _)| names.contains(&verb.as_str()))?;
+    rest.iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "-h" || arg == "--help")
+        .then_some(*help)
+}
 
 pub fn prog_name(argv0: Option<&str>) -> String {
     let name = argv0
@@ -188,9 +219,18 @@ impl Cli {
         {
             args = vec!["--tui".into()];
         }
+        if let Some(help) = verb_help(&args) {
+            print!("{}", help.replace("{prog}", &self.prog));
+            return 0;
+        }
         let args = translate_subcommand(args);
 
-        let parsed = match (Parser { opts: OPTS }).parse(&args) {
+        let opts: Vec<Opt> = if args.first().is_some_and(|a| a == "--remove-account") {
+            OPTS.iter().chain(REMOVE_OPTS).copied().collect()
+        } else {
+            OPTS.to_vec()
+        };
+        let parsed = match (Parser { opts: &opts }).parse(&args) {
             Ok((Outcome::Help, _)) => {
                 print!("{}", HELP.replace("{prog}", &self.prog));
                 return 0;
@@ -595,7 +635,7 @@ impl Cli {
         if !any_command {
             return Err(format!("no command given — try '{} help'", self.prog));
         }
-        let checks: [(bool, &str); 13] = [
+        let checks: [(bool, &str); 12] = [
             (
                 p.flag("--token-status") && !p.flag("--list"),
                 "--token-status can only be used with 'list'",
@@ -643,10 +683,6 @@ impl Cli {
             (
                 p.flag("--full") && !nonempty(p, "--export"),
                 "--full can only be used with 'export'",
-            ),
-            (
-                (p.flag("-y") || p.flag("--yes")) && !has("--remove-account"),
-                "-y/--yes can only be used with 'remove'",
             ),
             (
                 (p.flag("--install-service")

@@ -1,0 +1,12 @@
+usage: {prog} codex remove [-h] [-y] [--debug] NUM|ALIAS|EMAIL
+
+Remove a managed Codex account. The live login is left in place. Asks first
+unless -y is given.
+
+positional arguments:
+  NUM|ALIAS|EMAIL  Account to remove
+
+options:
+  -h, --help       show this help message and exit
+  -y, --yes        Remove without asking
+  --debug          Enable debug logging

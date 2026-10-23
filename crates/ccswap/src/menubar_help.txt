@@ -1,0 +1,13 @@
+usage: {prog} menubar [-h] [--install-service] [--uninstall-service]
+                      [--service-status] [--debug]
+
+Run the macOS menu bar app, which shows Claude Code and Codex accounts and
+switches between them.
+
+options:
+  -h, --help           show this help message and exit
+  --install-service    Install a launchd LaunchAgent so the menu bar starts at
+                       login and restarts on crash
+  --uninstall-service  Stop the LaunchAgent and remove its plist
+  --service-status     Report whether the LaunchAgent is installed and running
+  --debug              Enable debug logging

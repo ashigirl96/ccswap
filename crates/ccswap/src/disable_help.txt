@@ -1,0 +1,11 @@
+usage: {prog} disable [-h] [--debug] NUM|ALIAS|EMAIL
+
+Hold a managed Claude Code account out of rotation and auto-switch. 'enable'
+returns it.
+
+positional arguments:
+  NUM|ALIAS|EMAIL  Account to disable
+
+options:
+  -h, --help       show this help message and exit
+  --debug          Enable debug logging

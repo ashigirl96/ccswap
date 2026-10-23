@@ -296,3 +296,180 @@ fn unknown_verbs_point_at_their_namespace_help() {
         out.stderr
     );
 }
+
+/// The option names in a help's `options:` section.
+fn options(help: &str) -> Vec<String> {
+    help.lines()
+        .skip_while(|line| *line != "options:")
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+        .filter(|line| line.starts_with("  -"))
+        .flat_map(|line| {
+            line.split_whitespace()
+                .take_while(|word| word.starts_with('-'))
+                .map(|word| word.trim_end_matches(',').to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
+fn each_claude_verb_help_lists_only_its_own_options() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "list",
+            &["-h", "--help", "--token-status", "--json", "--debug"],
+        ),
+        ("status", &["-h", "--help", "--json", "--debug"]),
+        (
+            "switch",
+            &[
+                "-h",
+                "--help",
+                "--strategy",
+                "--model",
+                "--force",
+                "--json",
+                "--debug",
+            ],
+        ),
+        ("add", &["-h", "--help", "--slot", "--alias", "--debug"]),
+        (
+            "add-token",
+            &["-h", "--help", "--email", "--slot", "--debug"],
+        ),
+        ("remove", &["-h", "--help", "-y", "--yes", "--debug"]),
+        ("disable", &["-h", "--help", "--debug"]),
+        ("enable", &["-h", "--help", "--debug"]),
+        (
+            "export",
+            &["-h", "--help", "--account", "--full", "--debug"],
+        ),
+        ("import", &["-h", "--help", "--force", "--debug"]),
+    ];
+    let env = TestEnv::new();
+    for (verb, expected) in cases {
+        for flag in ["--help", "-h"] {
+            let out = env.run(["claude", verb, flag]);
+            out.assert_code(0);
+            assert!(
+                out.stdout
+                    .starts_with(&format!("usage: {PROG} {verb} [-h]")),
+                "{verb} {flag}: {}",
+                out.stdout
+            );
+            assert_eq!(options(&out.stdout), *expected, "{verb} {flag}");
+            assert!(!out.stdout.contains("use with"), "{verb}: {}", out.stdout);
+        }
+    }
+}
+
+#[test]
+fn overall_helps_list_only_the_options_every_command_takes() {
+    let env = TestEnv::new();
+    let cases: &[(&[&str], &[&str])] = &[
+        (&["help"], &["-h", "--help", "--version", "--debug"]),
+        (&["claude", "--help"], &["-h", "--help", "--debug"]),
+        (&["codex", "--help"], &["-h", "--help", "--debug"]),
+    ];
+    for (args, expected) in cases {
+        let out = env.run(*args);
+        out.assert_code(0);
+        assert_eq!(options(&out.stdout), *expected, "{args:?}");
+    }
+}
+
+#[test]
+fn no_help_says_which_command_an_option_is_for() {
+    let env = TestEnv::new();
+    let mut helps: Vec<Vec<&str>> = vec![
+        vec!["help"],
+        vec!["claude", "--help"],
+        vec!["codex", "--help"],
+    ];
+    helps.extend(
+        CLAUDE_VERBS
+            .iter()
+            .map(|verb| vec!["claude", verb, "--help"]),
+    );
+    helps.extend(
+        ["add", "login", "list", "switch", "remove", "alias"]
+            .iter()
+            .map(|verb| vec!["codex", verb, "--help"]),
+    );
+    helps.extend(
+        ["tui", "watch", "menubar", "widget", "upgrade", "purge"]
+            .iter()
+            .map(|command| vec![command, "--help"]),
+    );
+    for args in helps {
+        let out = env.run(&args);
+        out.assert_code(0);
+        for note in ["use with", "With '", "With bare '"] {
+            assert!(
+                !out.stdout.contains(note),
+                "{args:?} says {note:?}:\n{}",
+                out.stdout
+            );
+        }
+    }
+}
+
+#[test]
+fn app_command_help_lists_only_its_own_options() {
+    let env = TestEnv::new();
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "menubar",
+            &[
+                "-h",
+                "--help",
+                "--install-service",
+                "--uninstall-service",
+                "--service-status",
+                "--debug",
+            ],
+        ),
+        ("tui", &["-h", "--help", "--debug"]),
+        ("purge", &["-h", "--help", "--debug"]),
+    ];
+    for (command, expected) in cases {
+        let out = env.run([command, "--help"]);
+        out.assert_code(0);
+        assert!(
+            out.stdout
+                .starts_with(&format!("usage: {PROG} {command} [-h]")),
+            "{}",
+            out.stdout
+        );
+        assert_eq!(options(&out.stdout), *expected, "{command}");
+    }
+}
+
+#[test]
+fn bare_verb_help_matches_the_claude_verb_help() {
+    let env = TestEnv::new();
+    for (args, verb) in [
+        (&["list", "--help"][..], "list"),
+        (&["ls", "-h"], "list"),
+        (&["switch", "--help"], "switch"),
+        (&["switch", "2", "--help"], "switch"),
+        (&["remove", "--help"], "remove"),
+        (&["rm", "2", "-h"], "remove"),
+        (&["add-token", "--help"], "add-token"),
+        (&["export", "--help"], "export"),
+        (&["alias", "--help"], "alias"),
+    ] {
+        let bare = env.run(args);
+        let namespaced = env.run(std::iter::once("claude").chain(args.iter().copied()));
+        bare.assert_code(0);
+        assert_eq!(namespaced.code, 0, "{args:?}");
+        assert_eq!(namespaced.stdout, bare.stdout, "{args:?}");
+        assert!(
+            bare.stdout
+                .starts_with(&format!("usage: {PROG} {verb} [-h]")),
+            "{args:?}: {}",
+            bare.stdout
+        );
+    }
+}

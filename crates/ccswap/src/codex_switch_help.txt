@@ -1,0 +1,12 @@
+usage: {prog} codex switch [-h] [--json] [--debug] [NUM|ALIAS|EMAIL]
+
+Make a managed account the live Codex login. Newly started codex sessions use
+it.
+
+positional arguments:
+  NUM|ALIAS|EMAIL  Account to switch to. Omit to take the next in sequence.
+
+options:
+  -h, --help       show this help message and exit
+  --json           Emit machine-readable JSON to stdout
+  --debug          Enable debug logging

@@ -1,0 +1,9 @@
+usage: {prog} purge [-h] [--debug]
+
+Remove all ccswap data, for both Claude Code and Codex: the backup directory
+(managed accounts and settings) and the stored credentials. Asks first; the
+current logins are left in place.
+
+options:
+  -h, --help  show this help message and exit
+  --debug     Enable debug logging
