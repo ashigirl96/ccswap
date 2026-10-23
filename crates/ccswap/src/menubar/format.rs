@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use ccswap_core::codex::CodexListing;
+use ccswap_core::codex::{self, CodexListing};
 use ccswap_core::pace::compute_pace;
 use ccswap_core::snapshot::AccountsSnapshot;
 use ccswap_core::usage::parse_iso;
@@ -100,7 +100,10 @@ pub fn codex_accounts(
                 number: account.number.to_string(),
                 email: account.email.clone(),
                 is_active: account.active,
-                display: entry.map_or(DisplayUsage::Unavailable, DisplayUsage::from_entry),
+                display: entry.map_or(DisplayUsage::Unavailable, |e| match e.sentinel {
+                    Some(s) => DisplayUsage::Note(codex::view::sentinel_note(s).to_string()),
+                    None => DisplayUsage::from_entry(e),
+                }),
                 last_good: entry.and_then(|e| e.last_good.clone()),
                 alias: account.alias.clone().unwrap_or_default(),
                 disabled: false,

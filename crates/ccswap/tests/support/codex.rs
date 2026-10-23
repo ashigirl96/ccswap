@@ -95,10 +95,10 @@ impl TestEnv {
         } else {
             json!({ "active": null, "sequence": [], "accounts": {} })
         };
-        ledger["sequence"]
-            .as_array_mut()
-            .unwrap()
-            .push(number.into());
+        let sequence = ledger["sequence"].as_array_mut().unwrap();
+        if !sequence.contains(&number.into()) {
+            sequence.push(number.into());
+        }
         ledger["accounts"][number.to_string()] = json!({
             "email": auth.email,
             "account_id": auth.account_id.to_lowercase(),
@@ -273,7 +273,8 @@ impl FakeCodex {
         });
     }
 
-    /// `{auth?, results: {method: result}, errors: {method: {code, message}}}` for `codex app-server`.
+    /// `{auth?, results: {method: result}, errors: {method: {code, message}}, hang?}` for
+    /// `codex app-server`; `hang` spawns a child, then answers nothing and ignores stdin.
     pub fn app_server(&self, script: Value) {
         std::fs::write(self.state.join("app_server.json"), script.to_string()).unwrap();
     }
@@ -307,6 +308,14 @@ impl FakeCodex {
 
     pub fn app_server_requests(&self) -> Vec<Value> {
         read_jsonl(&self.state.join("app_server_requests.jsonl"))
+    }
+
+    /// Pids a `hang` app-server recorded: its own, then the child it spawned.
+    pub fn app_server_pids(&self) -> Vec<i64> {
+        read_jsonl(&self.state.join("app_server_pids.jsonl"))
+            .iter()
+            .filter_map(Value::as_i64)
+            .collect()
     }
 
     fn update_json(&self, name: &str, empty: Value, edit: impl FnOnce(&mut Value)) {

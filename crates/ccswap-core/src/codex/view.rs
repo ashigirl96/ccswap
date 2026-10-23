@@ -6,8 +6,11 @@ use serde_json::{Map, Value, json};
 
 use crate::poll_policy::SERVE_TTL_S;
 use crate::presentation::{SCHEMA_VERSION, Style};
+use crate::usage::Sentinel;
 use crate::usage_store::UsageEntry;
-use crate::usage_view::{format_age, format_usage_lines, insert_usage_fields, usage_entry_lines};
+use crate::usage_view::{
+    format_age, format_usage_lines, insert_usage_fields, last_seen_note, usage_entry_lines,
+};
 
 use super::login::LoginOutcome;
 use super::store::{AddOutcome, CodexListing};
@@ -124,13 +127,29 @@ pub fn list_lines(
     lines
 }
 
+/// [`Sentinel::note`] in Codex's terms where the Claude wording would mislead.
+pub fn sentinel_note(sentinel: Sentinel) -> &'static str {
+    match sentinel {
+        Sentinel::TokenExpired => {
+            "token expired — Codex could not refresh it this pass; retries automatically"
+        }
+        Sentinel::ReloginRequired => {
+            "re-login needed — Codex could not refresh its token; run: ccswap codex login"
+        }
+        other => other.note(),
+    }
+}
+
 /// Like the Claude side's, but every window is shown and a missing one reads `unknown`.
 fn usage_lines(entry: &UsageEntry, style: &Style) -> Vec<String> {
-    let Some(last_good) = entry
-        .last_good
-        .as_ref()
-        .filter(|_| entry.sentinel.is_none())
-    else {
+    if let Some(sentinel) = entry.sentinel {
+        let mut out = vec![style.dimmed(sentinel_note(sentinel))];
+        if let Some(seen) = last_seen_note(entry) {
+            out.push(format!("{} {}", style.dimmed("└"), style.muted(&seen)));
+        }
+        return out;
+    }
+    let Some(last_good) = entry.last_good.as_ref() else {
         return usage_entry_lines(entry, style);
     };
     let mut rows: Vec<String> = WINDOWS
