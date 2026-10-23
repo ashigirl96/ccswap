@@ -76,6 +76,11 @@ impl CodexPaths {
         self.store_dir().join("unclaimed")
     }
 
+    /// Where `codex app-server` runs on a copy of a login, one temporary home per pass.
+    pub fn staging_dir(&self) -> PathBuf {
+        self.store_dir().join("staging")
+    }
+
     pub fn usage_cache_dir(&self) -> PathBuf {
         self.store_dir().join("cache")
     }

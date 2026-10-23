@@ -145,6 +145,52 @@ impl CodexStore {
         Ok(Some(number))
     }
 
+    /// Saves a login Codex refreshed from a copy of `copied` as account `number`'s, under the
+    /// store `.lock`. The live `auth.json` takes it when `number` owns it now, else the home
+    /// does; either only while it still holds `copied`. Returns whether it was saved.
+    pub fn commit_refreshed(&self, number: u32, copied: &[u8], refreshed: &[u8]) -> Result<bool> {
+        let account_id = |bytes: &[u8]| read_identity(bytes).ok().map(|id| id.account_id);
+        if refreshed == copied || account_id(refreshed).is_none() {
+            return Ok(false);
+        }
+        if account_id(refreshed) != account_id(copied) {
+            return Ok(false);
+        }
+        let _lock = StoreLock::acquire(&self.paths.store_lock_file(), STORE_LOCK_TIMEOUT)?;
+        let ledger = self.ledger()?;
+        if !ledger.accounts.contains_key(&number) {
+            return Ok(false);
+        }
+        let live = self.read_live()?;
+        let live_owner = live
+            .as_deref()
+            .and_then(account_id)
+            .and_then(|id| ledger.find_by_account_id(&id));
+        if live_owner == Some(number) {
+            if live.as_deref() != Some(copied) {
+                return Ok(false);
+            }
+            fsutil::atomic_write_private(
+                self.paths.live_home(),
+                &self.paths.live_auth(),
+                refreshed,
+            )
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::CredentialWriteError,
+                    format!("Could not write {}: {e}", self.paths.live_auth().display()),
+                )
+            })?;
+            self.write_managed(number, refreshed)?;
+            return Ok(true);
+        }
+        if self.read_managed(number)?.as_deref() != Some(copied) {
+            return Ok(false);
+        }
+        self.write_managed(number, refreshed)?;
+        Ok(true)
+    }
+
     /// Drops the ledger row and the managed home, never the live `auth.json`.
     /// Resolved under the lock, so a row another process removed meanwhile is reported, not recreated.
     pub fn remove(&self, identifier: &str) -> Result<(u32, LedgerAccount)> {

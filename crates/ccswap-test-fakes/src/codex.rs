@@ -6,7 +6,8 @@
 //! - `app_server.json`: `{auth?, results: {method: result}, errors: {method: {code, message}}, hang?}`;
 //!   `app-server` speaks newline-delimited JSON-RPC on stdio, writes `auth` to
 //!   `$CODEX_HOME/auth.json` on the first request after `initialize`, and logs each
-//!   request to `app_server_requests.jsonl`. With `hang`, it spawns `sleep`, appends its
+//!   request to `app_server_requests.jsonl`. `meanwhile: [{path, text}]` is written at the
+//!   same moment, playing another process that rewrites a login during the pass. With `hang`, it spawns `sleep`, appends its
 //!   own pid and the child's to `app_server_pids.jsonl`, and never answers.
 //! - `switch_hook.json`: queue of auth texts; each `ccswap-switch-hook` (the hook ccswap's
 //!   debug build runs mid-switch) pops one and writes it to `$CODEX_HOME/auth.json`.
@@ -135,6 +136,13 @@ fn app_server(state: &Path, codex_home: Option<&Path>) -> Reply {
             && let (Some(auth), Some(home)) = (pending_auth.take(), codex_home)
         {
             write_auth(home, &auth);
+            for other in script["meanwhile"].as_array().into_iter().flatten() {
+                let (Some(path), Some(text)) = (other["path"].as_str(), other["text"].as_str())
+                else {
+                    continue;
+                };
+                std::fs::write(path, text).expect("write meanwhile");
+            }
         }
         let response = if let Some(error) = script["errors"].get(method) {
             json!({ "id": id, "error": error })

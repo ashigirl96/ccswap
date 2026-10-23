@@ -1,5 +1,6 @@
 mod support;
 
+use std::os::unix::fs::PermissionsExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -392,7 +393,7 @@ fn make_cache_stale(env: &TestEnv) {
 }
 
 #[test]
-fn an_expired_accounts_usage_comes_from_codex_app_server_in_its_home() {
+fn an_expired_accounts_usage_comes_from_codex_app_server_on_a_copy_of_its_login() {
     let env = TestEnv::new();
     let refreshed = an_expired_account_beside_a_live_one(&env);
     script_refreshing_app_server(&env, &refreshed);
@@ -412,10 +413,12 @@ fn an_expired_accounts_usage_comes_from_codex_app_server_in_its_home() {
     let calls = env.codex().calls();
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].argv, APP_SERVER_ARGV);
-    assert_eq!(
-        calls[0].codex_home.as_deref(),
-        Some(env.codex_managed_home(1).to_str().unwrap())
-    );
+    let staging = std::path::PathBuf::from(calls[0].codex_home.as_deref().unwrap());
+    assert!(calls[0].codex_home_existed);
+    assert_ne!(staging, env.codex_managed_home(1));
+    assert_ne!(staging, env.codex_home());
+    assert!(!staging.exists(), "{staging:?} was left behind");
+    assert_eq!(env.codex_managed_auth(1), Some(refreshed.render()));
     let methods: Vec<Value> = env
         .codex()
         .app_server_requests()
@@ -455,6 +458,105 @@ fn the_login_app_server_refreshed_stays_in_the_home_and_the_next_fetch_is_http()
         .map(|r| r.header("Authorization").unwrap_or_default().to_string())
         .collect();
     assert_eq!(bearer, [format!("Bearer {}", refreshed.access_token())]);
+}
+
+#[test]
+fn a_login_rewritten_during_the_pass_is_kept_and_the_refresh_discarded() {
+    let env = TestEnv::new();
+    let refreshed = an_expired_account_beside_a_live_one(&env);
+    let relogin = CodexAuth::new("a@example.com", "acct-a")
+        .tag("relogin")
+        .render();
+    env.codex().app_server(json!({
+        "auth": refreshed.render(),
+        "results": { "account/rateLimits/read": rate_limits_result(42.0, 7.0) },
+        "meanwhile": [{ "path": env.codex_managed_home(1).join("auth.json"), "text": relogin }],
+    }));
+
+    let out = env.run(["codex", "list", "--json"]);
+
+    out.assert_code(0);
+    assert_eq!(out.json()["accounts"][0]["usage"]["fiveHour"]["pct"], 42.0);
+    assert_eq!(env.codex_managed_auth(1), Some(relogin));
+}
+
+#[test]
+fn a_refresh_that_is_not_a_login_is_never_committed() {
+    let env = TestEnv::new();
+    an_expired_account_beside_a_live_one(&env);
+    let expired = env.codex_managed_auth(1);
+    env.codex().app_server(json!({
+        "auth": "{\"tokens\": {\"access_tok",
+        "results": { "account/rateLimits/read": rate_limits_result(42.0, 7.0) },
+    }));
+
+    env.run(["codex", "list"]).assert_code(0);
+
+    assert_eq!(env.codex_managed_auth(1), expired);
+}
+
+/// Account 1 is live with an expired token; account 2 is valid.
+fn an_expired_live_account(env: &TestEnv) -> (String, CodexAuth) {
+    let expired = CodexAuth::new("a@example.com", "acct-a").access_expires_at(now() - 60);
+    env.seed_codex_account(1, &expired);
+    let live = env.seed_codex_login(&expired);
+    env.seed_codex_account(2, &CodexAuth::new("b@example.com", "acct-b"));
+    stub_usage_by_account(env, vec![("acct-b", ok_body())]);
+    (
+        live,
+        CodexAuth::new("a@example.com", "acct-a").tag("refreshed"),
+    )
+}
+
+#[test]
+fn the_active_accounts_refresh_runs_on_a_copy_and_lands_in_the_live_login() {
+    let env = TestEnv::new();
+    let (_, refreshed) = an_expired_live_account(&env);
+    script_refreshing_app_server(&env, &refreshed);
+
+    let out = env.run(["codex", "list", "--json"]);
+
+    out.assert_code(0);
+    assert_eq!(out.json()["accounts"][0]["usage"]["fiveHour"]["pct"], 42.0);
+    let calls = env.codex().calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_ne!(
+        calls[0].codex_home.as_deref(),
+        Some(env.codex_home().to_str().unwrap())
+    );
+    assert_eq!(
+        std::fs::read_to_string(env.live_codex_auth_path()).unwrap(),
+        refreshed.render()
+    );
+    let mode = std::fs::metadata(env.live_codex_auth_path())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+}
+
+#[test]
+fn a_switch_during_the_active_accounts_pass_sends_the_refresh_to_its_home() {
+    let env = TestEnv::new();
+    let (expired, refreshed) = an_expired_live_account(&env);
+    let b = env.codex_managed_auth(2).unwrap();
+    env.codex().app_server(json!({
+        "auth": refreshed.render(),
+        "results": { "account/rateLimits/read": rate_limits_result(42.0, 7.0) },
+        "meanwhile": [
+            { "path": env.codex_managed_home(1).join("auth.json"), "text": expired },
+            { "path": env.live_codex_auth_path(), "text": b },
+        ],
+    }));
+
+    env.run(["codex", "list"]).assert_code(0);
+
+    assert_eq!(
+        std::fs::read_to_string(env.live_codex_auth_path()).unwrap(),
+        b
+    );
+    assert_eq!(env.codex_managed_auth(1), Some(refreshed.render()));
 }
 
 #[test]

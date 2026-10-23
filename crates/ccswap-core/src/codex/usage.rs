@@ -3,7 +3,8 @@
 //!
 //! ccswap never refreshes a Codex token: the refresh token rotates, and a refresh by ccswap
 //! would leave Codex's copy `refresh_token_reused`. An expired access token is handed to
-//! `codex app-server` in the login's own home instead, which refreshes it and writes it back.
+//! `codex app-server` on a copy of the login instead; the copy it refreshes is saved back
+//! under the store `.lock` only if the original is unchanged.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -13,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::anthropic_client::{AnthropicClient, classify_transport, parse_retry_after};
 use crate::endpoints::Endpoints;
+use crate::fsutil;
 use crate::usage::{Sentinel, now_secs};
 use crate::usage_store::{FetchRecord, Identity, UsageEntry, UsageStore};
 
@@ -141,6 +143,8 @@ impl CodexUsage {
         let mut credentials = Vec::new();
         let mut expired = HashSet::new();
         for (account, (num, identity)) in listing.accounts.iter().zip(&identities) {
+            // The live copy is the one a running Codex rotates; refreshing the managed copy
+            // would spend the refresh token the live copy still depends on.
             let auth = if account.active {
                 live.clone()
             } else {
@@ -176,7 +180,7 @@ impl CodexUsage {
             .reserve(&requested, &identities, true, true)
             .unwrap_or_default();
         if !claims.is_empty() {
-            let records = self.run_fetches(listing, &credentials, &claims);
+            let records = self.run_fetches(codex, listing, &credentials, &claims);
             let claim_map: HashMap<String, String> = claims.into_iter().collect();
             let accepted = self
                 .store
@@ -215,6 +219,7 @@ impl CodexUsage {
 
     fn run_fetches(
         &self,
+        codex: &CodexStore,
         listing: &CodexListing,
         credentials: &[CodexCredential],
         claims: &[(String, String)],
@@ -238,7 +243,10 @@ impl CodexUsage {
                         if idx > 0 {
                             std::thread::sleep(FETCH_STAGGER * idx as u32);
                         }
-                        (num.clone(), self.fetch_account(credential, &account_id))
+                        (
+                            num.clone(),
+                            self.fetch_account(codex, credential, &account_id),
+                        )
                     })
                 })
                 .collect();
@@ -250,10 +258,15 @@ impl CodexUsage {
     }
 
     /// Never fails: problems become records.
-    fn fetch_account(&self, credential: &CodexCredential, account_id: &str) -> FetchRecord {
+    fn fetch_account(
+        &self,
+        codex: &CodexStore,
+        credential: &CodexCredential,
+        account_id: &str,
+    ) -> FetchRecord {
         match access_token(&credential.auth, account_id) {
             AccessToken::Missing => FetchRecord::sentinel(Sentinel::NoCredentials),
-            AccessToken::Expired => self.fetch_expired(credential),
+            AccessToken::Expired => self.fetch_expired(codex, credential),
             AccessToken::Valid {
                 access_token,
                 account_id,
@@ -261,20 +274,30 @@ impl CodexUsage {
         }
     }
 
-    /// Codex refreshes the login in the home it is read from, so the active account uses the live home.
-    fn fetch_expired(&self, credential: &CodexCredential) -> FetchRecord {
-        let home = if credential.active {
-            self.paths.live_home().clone()
-        } else {
-            self.paths.managed_home(credential.number)
-        };
+    /// Codex refreshes the login in the home it runs in, and may be killed mid-write, so it
+    /// runs in a staging home and only a complete refresh is committed back.
+    fn fetch_expired(&self, codex: &CodexStore, credential: &CodexCredential) -> FetchRecord {
         let failed =
             |kind: &str| FetchRecord::error(format!("{APP_SERVER_ERROR_PREFIX}{kind}"), None);
-        match app_server::read_rate_limits(
+        let staging = match self.stage(&credential.auth) {
+            Ok(staging) => staging,
+            Err(e) => {
+                crate::log::debug(format!("Could not stage a Codex login: {e}"));
+                return failed("unavailable");
+            }
+        };
+        let result = app_server::read_rate_limits(
             self.paths.codex_program(),
-            &home,
+            staging.path(),
             self.app_server_timeout,
-        ) {
+        );
+        if let Ok(refreshed) = std::fs::read(staging.path().join("auth.json"))
+            && let Err(e) = codex.commit_refreshed(credential.number, &credential.auth, &refreshed)
+        {
+            crate::log::debug(format!("Could not save a refreshed Codex login: {e}"));
+        }
+        drop(staging);
+        match result {
             Ok(result) => FetchRecord {
                 usage: Some(normalize_rate_limits(&result)),
                 ..Default::default()
@@ -296,6 +319,19 @@ impl CodexUsage {
                 failed("error")
             }
         }
+    }
+
+    /// A private temporary home holding a copy of `auth`; removed when dropped.
+    fn stage(&self, auth: &[u8]) -> std::io::Result<tempfile::TempDir> {
+        let parent = self.paths.staging_dir();
+        for dir in [self.paths.store_dir(), parent.clone()] {
+            fsutil::ensure_private_dir(&dir)?;
+        }
+        let home = tempfile::Builder::new()
+            .prefix("app-server-")
+            .tempdir_in(&parent)?;
+        fsutil::atomic_write_private(home.path(), &home.path().join("auth.json"), auth)?;
+        Ok(home)
     }
 
     fn fetch_wham(&self, access_token: &str, account_id: &str) -> FetchRecord {
