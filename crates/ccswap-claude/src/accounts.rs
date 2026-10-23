@@ -53,7 +53,7 @@ struct CommitLocks {
 }
 
 mod renumber;
-pub use manage::ResolvedAccount;
+pub use manage::{ClaudePurge, ResolvedAccount};
 pub use renumber::MoveOutcome;
 
 impl Accounts<'_> {

@@ -3,7 +3,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{KEYCHAIN_ACCOUNT, PROG, TestEnv};
+use support::{CodexAuth, KEYCHAIN_ACCOUNT, PROG, TestEnv};
 
 const BACKUP_SERVICE: &str = "claude-swap";
 
@@ -70,7 +70,7 @@ fn help_says_purge_removes_both_providers_data() {
 
 fn purge_banner(env: &TestEnv) -> String {
     format!(
-        "This will remove ALL claude-swap data from your system:\n  - Backup directory: {}\n  - All stored account credentials (macOS Keychain and/or files)\n\nNote: This does NOT affect your current Claude Code login.\n\nAre you sure you want to purge all data? [y/N] ",
+        "This will remove ALL ccswap data, for both Claude Code and Codex, from your system:\n  - Backup directory: {}\n  - All stored account credentials (macOS Keychain and/or files)\n\nNote: This does NOT affect your current Claude Code or Codex CLI login.\n\nAre you sure you want to purge all data? [y/N] ",
         env.store_dir().display()
     )
 }
@@ -183,5 +183,37 @@ fn purge_sweeps_legacy_keyring_items() {
         env.security()
             .item("claude-code", "account-2-b@example.com"),
         None
+    );
+}
+
+#[test]
+fn purge_removes_codex_accounts_and_keeps_the_live_codex_login() {
+    let env = TestEnv::new();
+    let live = env.seed_codex_login(&CodexAuth::new("a@example.com", "acct-a"));
+    env.seed_codex_account(1, &CodexAuth::new("a@example.com", "acct-a"));
+
+    let out = env.cmd(["purge"]).stdin("y\n").run();
+
+    out.assert_code(0);
+    assert!(!env.codex_store_dir().exists());
+    assert_eq!(
+        std::fs::read_to_string(env.live_codex_auth_path()).unwrap(),
+        live
+    );
+}
+
+#[test]
+fn purge_with_nothing_stored_says_no_ccswap_data_was_found() {
+    let env = TestEnv::new();
+    let _ = std::fs::remove_dir_all(env.store_dir());
+
+    let out = env.cmd(["purge"]).stdin("y\n").run();
+
+    out.assert_code(0);
+    assert!(
+        out.stdout
+            .ends_with("\nNo ccswap data found to remove.\n\nPurge complete.\n"),
+        "{}",
+        out.stdout
     );
 }

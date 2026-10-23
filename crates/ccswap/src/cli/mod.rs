@@ -1,6 +1,7 @@
 pub mod argparse;
 pub mod argv;
 pub mod config;
+pub mod purge;
 
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
@@ -293,15 +294,19 @@ impl Cli {
             let actions = Arc::new(LiveActions::new(self.env.clone()));
             return crate::ui::menubar::run(actions, self.env.clone());
         }
-        let result = crate::claude::accounts::dispatch(
-            &self.prog,
-            &self.env,
-            &paths,
-            &style,
-            &parsed,
-            &mut self.stdout,
-        )
-        .unwrap_or(Ok(()));
+        let result = if parsed.flag("--purge") {
+            purge::run(&self.env, &paths, &style, &mut TerminalConsole)
+        } else {
+            crate::claude::accounts::dispatch(
+                &self.prog,
+                &self.env,
+                &paths,
+                &style,
+                &parsed,
+                &mut self.stdout,
+            )
+            .unwrap_or(Ok(()))
+        };
         match result {
             Ok(()) => {
                 for line in self.stdout.drain(..) {
