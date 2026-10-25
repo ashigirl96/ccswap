@@ -28,6 +28,7 @@ pub(super) fn translate(
         started: false,
         message: json!({"id":"msg_ccswap","type":"message","role":"assistant","model":model,"content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}),
         blocks: BTreeMap::new(),
+        calls: BTreeMap::new(),
         open: BTreeSet::new(),
     };
     let mut reader = reader;
@@ -67,9 +68,24 @@ pub(super) fn translate(
                 }
             }
             Some("response.output_item.added") if value["item"]["type"] == "function_call" => {
-                return Err(Failure::upstream(
-                    "Tool calls are not supported by this proxy version",
-                ));
+                translation.tool_block(&value)?;
+            }
+            Some("response.function_call_arguments.delta") => {
+                let index = translation.tool_index(&value)?;
+                let delta = value["delta"].as_str().ok_or_else(|| {
+                    Failure::upstream("OpenAI returned invalid function arguments")
+                })?;
+                translation.send(&json!({"type":"content_block_delta","index":index,"delta":{"type":"input_json_delta","partial_json":delta}}))?;
+            }
+            Some("response.function_call_arguments.done") => {
+                let index = translation.tool_index(&value)?;
+                translation.tool_input(index, &value["arguments"])?;
+                translation.close(index)?;
+            }
+            Some("response.output_item.done") if value["item"]["type"] == "function_call" => {
+                let index = translation.tool_index(&value)?;
+                translation.tool_input(index, &value["item"]["arguments"])?;
+                translation.close(index)?;
             }
             Some("response.completed") => {
                 for index in translation.open.clone() {
@@ -77,8 +93,13 @@ pub(super) fn translate(
                 }
                 let usage = &value["response"]["usage"];
                 translation.message["usage"] = json!({"input_tokens":usage["input_tokens"].as_u64().unwrap_or(0),"output_tokens":usage["output_tokens"].as_u64().unwrap_or(0)});
-                translation.message["stop_reason"] = "end_turn".into();
-                translation.send(&json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":translation.message["usage"]}))?;
+                let reason = if translation.calls.is_empty() {
+                    "end_turn"
+                } else {
+                    "tool_use"
+                };
+                translation.message["stop_reason"] = reason.into();
+                translation.send(&json!({"type":"message_delta","delta":{"stop_reason":reason,"stop_sequence":null},"usage":translation.message["usage"]}))?;
                 translation.send(&json!({"type":"message_stop"}))?;
                 return Ok(translation.message);
             }
@@ -96,6 +117,7 @@ struct Translation<'a> {
     started: bool,
     message: Value,
     blocks: BTreeMap<(u64, u64), usize>,
+    calls: BTreeMap<u64, (usize, String)>,
     open: BTreeSet<usize>,
 }
 
@@ -132,6 +154,65 @@ impl Translation<'_> {
     fn close(&mut self, index: usize) -> Result<(), Failure> {
         if self.open.remove(&index) {
             self.send(&json!({"type":"content_block_stop","index":index}))?;
+        }
+        Ok(())
+    }
+
+    fn tool_block(&mut self, value: &Value) -> Result<(), Failure> {
+        let output_index = value["output_index"]
+            .as_u64()
+            .ok_or_else(|| Failure::upstream("Missing OpenAI output index"))?;
+        let item = &value["item"];
+        let field = |key| {
+            item[key]
+                .as_str()
+                .ok_or_else(|| Failure::upstream("Invalid OpenAI function call"))
+        };
+        let id = field("id")?;
+        let block =
+            json!({"type":"tool_use","id":field("call_id")?,"name":field("name")?,"input":{}});
+        let index = self.message["content"].as_array().unwrap().len();
+        if self
+            .calls
+            .insert(output_index, (index, id.into()))
+            .is_some()
+        {
+            return Err(Failure::upstream("Duplicate OpenAI function call"));
+        }
+        self.message["content"]
+            .as_array_mut()
+            .unwrap()
+            .push(block.clone());
+        self.open.insert(index);
+        self.send(&json!({"type":"content_block_start","index":index,"content_block":block}))?;
+        if let Some(arguments) = item["arguments"].as_str().filter(|a| !a.is_empty()) {
+            self.send(&json!({"type":"content_block_delta","index":index,"delta":{"type":"input_json_delta","partial_json":arguments}}))?;
+        }
+        Ok(())
+    }
+
+    fn tool_index(&self, value: &Value) -> Result<usize, Failure> {
+        let output_index = value["output_index"]
+            .as_u64()
+            .ok_or_else(|| Failure::upstream("Missing OpenAI output index"))?;
+        let item_id = value["item_id"]
+            .as_str()
+            .or_else(|| value["item"]["id"].as_str());
+        self.calls
+            .get(&output_index)
+            .filter(|(_, id)| Some(id.as_str()) == item_id)
+            .map(|(index, _)| *index)
+            .ok_or_else(|| Failure::upstream("Unknown OpenAI function call"))
+    }
+
+    fn tool_input(&mut self, index: usize, arguments: &Value) -> Result<(), Failure> {
+        let input = arguments
+            .as_str()
+            .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok())
+            .filter(Value::is_object)
+            .ok_or_else(|| Failure::upstream("OpenAI returned invalid function arguments"))?;
+        if !self.streaming {
+            self.message["content"][index]["input"] = input;
         }
         Ok(())
     }

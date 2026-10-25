@@ -310,13 +310,74 @@ fn convert_request(request: &Value) -> std::result::Result<Value, Failure> {
             .as_str()
             .filter(|r| matches!(*r, "user" | "assistant"))
             .ok_or_else(|| Failure::invalid("Unsupported message role"))?;
-        input.push(json!({"role":role,"content":text(&message["content"])?}));
+        let content = &message["content"];
+        if content.is_string() {
+            input.push(json!({"role":role,"content":text(content)?}));
+            continue;
+        }
+        let blocks = content
+            .as_array()
+            .ok_or_else(|| Failure::invalid("Message content must be text or blocks"))?;
+        let mut pending = Vec::new();
+        for block in blocks {
+            match block["type"].as_str() {
+                Some("text") => pending.push(required_string(block, "text")?),
+                Some("thinking" | "redacted_thinking") => {}
+                Some("tool_use" | "tool_result") => {
+                    if !pending.is_empty() {
+                        input.push(json!({"role":role,"content":pending.join("\n")}));
+                        pending.clear();
+                    }
+                    if block["type"] == "tool_use" && role == "assistant" {
+                        if !block["input"].is_object() {
+                            return Err(Failure::invalid("Tool input must be an object"));
+                        }
+                        input.push(json!({"type":"function_call","call_id":required_string(block,"id")?,"name":required_string(block,"name")?,"arguments":block["input"].to_string()}));
+                    } else if block["type"] == "tool_result" && role == "user" {
+                        let output = match block.get("content") {
+                            Some(content) => text(content)?,
+                            None => String::new(),
+                        };
+                        input.push(json!({"type":"function_call_output","call_id":required_string(block,"tool_use_id")?,"output":output}));
+                    } else {
+                        return Err(Failure::invalid("Tool block has an invalid message role"));
+                    }
+                }
+                _ => return Err(Failure::invalid("Unsupported message content block")),
+            }
+        }
+        if !pending.is_empty() {
+            input.push(json!({"role":role,"content":pending.join("\n")}));
+        }
     }
     let mut out = json!({"model":model,"input":input,"store":false,"stream":true});
     if let Some(system) = request.get("system") {
         out["instructions"] = text(system)?.into();
     }
+    if let Some(tools) = request.get("tools") {
+        let tools = tools
+            .as_array()
+            .ok_or_else(|| Failure::invalid("tools must be an array"))?;
+        let mut functions = Vec::new();
+        for tool in tools {
+            if !tool["input_schema"].is_object() {
+                return Err(Failure::invalid("Tool input_schema must be an object"));
+            }
+            let mut function = json!({"type":"function","name":required_string(tool,"name")?,"parameters":tool["input_schema"],"strict":false});
+            if tool.get("description").is_some() {
+                function["description"] = required_string(tool, "description")?.into();
+            }
+            functions.push(function);
+        }
+        out["tools"] = functions.into();
+    }
     Ok(out)
+}
+
+fn required_string<'a>(value: &'a Value, key: &str) -> std::result::Result<&'a str, Failure> {
+    value[key]
+        .as_str()
+        .ok_or_else(|| Failure::invalid(format!("Missing or invalid {key}")))
 }
 
 fn text(content: &Value) -> std::result::Result<String, Failure> {

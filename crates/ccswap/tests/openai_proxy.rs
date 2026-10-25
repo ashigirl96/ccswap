@@ -388,3 +388,154 @@ fn thinking_is_discarded_in_both_directions() {
         json!([{"role":"assistant","content":"Previous"}])
     );
 }
+
+#[test]
+fn tools_and_history_keep_function_ids_and_content_order() {
+    let (env, environment) = setup();
+    env.http().respond(
+        "POST",
+        "/v1/responses",
+        StubResponse::json(200, &text_events()),
+    );
+    let (addr, token) = start(&environment, &env.http().base_url());
+    let (status, body) = request(
+        addr,
+        &token,
+        &json!({
+            "model":"sonnet",
+            "tools":[{"name":"Read","description":"Read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}},"cache_control":{"type":"ephemeral"},"defer_loading":true}],
+            "messages":[
+                {"role":"assistant","content":[
+                    {"type":"text","text":"Reading"},
+                    {"type":"thinking","thinking":"hidden"},
+                    {"type":"tool_use","id":"call-read","name":"Read","input":{"path":"hello.txt"}},
+                    {"type":"text","text":"Then inspect"}
+                ]},
+                {"role":"user","content":[
+                    {"type":"tool_result","tool_use_id":"call-read","content":[{"type":"text","text":"hello"},{"type":"text","text":"world"}]},
+                    {"type":"text","text":"Please edit"}
+                ]}
+            ]
+        }),
+    );
+    assert_eq!(status, 200, "{body}");
+    let sent: Value = serde_json::from_str(&env.http().requests()[0].body).unwrap();
+    assert_eq!(
+        sent["tools"],
+        json!([{"type":"function","name":"Read","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}}},"strict":false}])
+    );
+    assert_eq!(
+        sent["input"],
+        json!([
+            {"role":"assistant","content":"Reading"},
+            {"type":"function_call","call_id":"call-read","name":"Read","arguments":"{\"path\":\"hello.txt\"}"},
+            {"role":"assistant","content":"Then inspect"},
+            {"type":"function_call_output","call_id":"call-read","output":"hello\nworld"},
+            {"role":"user","content":"Please edit"}
+        ])
+    );
+}
+
+#[test]
+fn streamed_text_and_multiple_tool_calls_keep_order_ids_and_argument_fragments() {
+    let (env, environment) = setup();
+    let events = sse(&[
+        json!({"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}),
+        json!({"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Inspecting"}),
+        json!({"type":"response.content_part.done","output_index":0,"content_index":0,"part":{"type":"output_text","text":"Inspecting"}}),
+        json!({"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc-read","call_id":"call-read","name":"Read","arguments":""}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc-read","delta":"{\"path\":"}),
+        json!({"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc-read","delta":"\"hello.txt\"}"}),
+        json!({"type":"response.function_call_arguments.done","output_index":1,"item_id":"fc-read","arguments":"{\"path\":\"hello.txt\"}"}),
+        json!({"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc-read","call_id":"call-read","name":"Read","arguments":"{\"path\":\"hello.txt\"}"}}),
+        json!({"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc-list","call_id":"call-list","name":"List","arguments":""}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":2,"item_id":"fc-list","delta":"{}"}),
+        json!({"type":"response.function_call_arguments.done","output_index":2,"item_id":"fc-list","arguments":"{}"}),
+        json!({"type":"response.completed","response":{"usage":{"input_tokens":20,"output_tokens":8}}}),
+    ]);
+    env.http()
+        .respond("POST", "/v1/responses", StubResponse::json(200, &events));
+    let (addr, token) = start(&environment, &env.http().base_url());
+    let body = json!({"model":"sonnet","stream":true,"messages":[{"role":"user","content":"Read and list"}]});
+    let (status, body) = request(addr, &token, &body);
+    assert_eq!(status, 200, "{body}");
+    let events: Vec<Value> = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|data| serde_json::from_str(data).unwrap())
+        .collect();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["type"] == "content_block_start")
+            .map(|event| event["content_block"].clone())
+            .collect::<Vec<_>>(),
+        vec![
+            json!({"type":"text","text":""}),
+            json!({"type":"tool_use","id":"call-read","name":"Read","input":{}}),
+            json!({"type":"tool_use","id":"call-list","name":"List","input":{}}),
+        ]
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["delta"]["type"] == "input_json_delta")
+            .map(|event| (
+                event["index"].as_u64().unwrap(),
+                event["delta"]["partial_json"].as_str().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(1, "{\"path\":"), (1, "\"hello.txt\"}"), (2, "{}")]
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["type"] == "content_block_stop")
+            .map(|event| event["index"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(events[events.len() - 2]["delta"]["stop_reason"], "tool_use");
+    assert_eq!(events.last().unwrap()["type"], "message_stop");
+}
+
+#[test]
+fn nonstreaming_tool_calls_return_parsed_inputs() {
+    let (env, environment) = setup();
+    let events = sse(&[
+        json!({"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc-edit","call_id":"call-edit","name":"Edit","arguments":"{\"path\":"}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc-edit","delta":"\"hello.txt\"}"}),
+        json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc-edit","arguments":"{\"path\":\"hello.txt\"}"}),
+        json!({"type":"response.completed","response":{"usage":{"input_tokens":7,"output_tokens":4}}}),
+    ]);
+    env.http()
+        .respond("POST", "/v1/responses", StubResponse::json(200, &events));
+    let (addr, token) = start(&environment, &env.http().base_url());
+    let (status, body) = request(addr, &token, &json!({"model":"sonnet","messages":[]}));
+    assert_eq!(status, 200, "{body}");
+    let message: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        message["content"],
+        json!([{"type":"tool_use","id":"call-edit","name":"Edit","input":{"path":"hello.txt"}}])
+    );
+    assert_eq!(message["stop_reason"], "tool_use");
+}
+
+#[test]
+fn malformed_tools_and_history_are_rejected_before_inference() {
+    let (env, environment) = setup();
+    let (addr, token) = start(&environment, &env.http().base_url());
+    for invalid in [
+        json!({"tools":{},"messages":[]}),
+        json!({"tools":[{"name":"Read","input_schema":null}],"messages":[]}),
+        json!({"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}]}),
+        json!({"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"a","name":"Read","input":[]}]}]}),
+        json!({"messages":[{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"a","content":"result"}]}]}),
+    ] {
+        let mut body = invalid;
+        body["model"] = "sonnet".into();
+        let (status, response) = request(addr, &token, &body);
+        assert_eq!(status, 400, "{response}");
+    }
+    assert!(env.http().requests().is_empty());
+}
