@@ -148,6 +148,48 @@ fn assert_error(out: &Output, needle: &str) {
 }
 
 #[test]
+fn run_refuses_default_and_shared_openai_profiles_without_the_proxy() {
+    for args in [vec!["run"], vec!["run", "1"], vec!["run", "2"]] {
+        let env = TestEnv::new();
+        seed(&env, 1);
+        auth_status_as(&env, 2);
+        env.write_json(
+            env.claude_config_home().join("settings.json"),
+            &json!({"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:18347"}}),
+        );
+        let out = env.run(args);
+        assert_error(&out, "menubar");
+        assert!(launched(&env).is_none());
+    }
+}
+
+#[test]
+fn independent_profiles_do_not_require_the_default_openai_proxy() {
+    for share in [false, true] {
+        let env = TestEnv::new();
+        seed(&env, 1);
+        auth_status_as(&env, 2);
+        if share {
+            env.write_json(
+                session_dir(&env, 2).join("settings.json"),
+                &json!({"theme":"dark"}),
+            );
+        }
+        env.write_json(
+            env.claude_config_home().join("settings.json"),
+            &json!({"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:18347"}}),
+        );
+        let args = if share {
+            vec!["run", "2"]
+        } else {
+            vec!["run", "2", "--no-share"]
+        };
+        env.run(args).assert_code(0);
+        assert!(launched(&env).is_some());
+    }
+}
+
+#[test]
 fn run_execs_claude_in_the_profile_with_forwarded_args() {
     let env = TestEnv::new();
     seed(&env, 1);
@@ -1094,7 +1136,9 @@ fn session_auth_validation_ignores_shared_openai_settings() {
         .to_string(),
         0,
     );
-    env.run(["run", "2"]).assert_code(0);
+    let out = env.run(["run", "2"]);
+    assert_error(&out, "menubar");
+    assert!(launched(&env).is_none());
     let probe = env
         .claude()
         .calls()

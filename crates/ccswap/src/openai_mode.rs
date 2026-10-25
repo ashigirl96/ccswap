@@ -1,5 +1,6 @@
 //! Claude Code's inference destination is the default profile's settings env.
 
+use std::path::Path;
 use std::time::Duration;
 
 use ccswap_core::{
@@ -13,16 +14,36 @@ use serde_json::{Map, Value, json};
 use crate::openai::{PROXY_BASE_URL, model_map};
 
 pub fn is_enabled(paths: &Paths) -> Result<bool> {
-    let settings = read_settings(paths)?;
-    Ok(settings
+    Ok(settings_use_proxy(&read_settings(
+        &paths.default_claude_config_home().join("settings.json"),
+    )?))
+}
+
+fn settings_use_proxy(settings: &Value) -> bool {
+    settings
         .get("env")
         .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
         .and_then(Value::as_str)
-        == Some(PROXY_BASE_URL))
+        == Some(PROXY_BASE_URL)
 }
 
-pub fn enable(paths: &Paths) -> Result<()> {
-    let unavailable = || Error::config("Start ccswap menubar before enabling OpenAI mode");
+/// Check the profile actually being launched, after sharing has been synchronized.
+pub fn check_launch(paths: &Paths) -> Result<()> {
+    // Leave unrelated profile-setting errors to Claude Code as before.
+    if read_settings(&paths.claude_config_home().join("settings.json"))
+        .is_ok_and(|settings| settings_use_proxy(&settings))
+    {
+        require_proxy(paths)?;
+    }
+    Ok(())
+}
+
+fn require_proxy(paths: &Paths) -> Result<String> {
+    let unavailable = || {
+        Error::config(
+            "Start ccswap menubar before using OpenAI mode, or run ccswap claude openai off",
+        )
+    };
     let token = std::fs::read_to_string(paths.backup_root().join("openai/proxy-token"))
         .map_err(|_| unavailable())?;
     let response = http_client::agent(Duration::from_secs(2))
@@ -33,9 +54,14 @@ pub fn enable(paths: &Paths) -> Result<()> {
     if response.status().as_u16() != 200 {
         return Err(unavailable());
     }
+    Ok(token)
+}
+
+pub fn enable(paths: &Paths) -> Result<()> {
+    let token = require_proxy(paths)?;
     let logins = ccswap_claude::openai::InferenceLogins::new(paths);
     let _lock = logins.lock()?;
-    let mut settings = read_settings(paths)?;
+    let mut settings = read_settings(&paths.default_claude_config_home().join("settings.json"))?;
     let env = settings
         .as_object_mut()
         .unwrap()
@@ -69,7 +95,7 @@ pub fn disable(paths: &Paths) -> Result<()> {
     }
     let logins = ccswap_claude::openai::InferenceLogins::new(paths);
     let _lock = logins.lock()?;
-    let mut settings = read_settings(paths)?;
+    let mut settings = read_settings(&path)?;
     let before = settings.clone();
     let Some(env) = settings.get_mut("env") else {
         return Ok(());
@@ -97,9 +123,8 @@ pub fn disable(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-fn read_settings(paths: &Paths) -> Result<Value> {
-    let path = paths.default_claude_config_home().join("settings.json");
-    let settings = match std::fs::read_to_string(&path) {
+fn read_settings(path: &Path) -> Result<Value> {
+    let settings = match std::fs::read_to_string(path) {
         Ok(text) => serde_json::from_str::<Value>(&text)
             .map_err(|e| Error::config(format!("Invalid Claude settings: {e}")))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),

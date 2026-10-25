@@ -79,6 +79,28 @@ impl Drop for MenuBar {
 }
 
 #[test]
+fn run_checks_the_running_proxy_for_an_enabled_default_profile() {
+    let env = TestEnv::new();
+    let _menu_bar = MenuBar::start(&env);
+    env.run(["claude", "openai", "on"]).assert_code(0);
+    env.run(["run"]).assert_code(0);
+}
+
+#[test]
+fn run_refuses_an_enabled_profile_when_the_proxy_has_stopped() {
+    let _port = PORT.lock().unwrap();
+    let env = TestEnv::new();
+    env.write_file(env.store_dir().join("openai/proxy-token"), TOKEN);
+    env.write_json(
+        env.claude_config_home().join("settings.json"),
+        &json!({"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:18347"}}),
+    );
+    let out = env.run(["run"]);
+    out.assert_code(1);
+    assert!(out.stderr.contains("menubar"), "{}", out.stderr);
+}
+
+#[test]
 fn enabling_writes_only_the_mode_keys_and_preserves_key_order() {
     let env = TestEnv::new();
     let _menu_bar = MenuBar::start(&env);
@@ -149,6 +171,23 @@ fn disabling_removes_only_unchanged_mode_values() {
         env.read_json(&path),
         json!({"env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"my-model","KEEP":"mine"}})
     );
+}
+
+#[test]
+fn disabling_does_not_need_a_readable_codex_ledger() {
+    let env = TestEnv::new();
+    env.write_file(env.store_dir().join("openai/proxy-token"), TOKEN);
+    env.write_file(env.store_dir().join("codex/accounts.json"), "{broken");
+    let path = env.claude_config_home().join("settings.json");
+    env.write_json(
+        &path,
+        &json!({"env":{
+            "ANTHROPIC_BASE_URL":"http://127.0.0.1:18347", "ANTHROPIC_AUTH_TOKEN":TOKEN,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL":"gpt-6.1-sol", "KEEP":"mine"
+        }}),
+    );
+    env.run(["claude", "openai", "off"]).assert_code(0);
+    assert_eq!(env.read_json(&path), json!({"env":{"KEEP":"mine"}}));
 }
 
 #[test]

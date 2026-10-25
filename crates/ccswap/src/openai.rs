@@ -333,13 +333,21 @@ fn convert_request(request: &Value) -> std::result::Result<Value, Failure> {
     let messages = request["messages"]
         .as_array()
         .ok_or_else(|| Failure::invalid("messages must be an array"))?;
+    let mut instructions = Vec::new();
+    if let Some(system) = request.get("system") {
+        instructions.push(text(system)?);
+    }
     let mut input = Vec::new();
     for message in messages {
         let role = message["role"]
             .as_str()
-            .filter(|r| matches!(*r, "user" | "assistant"))
+            .filter(|r| matches!(*r, "user" | "assistant" | "system"))
             .ok_or_else(|| Failure::invalid("Unsupported message role"))?;
         let content = &message["content"];
+        if role == "system" {
+            instructions.push(text(content)?);
+            continue;
+        }
         if content.is_string() {
             input.push(json!({"role":role,"content":text(content)?}));
             continue;
@@ -380,8 +388,8 @@ fn convert_request(request: &Value) -> std::result::Result<Value, Failure> {
         }
     }
     let mut out = json!({"model":model,"input":input,"store":false,"stream":true});
-    if let Some(system) = request.get("system") {
-        out["instructions"] = text(system)?.into();
+    if !instructions.is_empty() {
+        out["instructions"] = instructions.join("\n").into();
     }
     if let Some(tools) = request.get("tools") {
         let tools = tools

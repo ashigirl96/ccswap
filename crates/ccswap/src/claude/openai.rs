@@ -26,7 +26,6 @@ pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
 }
 
 fn execute(env: &Environment, argv: &[String]) -> Result<()> {
-    let ledger = Ledger::load(&CodexPaths::new(env).ledger_file())?;
     let logins = InferenceLogins::new(&Paths::new(env));
     match argv
         .iter()
@@ -45,6 +44,7 @@ fn execute(env: &Environment, argv: &[String]) -> Result<()> {
             Ok(())
         }
         ["status"] => {
+            let ledger = Ledger::load(&CodexPaths::new(env).ledger_file())?;
             println!(
                 "Inference destination: {}",
                 if ccswap::openai_mode::is_enabled(&Paths::new(env))? {
@@ -70,6 +70,7 @@ fn execute(env: &Environment, argv: &[String]) -> Result<()> {
             Ok(())
         }
         [verb @ ("login" | "logout"), number] => {
+            let ledger = Ledger::load(&CodexPaths::new(env).ledger_file())?;
             let account = number
                 .parse::<u32>()
                 .ok()

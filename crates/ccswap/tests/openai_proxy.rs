@@ -126,6 +126,45 @@ fn text_request_uses_active_inference_login_and_returns_anthropic_events() {
 }
 
 #[test]
+fn system_messages_join_top_level_instructions_without_changing_history() {
+    let (env, environment) = setup();
+    env.http().respond(
+        "POST",
+        "/v1/responses",
+        StubResponse::json(200, &text_events()),
+    );
+    let (addr, token) = start(&environment, &env.http().base_url());
+    let (status, body) = request(
+        addr,
+        &token,
+        &json!({
+            "model":"sonnet", "system":[{"type":"text","text":"Base instructions."}],
+            "messages":[
+                {"role":"user","content":"Read the file."},
+                {"role":"system","content":[{"type":"text","text":"Current environment."}]},
+                {"role":"assistant","content":[{"type":"tool_use","id":"read-1","name":"Read","input":{"path":"note.txt"}}]},
+                {"role":"user","content":[{"type":"tool_result","tool_use_id":"read-1","content":"before"}]},
+                {"role":"system","content":"Latest environment."}
+            ]
+        }),
+    );
+    assert_eq!(status, 200, "{body}");
+    let sent: Value = serde_json::from_str(&env.http().requests()[0].body).unwrap();
+    assert_eq!(
+        sent["instructions"],
+        "Base instructions.\nCurrent environment.\nLatest environment."
+    );
+    assert_eq!(
+        sent["input"],
+        json!([
+            {"role":"user","content":"Read the file."},
+            {"type":"function_call","call_id":"read-1","name":"Read","arguments":"{\"path\":\"note.txt\"}"},
+            {"type":"function_call_output","call_id":"read-1","output":"before"}
+        ])
+    );
+}
+
+#[test]
 fn token_is_private_persistent_and_required_for_every_request() {
     use std::os::unix::fs::PermissionsExt;
     let (env, environment) = setup();
