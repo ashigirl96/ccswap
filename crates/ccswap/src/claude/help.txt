@@ -35,6 +35,9 @@ Commands:
                                     list or drop stashed credential entries
   {prog} claude export <path>       export accounts
   {prog} claude import <path>       import accounts
+  {prog} claude openai login <num>  Continue with ChatGPT for a Codex account
+  {prog} claude openai logout <num> remove its inference login
+  {prog} claude openai status       list inference logins
 
 Aliases: ls=list  rm=remove
 

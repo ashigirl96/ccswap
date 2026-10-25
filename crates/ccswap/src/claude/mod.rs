@@ -4,6 +4,7 @@ pub mod accounts;
 pub mod auto;
 pub mod manage;
 pub mod map;
+pub mod openai;
 pub mod renumber;
 pub mod run;
 pub mod unclaimed;
@@ -85,6 +86,7 @@ pub const VERBS: &[Verb] = &[
     Verb::own(&["unmap"]),
     Verb::own(&["auto"]),
     Verb::own(&["unclaimed"]),
+    Verb::own(&["openai"]),
     Verb::global(&["export"], "--export", include_str!("help/export.txt")),
     Verb::global(&["import"], "--import", include_str!("help/import.txt")),
 ];

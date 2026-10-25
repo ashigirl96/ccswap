@@ -7,6 +7,9 @@ pub const API_BASE_URL_ENV: &str = "CCSWAP_API_BASE_URL";
 pub const OAUTH_TOKEN_URL_ENV: &str = "CCSWAP_OAUTH_TOKEN_URL";
 pub const UPDATE_CHECK_URL_ENV: &str = "CCSWAP_UPDATE_CHECK_URL";
 pub const CODEX_API_BASE_URL_ENV: &str = "CCSWAP_CODEX_API_BASE_URL";
+pub const OPENAI_AUTHORIZE_URL_ENV: &str = "CCSWAP_OPENAI_AUTHORIZE_URL";
+pub const OPENAI_TOKEN_URL_ENV: &str = "CCSWAP_OPENAI_TOKEN_URL";
+pub const OPENAI_JWKS_URL_ENV: &str = "CCSWAP_OPENAI_JWKS_URL";
 
 pub const DEFAULT_SECURITY: &str = "/usr/bin/security";
 pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
@@ -24,6 +27,9 @@ pub struct Endpoints {
     pub oauth_token_url: String,
     pub update_check_url: String,
     pub codex_api_base_url: String,
+    pub openai_authorize_url: String,
+    pub openai_token_url: String,
+    pub openai_jwks_url: String,
 }
 
 impl Endpoints {
@@ -40,6 +46,18 @@ impl Endpoints {
             codex_api_base_url: pick(CODEX_API_BASE_URL_ENV, DEFAULT_CODEX_API_BASE_URL)
                 .trim_end_matches('/')
                 .to_string(),
+            openai_authorize_url: pick(
+                OPENAI_AUTHORIZE_URL_ENV,
+                "https://auth.openai.com/api/accounts/authorize",
+            ),
+            openai_token_url: pick(
+                OPENAI_TOKEN_URL_ENV,
+                "https://auth.openai.com/api/accounts/oauth/token",
+            ),
+            openai_jwks_url: pick(
+                OPENAI_JWKS_URL_ENV,
+                "https://auth.openai.com/.well-known/jwks.json",
+            ),
         }
     }
 

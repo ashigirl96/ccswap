@@ -29,6 +29,8 @@ mod codex;
 pub mod help;
 
 #[allow(unused_imports)]
+pub use codex::base64url;
+#[allow(unused_imports)]
 pub use codex::{CodexAuth, CodexCall, FakeCodex};
 
 use std::collections::BTreeMap;
@@ -48,11 +50,14 @@ pub const ACTIVE_OAUTH_SERVICE: &str = "Claude Code-credentials";
 pub const MANAGED_KEY_SERVICE: &str = "Claude Code";
 
 pub const SECURITY_ENV: &str = "CCSWAP_SECURITY_PATH";
-pub const HTTP_ENVS: [(&str, &str); 4] = [
+pub const HTTP_ENVS: [(&str, &str); 7] = [
     ("CCSWAP_CODEX_API_BASE_URL", ""),
     ("CCSWAP_API_BASE_URL", ""),
     ("CCSWAP_OAUTH_TOKEN_URL", "/v1/oauth/token"),
     ("CCSWAP_UPDATE_CHECK_URL", "/update-check"),
+    ("CCSWAP_OPENAI_AUTHORIZE_URL", "/openai/authorize"),
+    ("CCSWAP_OPENAI_TOKEN_URL", "/openai/token"),
+    ("CCSWAP_OPENAI_JWKS_URL", "/openai/jwks"),
 ];
 pub const PROG: &str = "ccswap";
 
