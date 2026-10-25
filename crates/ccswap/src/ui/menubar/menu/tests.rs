@@ -112,6 +112,7 @@ fn render_snapshot(snapshot: &MenuSnapshot) -> Vec<String> {
         snapshot,
         settings: &MenuBarSettings::default(),
         history: &[],
+        openai_enabled: false,
         threshold: 95,
         now: NOW,
     })
@@ -313,6 +314,7 @@ fn without_codex_accounts_the_codex_section_is_hidden() {
         snapshot: &snapshot,
         settings: &settings,
         history: &history,
+        openai_enabled: false,
         threshold: 95,
         now: NOW,
     });
@@ -353,6 +355,7 @@ fn without_codex_accounts_the_codex_section_is_hidden() {
             "  ---",
             "  Open full log…",
             "---",
+            "OpenAI mode",
             "Settings ▸",
             "  ✓ Show account name in menu bar",
             "  Title percentage ▸",
@@ -391,6 +394,7 @@ fn empty_store_shows_placeholders() {
         snapshot: &snapshot,
         settings: &settings,
         history: &[],
+        openai_enabled: false,
         threshold: 0,
         now: NOW,
     });
@@ -418,6 +422,7 @@ fn entries_carry_their_commands() {
         snapshot: &snapshot,
         settings: &settings,
         history: &[],
+        openai_enabled: false,
         threshold: 90,
         now: NOW,
     });
@@ -524,6 +529,7 @@ fn menu_for(snapshot: &MenuSnapshot) -> Vec<Entry> {
         snapshot,
         settings: &MenuBarSettings::default(),
         history: &[],
+        openai_enabled: false,
         threshold: 95,
         now: NOW,
     })

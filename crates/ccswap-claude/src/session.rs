@@ -442,7 +442,8 @@ impl Sessions<'_> {
         let mut env = self.scrubbed_env();
         env.push(("CLAUDE_CONFIG_DIR".into(), target.dir.clone().into()));
         let child = Command::new(&claude)
-            .args(["auth", "status", "--json"])
+            // Settings env can contain the proxy token instead of the profile's login.
+            .args(["--setting-sources", "", "auth", "status", "--json"])
             .env_clear()
             .envs(env)
             .stdin(Stdio::null())

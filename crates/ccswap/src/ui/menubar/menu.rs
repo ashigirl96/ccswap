@@ -37,6 +37,7 @@ pub enum Command {
     ToggleAutoSwitch,
     Threshold(i64),
     RefreshNow,
+    ToggleOpenAi,
     Quit,
 }
 
@@ -184,6 +185,7 @@ pub struct MenuInput<'a> {
     pub history: &'a [String],
     /// `autoswitch.threshold` as a whole percent, 0 when unreadable.
     pub threshold: i64,
+    pub openai_enabled: bool,
     pub now: f64,
 }
 
@@ -225,6 +227,7 @@ pub fn build_menu(input: &MenuInput) -> Vec<Entry> {
         add_menu(),
         history_menu(input.history),
         Entry::Separator,
+        Entry::action("OpenAI mode", Command::ToggleOpenAi).check(input.openai_enabled),
         settings_menu(input.settings, input.threshold),
         Entry::action("Refresh now", Command::RefreshNow),
         Entry::action("Quit", Command::Quit),

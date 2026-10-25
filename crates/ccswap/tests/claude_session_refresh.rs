@@ -74,7 +74,7 @@ fn seed(env: &TestEnv, slot2: &str) {
     env.security()
         .set_item(ACTIVE_OAUTH_SERVICE, KEYCHAIN_ACCOUNT, &refreshable(1));
     env.claude().respond(
-        "auth status --json",
+        "--setting-sources  auth status --json",
         &json!({"loggedIn": true, "authMethod": "claude.ai", "email": email(2), "orgId": "org-2"})
             .to_string(),
         0,

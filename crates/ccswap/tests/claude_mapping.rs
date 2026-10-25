@@ -86,7 +86,7 @@ fn launched(env: &TestEnv) -> Option<ClaudeCall> {
     env.claude()
         .calls()
         .into_iter()
-        .rfind(|c| c.argv != ["auth", "status", "--json"])
+        .rfind(|c| c.argv != ["--setting-sources", "", "auth", "status", "--json"])
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn bare_run_launches_the_account_mapped_to_an_ancestor_in_session_mode() {
     let deep = dir(&env, "repo/src/deep");
     env.run(["map", "2", repo.to_str().unwrap()]).assert_code(0);
     env.claude().respond(
-        "auth status --json",
+        "--setting-sources  auth status --json",
         &json!({"loggedIn": true, "authMethod": "claude.ai", "email": email(2), "orgId": "org-2"})
             .to_string(),
         0,

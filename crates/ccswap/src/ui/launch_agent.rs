@@ -290,6 +290,7 @@ impl LaunchAgent {
     /// Arrives at "gone" from any partial state: loaded without a plist, a
     /// plist never bootstrapped, or neither.
     pub fn uninstall(&self) -> Result<Uninstalled, Error> {
+        ccswap::openai_mode::disable(&ccswap_core::paths::Paths::new(&self.env))?;
         let plist = plist_path(&self.home);
         let was_loaded = self.is_loaded()?;
         if was_loaded {

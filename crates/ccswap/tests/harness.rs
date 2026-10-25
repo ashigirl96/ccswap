@@ -128,16 +128,12 @@ fn guard_refuses_real_home_and_remote_endpoints() {
 #[test]
 fn guard_accepts_the_default_environment() {
     let env = TestEnv::new();
-    let vars: std::collections::BTreeMap<String, String> = [
+    let mut vars: std::collections::BTreeMap<String, String> = [
         ("HOME", env.home().display().to_string()),
         (
             "CCSWAP_SECURITY_PATH",
             env.security().path().display().to_string(),
         ),
-        ("CCSWAP_API_BASE_URL", env.http().base_url()),
-        ("CCSWAP_OAUTH_TOKEN_URL", env.http().base_url()),
-        ("CCSWAP_UPDATE_CHECK_URL", env.http().base_url()),
-        ("CCSWAP_CODEX_API_BASE_URL", env.http().base_url()),
         (
             "PATH",
             format!(
@@ -150,6 +146,9 @@ fn guard_accepts_the_default_environment() {
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect();
+    for (name, _) in support::HTTP_ENVS {
+        vars.insert(name.into(), env.http().base_url());
+    }
     assert_eq!(check_isolation(&vars, &env.root()), Ok(()));
 }
 

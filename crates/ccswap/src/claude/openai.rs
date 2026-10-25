@@ -5,7 +5,7 @@ use ccswap_core::env::{Environment, is_root};
 use ccswap_core::error::{Error, Result};
 use ccswap_core::paths::Paths;
 
-const HELP: &str = "usage: {prog} claude openai <command>\n\nCommands:\n  login <number>   Continue with ChatGPT for a Codex account\n  logout <number>  remove that account's inference login\n  status           show inference logins for Codex accounts\n";
+const HELP: &str = "usage: {prog} claude openai <command>\n\nCommands:\n  login <number>   Continue with ChatGPT for a Codex account\n  logout <number>  remove that account's inference login\n  status           show inference destination and logins\n  on               enable OpenAI mode (requires menubar)\n  off              restore Anthropic for new sessions\n";
 
 pub fn run(prog: &str, env: &Environment, argv: &[String]) -> i32 {
     if argv.iter().any(|a| a == "--help" || a == "-h") {
@@ -34,7 +34,25 @@ fn execute(env: &Environment, argv: &[String]) -> Result<()> {
         .collect::<Vec<_>>()
         .as_slice()
     {
+        ["on"] => {
+            ccswap::openai_mode::enable(&Paths::new(env))?;
+            println!("OpenAI mode enabled for new Claude Code sessions");
+            Ok(())
+        }
+        ["off"] => {
+            ccswap::openai_mode::disable(&Paths::new(env))?;
+            println!("OpenAI mode disabled for new Claude Code sessions");
+            Ok(())
+        }
         ["status"] => {
+            println!(
+                "Inference destination: {}",
+                if ccswap::openai_mode::is_enabled(&Paths::new(env))? {
+                    "OpenAI"
+                } else {
+                    "Anthropic"
+                }
+            );
             for (number, account) in ledger.ordered() {
                 let present = logins
                     .read(&account.account_id)?
@@ -70,7 +88,7 @@ fn execute(env: &Environment, argv: &[String]) -> Result<()> {
             Ok(())
         }
         _ => Err(Error::config(
-            "Expected 'ccswap claude openai login <number>', 'logout <number>' or 'status'",
+            "Expected 'ccswap claude openai login <number>', 'logout <number>', 'status', 'on' or 'off'",
         )),
     }
 }
