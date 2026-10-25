@@ -141,6 +141,25 @@ pub fn run(actions: Arc<dyn Actions>, env: Environment) -> i32 {
         NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
 
     let paths = Paths::new(&env);
+    let proxy = ccswap::openai::proxy_token(&paths).and_then(|_| {
+        std::net::TcpListener::bind(ccswap::openai::PROXY_ADDRESS)
+            .map_err(|e| Error::config(format!("Could not start the OpenAI proxy: {e}")))
+    });
+    match proxy {
+        Ok(listener) => {
+            let proxy_paths = paths.clone();
+            let codex_paths = CodexPaths::new(&env);
+            let endpoints = Endpoints::new(&env);
+            std::thread::spawn(move || {
+                if let Err(error) =
+                    ccswap::openai::serve(listener, proxy_paths, codex_paths, endpoints)
+                {
+                    log::warning(format!("OpenAI proxy stopped: {error}"));
+                }
+            });
+        }
+        Err(error) => appkit::alert(mtm, "OpenAI proxy", &error.to_string()),
+    }
     let backup = actions.backup_dir();
     let settings_path = backup.join(FILENAME);
     let controller = Controller {

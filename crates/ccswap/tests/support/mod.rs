@@ -50,7 +50,7 @@ pub const ACTIVE_OAUTH_SERVICE: &str = "Claude Code-credentials";
 pub const MANAGED_KEY_SERVICE: &str = "Claude Code";
 
 pub const SECURITY_ENV: &str = "CCSWAP_SECURITY_PATH";
-pub const HTTP_ENVS: [(&str, &str); 7] = [
+pub const HTTP_ENVS: [(&str, &str); 8] = [
     ("CCSWAP_CODEX_API_BASE_URL", ""),
     ("CCSWAP_API_BASE_URL", ""),
     ("CCSWAP_OAUTH_TOKEN_URL", "/v1/oauth/token"),
@@ -58,6 +58,7 @@ pub const HTTP_ENVS: [(&str, &str); 7] = [
     ("CCSWAP_OPENAI_AUTHORIZE_URL", "/openai/authorize"),
     ("CCSWAP_OPENAI_TOKEN_URL", "/openai/token"),
     ("CCSWAP_OPENAI_JWKS_URL", "/openai/jwks"),
+    ("CCSWAP_OPENAI_RESPONSES_URL", "/v1/responses"),
 ];
 pub const PROG: &str = "ccswap";
 

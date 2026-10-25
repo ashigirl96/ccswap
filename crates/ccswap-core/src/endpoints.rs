@@ -10,6 +10,7 @@ pub const CODEX_API_BASE_URL_ENV: &str = "CCSWAP_CODEX_API_BASE_URL";
 pub const OPENAI_AUTHORIZE_URL_ENV: &str = "CCSWAP_OPENAI_AUTHORIZE_URL";
 pub const OPENAI_TOKEN_URL_ENV: &str = "CCSWAP_OPENAI_TOKEN_URL";
 pub const OPENAI_JWKS_URL_ENV: &str = "CCSWAP_OPENAI_JWKS_URL";
+pub const OPENAI_RESPONSES_URL_ENV: &str = "CCSWAP_OPENAI_RESPONSES_URL";
 
 pub const DEFAULT_SECURITY: &str = "/usr/bin/security";
 pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
@@ -30,6 +31,7 @@ pub struct Endpoints {
     pub openai_authorize_url: String,
     pub openai_token_url: String,
     pub openai_jwks_url: String,
+    pub openai_responses_url: String,
 }
 
 impl Endpoints {
@@ -53,6 +55,10 @@ impl Endpoints {
             openai_token_url: pick(
                 OPENAI_TOKEN_URL_ENV,
                 "https://auth.openai.com/api/accounts/oauth/token",
+            ),
+            openai_responses_url: pick(
+                OPENAI_RESPONSES_URL_ENV,
+                "https://api.openai.com/v1/responses",
             ),
             openai_jwks_url: pick(
                 OPENAI_JWKS_URL_ENV,
