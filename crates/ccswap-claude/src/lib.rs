@@ -6,6 +6,7 @@ pub mod consume_gate;
 pub mod listing;
 pub mod mappings;
 pub mod migrations;
+pub mod openai;
 pub mod probe_verdicts;
 pub mod process_detection;
 pub mod ranking;

@@ -148,6 +148,11 @@ fn mapped_account(
 
 /// Replaces this process; returns only when the exec itself failed.
 fn exec(launch: &Launch, style: &Style) -> i32 {
+    let env = Environment::from_pairs(launch.env.iter().cloned());
+    if let Err(error) = ccswap::openai_mode::check_launch(&Paths::new(&env)) {
+        eprintln!("{}", style.red(&format!("Error: {error}")));
+        return 1;
+    }
     let _ = std::io::stdout().flush();
     let error = std::process::Command::new(&launch.program)
         .arg0(&launch.program)

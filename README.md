@@ -78,6 +78,23 @@ Each account's `auth.json` is kept as Codex wrote it in `~/.claude-swap-backup/c
 - If the Codex app-server daemon is running (`~/.codex/app-server-daemon/` exists), restart it with `codex app-server daemon restart`. ccswap prints this reminder but does not restart the daemon itself.
 - Only Codex's default file storage is supported. If `cli_auth_credentials_store` in `~/.codex/config.toml` is `keyring` or `auto`, `ccswap codex switch` refuses and changes nothing.
 
+## OpenAI mode for Claude Code
+
+OpenAI mode sends Claude Code inference to OpenAI using your ChatGPT plan. First register the ChatGPT account with `ccswap codex add` or `ccswap codex login`, then create a separate inference login for its Codex account number:
+
+```sh
+ccswap claude openai login 1        # Continue with ChatGPT in your browser
+ccswap claude openai status         # inference destination and each account's login
+ccswap claude openai on             # requires the menu bar to be running
+claude                             # direct launches also use OpenAI
+ccswap claude openai off            # restore Anthropic for new sessions
+ccswap claude openai logout 1       # remove that account's saved inference tokens
+```
+
+The menu bar's `OpenAI mode` checkbox also switches the mode. ccswap changes only its inference keys in `~/.claude/settings.json`; conflicting user values are reported and preserved. Changes apply reliably to new sessions. Quitting the menu bar or uninstalling its LaunchAgent turns the mode off; crash restarts keep it enabled.
+
+Inference uses the active Codex account's inference login, including after `ccswap codex switch`. Opus, Sonnet and Fable use `gpt-6.1-sol`; Haiku uses `gpt-6-luna`. Shared `ccswap run N` profiles inherit the mode, while `--no-share` profiles remain independent. Remote Control and voice input are unavailable while OpenAI mode is enabled. Sign in with ChatGPT is in preview, and Claude Code does not officially support models other than Claude through gateways.
+
 ## Relationship to claude-swap
 
 ccswap follows claude-swap v0.26.0's behavior and reads and writes the same store in `~/.claude-swap-backup/`. Intentional differences are recorded in [docs/adr/0001-deviations-from-upstream.md](docs/adr/0001-deviations-from-upstream.md).

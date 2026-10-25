@@ -75,7 +75,7 @@ fn seed(env: &TestEnv, active: u32) {
 
 fn auth_status_as(env: &TestEnv, num: u32) {
     env.claude().respond(
-        "auth status --json",
+        "--setting-sources  auth status --json",
         &json!({"loggedIn": true, "authMethod": "claude.ai", "email": email(num), "orgId": org(num)})
             .to_string(),
         0,
@@ -85,7 +85,8 @@ fn auth_status_as(env: &TestEnv, num: u32) {
 /// A probe that runs but does not answer: the verdict falls back to the
 /// profile's files, which is how these tests force a (re)bootstrap.
 fn auth_status_unanswered(env: &TestEnv) {
-    env.claude().respond("auth status --json", "not json", 0);
+    env.claude()
+        .respond("--setting-sources  auth status --json", "not json", 0);
 }
 
 /// Slot 1's live credential is an access-token rotation of its backup, so
@@ -122,7 +123,7 @@ fn launched(env: &TestEnv) -> Option<ClaudeCall> {
     env.claude()
         .calls()
         .into_iter()
-        .rfind(|c| c.argv != ["auth", "status", "--json"])
+        .rfind(|c| c.argv != ["--setting-sources", "", "auth", "status", "--json"])
 }
 
 fn mode(path: &Path) -> u32 {
@@ -144,6 +145,48 @@ fn assert_error(out: &Output, needle: &str) {
         out.stdout, out.stderr
     );
     assert!(out.stderr.contains(needle), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn run_refuses_default_and_shared_openai_profiles_without_the_proxy() {
+    for args in [vec!["run"], vec!["run", "1"], vec!["run", "2"]] {
+        let env = TestEnv::new();
+        seed(&env, 1);
+        auth_status_as(&env, 2);
+        env.write_json(
+            env.claude_config_home().join("settings.json"),
+            &json!({"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:18347"}}),
+        );
+        let out = env.run(args);
+        assert_error(&out, "menubar");
+        assert!(launched(&env).is_none());
+    }
+}
+
+#[test]
+fn independent_profiles_do_not_require_the_default_openai_proxy() {
+    for share in [false, true] {
+        let env = TestEnv::new();
+        seed(&env, 1);
+        auth_status_as(&env, 2);
+        if share {
+            env.write_json(
+                session_dir(&env, 2).join("settings.json"),
+                &json!({"theme":"dark"}),
+            );
+        }
+        env.write_json(
+            env.claude_config_home().join("settings.json"),
+            &json!({"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:18347"}}),
+        );
+        let args = if share {
+            vec!["run", "2"]
+        } else {
+            vec!["run", "2", "--no-share"]
+        };
+        env.run(args).assert_code(0);
+        assert!(launched(&env).is_some());
+    }
 }
 
 #[test]
@@ -195,7 +238,7 @@ fn bootstrap_seeds_credentials_and_identity_privately() {
         .claude()
         .calls()
         .into_iter()
-        .find(|c| c.argv == ["auth", "status", "--json"])
+        .find(|c| c.argv == ["--setting-sources", "", "auth", "status", "--json"])
         .expect("probe ran");
     assert_eq!(probe.env["CLAUDE_CONFIG_DIR"], dir.display().to_string());
 }
@@ -1068,4 +1111,46 @@ fn profile_service(dir: &Path) -> String {
         .unwrap();
     let digest = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
     format!("Claude Code-credentials-{}", &digest[..8])
+}
+
+#[test]
+fn session_auth_validation_ignores_shared_openai_settings() {
+    let env = TestEnv::new();
+    seed(&env, 1);
+    env.write_json(
+        env.claude_config_home().join("settings.json"),
+        &json!({"env":{
+            "ANTHROPIC_BASE_URL":"http://127.0.0.1:18347", "ANTHROPIC_AUTH_TOKEN":"proxy-token"
+        }}),
+    );
+    env.claude().respond(
+        "auth status --json",
+        &json!({"loggedIn":true,"authMethod":"oauth_token"}).to_string(),
+        0,
+    );
+    env.claude().respond(
+        "--setting-sources  auth status --json",
+        &json!({
+            "loggedIn":true,"authMethod":"claude.ai","email":email(2),"orgId":org(2)
+        })
+        .to_string(),
+        0,
+    );
+    let out = env.run(["run", "2"]);
+    assert_error(&out, "menubar");
+    assert!(launched(&env).is_none());
+    let probe = env
+        .claude()
+        .calls()
+        .into_iter()
+        .find(|c| {
+            c.argv
+                .ends_with(&["auth".into(), "status".into(), "--json".into()])
+        })
+        .unwrap();
+    assert_eq!(
+        probe.argv,
+        ["--setting-sources", "", "auth", "status", "--json"]
+    );
+    assert!(session_dir(&env, 2).join("settings.json").is_symlink());
 }

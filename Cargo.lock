@@ -127,6 +127,7 @@ dependencies = [
  "ccswap-core",
  "chrono",
  "libc",
+ "ring",
  "serde_json",
  "sha2",
  "tempfile",

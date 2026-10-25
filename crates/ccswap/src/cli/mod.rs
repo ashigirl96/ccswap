@@ -150,6 +150,10 @@ impl Cli {
         {
             eprintln!("{warning}");
         }
+        if args.first().is_some_and(|v| v == "claude") && args.get(1).is_some_and(|v| v == "openai")
+        {
+            return crate::claude::openai::run(&self.prog, &self.env, &args[2..]);
+        }
         let args = match args.split_first() {
             Some((namespace, rest)) if namespace == "claude" => {
                 match crate::claude::resolve(&self.prog, rest) {

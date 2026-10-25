@@ -213,7 +213,7 @@ fn jwt(claims: &Value) -> String {
     )
 }
 
-fn base64url(bytes: &[u8]) -> String {
+pub fn base64url(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {

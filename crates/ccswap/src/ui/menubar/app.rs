@@ -97,6 +97,7 @@ pub struct Controller {
     events: (Sender<AutoSwitchEvent>, Receiver<AutoSwitchEvent>),
     engine: RefCell<Option<LoopHandle>>,
     config_mtime: Cell<Option<SystemTime>>,
+    openai_enabled: Cell<bool>,
     commands: RefCell<Vec<Command>>,
     status_item: Retained<NSStatusItem>,
     refresh_timer: RefCell<Option<Retained<NSTimer>>>,
@@ -141,6 +142,25 @@ pub fn run(actions: Arc<dyn Actions>, env: Environment) -> i32 {
         NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
 
     let paths = Paths::new(&env);
+    let proxy = ccswap::openai::proxy_token(&paths).and_then(|_| {
+        std::net::TcpListener::bind(ccswap::openai::PROXY_ADDRESS)
+            .map_err(|e| Error::config(format!("Could not start the OpenAI proxy: {e}")))
+    });
+    match proxy {
+        Ok(listener) => {
+            let proxy_paths = paths.clone();
+            let codex_paths = CodexPaths::new(&env);
+            let endpoints = Endpoints::new(&env);
+            std::thread::spawn(move || {
+                if let Err(error) =
+                    ccswap::openai::serve(listener, proxy_paths, codex_paths, endpoints)
+                {
+                    log::warning(format!("OpenAI proxy stopped: {error}"));
+                }
+            });
+        }
+        Err(error) => appkit::alert(mtm, "OpenAI proxy", &error.to_string()),
+    }
     let backup = actions.backup_dir();
     let settings_path = backup.join(FILENAME);
     let controller = Controller {
@@ -161,6 +181,7 @@ pub fn run(actions: Arc<dyn Actions>, env: Environment) -> i32 {
         events: channel(),
         engine: RefCell::new(None),
         config_mtime: Cell::new(None),
+        openai_enabled: Cell::new(false),
         commands: RefCell::new(Vec::new()),
         status_item,
         refresh_timer: RefCell::new(None),
@@ -230,11 +251,14 @@ impl Target {
         );
         let log_text = std::fs::read_to_string(&c.log_path).unwrap_or_default();
         let history = parse_switch_history(&log_text, SWITCH_HISTORY_LIMIT);
+        let openai_enabled = ccswap::openai_mode::is_enabled(&c.paths).unwrap_or(false);
+        c.openai_enabled.set(openai_enabled);
         let entries = build_menu(&MenuInput {
             snapshot: &snapshot,
             settings: &settings,
             history: &history,
             threshold: self.threshold(),
+            openai_enabled,
             now,
         });
         let mut commands = Vec::new();
@@ -284,6 +308,8 @@ impl Target {
     fn sync(&self) {
         let c = self.ivars();
         let mut dirty = false;
+        let enabled = ccswap::openai_mode::is_enabled(&c.paths).unwrap_or(false);
+        dirty |= c.openai_enabled.replace(enabled) != enabled;
         while let Ok(report) = c.reports.1.try_recv() {
             match report {
                 Report::Snapshot(snapshot) => {
@@ -542,7 +568,23 @@ impl Target {
             }
             Command::Threshold(pct) => self.set_threshold(pct),
             Command::RefreshNow => self.refresh_async(),
+            Command::ToggleOpenAi => {
+                let paths = self.ivars().paths.clone();
+                self.spawn_report(move || {
+                    let enabled = ccswap::openai_mode::is_enabled(&paths)?;
+                    if enabled {
+                        ccswap::openai_mode::disable(&paths)?;
+                    } else {
+                        ccswap::openai_mode::enable(&paths)?;
+                    }
+                    Ok(None)
+                });
+            }
             Command::Quit => {
+                if let Err(error) = ccswap::openai_mode::disable(&self.ivars().paths) {
+                    appkit::alert(mtm, "OpenAI mode", &error.to_string());
+                    return;
+                }
                 self.stop_engine();
                 // A LaunchAgent with KeepAlive.SuccessfulExit=false restarts
                 // only on a non-zero exit, so quitting must exit 0.
