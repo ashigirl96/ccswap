@@ -82,7 +82,16 @@ pub(super) fn translate(
                 translation.send(&json!({"type":"message_stop"}))?;
                 return Ok(translation.message);
             }
-            Some("response.failed" | "response.incomplete" | "error") => {
+            Some("response.failed") => {
+                return Err(Failure::from_openai(502, &value["response"]["error"]));
+            }
+            Some("error") => {
+                return Err(Failure::from_openai(
+                    502,
+                    value.get("error").unwrap_or(&value),
+                ));
+            }
+            Some("response.incomplete") => {
                 return Err(Failure::upstream("OpenAI did not complete the response"));
             }
             _ => {}

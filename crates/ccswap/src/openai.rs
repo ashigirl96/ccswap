@@ -1,5 +1,6 @@
 //! Anthropic Messages on loopback, using the live Codex account's inference login.
 
+mod credentials;
 mod stream;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -81,7 +82,7 @@ pub fn serve(
             let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
             let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
             if let Err(error) = handle(&mut stream, &token, &config.0, &config.1, &config.2) {
-                let _ = send_json(&mut stream, error.status, &error.json());
+                let _ = send_json(&mut stream, error.status, &error.json(), error.retry_after);
             }
         });
     }
@@ -93,6 +94,7 @@ struct Failure {
     status: u16,
     kind: &'static str,
     message: String,
+    retry_after: Option<u64>,
 }
 
 impl Failure {
@@ -101,6 +103,7 @@ impl Failure {
             status,
             kind,
             message: message.into(),
+            retry_after: None,
         }
     }
     fn invalid(message: impl Into<String>) -> Self {
@@ -111,6 +114,24 @@ impl Failure {
     }
     fn json(&self) -> Value {
         json!({"type":"error","error":{"type":self.kind,"message":self.message}})
+    }
+    fn from_openai(status: u16, error: &Value) -> Self {
+        let code = error["code"].as_str();
+        let (http_status, kind) = match (status, code) {
+            (429, _) | (_, Some("subscription_sharing_usage_limit_exceeded")) => {
+                (429, "rate_limit_error")
+            }
+            (503, _) | (_, Some("subscription_sharing_usage_unavailable")) => {
+                (503, "overloaded_error")
+            }
+            (401, _) => (401, "authentication_error"),
+            _ => (502, "api_error"),
+        };
+        let message = match code {
+            Some(code) => format!("OpenAI Responses failed ({code})"),
+            None => format!("OpenAI Responses returned HTTP {status}"),
+        };
+        Self::new(http_status, kind, message)
     }
 }
 
@@ -123,7 +144,7 @@ fn handle(
 ) -> std::result::Result<(), Failure> {
     let (method, target, body) = read_request(stream, token)?;
     if method == "GET" && target == "/health" {
-        return send_json(stream, 200, &json!({"status":"ok"}))
+        return send_json(stream, 200, &json!({"status":"ok"}), None)
             .map_err(|_| Failure::upstream("Client disconnected"));
     }
     if method != "POST" || target.split('?').next() != Some("/v1/messages") {
@@ -147,40 +168,47 @@ fn handle(
         .ok_or_else(|| {
             Failure::invalid("No active managed Codex account; use ccswap codex switch <number>")
         })?;
-    let login = InferenceLogins::new(paths)
-        .read(&account.account_id)
-        .map_err(|_| Failure::upstream("Could not read the inference login"))?;
-    let access = login
-        .as_ref()
-        .and_then(|v| v["access_token"].as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            Failure::new(
-                401,
-                "authentication_error",
-                format!(
-                    "Missing inference login; run ccswap claude openai login {}",
-                    account.number
-                ),
-            )
-        })?;
-    let mut response = http_client::agent(Duration::from_secs(600))
-        .post(&endpoints.openai_responses_url)
-        .header("Authorization", format!("Bearer {access}"))
-        .header("Content-Type", "application/json")
-        .send(response_body.to_string().as_bytes())
-        .map_err(|_| Failure::upstream("Could not contact OpenAI Responses"))?;
+    let logins = InferenceLogins::new(paths);
+    let access = credentials::access(&logins, &account, endpoints, None)?;
+    let upstream_request = response_body.to_string();
+    let send = |access: &str| {
+        http_client::agent(Duration::from_secs(600))
+            .post(&endpoints.openai_responses_url)
+            .header("Authorization", format!("Bearer {access}"))
+            .header("Content-Type", "application/json")
+            .send(upstream_request.as_bytes())
+            .map_err(|_| Failure::upstream("Could not contact OpenAI Responses"))
+    };
+    let mut response = send(&access)?;
+    if response.status().as_u16() == 401 {
+        drop(response);
+        let access = credentials::access(&logins, &account, endpoints, Some(&access))?;
+        response = send(&access)?;
+    }
     let status = response.status().as_u16();
     if status != 200 {
-        return Err(Failure::new(
-            if status == 401 { 401 } else { 502 },
-            if status == 401 {
-                "authentication_error"
-            } else {
-                "api_error"
-            },
-            format!("OpenAI Responses returned HTTP {status}"),
-        ));
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|h| h.to_str().ok())
+            .and_then(http_client::parse_retry_after)
+            .filter(|n| n.is_finite())
+            .map(|n| n.ceil() as u64);
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .ok()
+            .and_then(|body| serde_json::from_str::<Value>(&body).ok())
+            .unwrap_or(Value::Null);
+        let mut failure = Failure::from_openai(status, &body["error"]);
+        failure.retry_after = retry_after;
+        if status == 401 {
+            failure.message.push_str(&format!(
+                "; run ccswap claude openai login {}",
+                account.number
+            ));
+        }
+        return Err(failure);
     }
     let streaming = request["stream"] == true;
     if streaming {
@@ -200,7 +228,8 @@ fn handle(
             model,
             false,
         )?;
-        send_json(stream, 200, &message).map_err(|_| Failure::upstream("Client disconnected"))?;
+        send_json(stream, 200, &message, None)
+            .map_err(|_| Failure::upstream("Client disconnected"))?;
     }
     Ok(())
 }
@@ -341,11 +370,20 @@ fn text(content: &Value) -> std::result::Result<String, Failure> {
     Ok(text.join("\n"))
 }
 
-fn send_json(stream: &mut TcpStream, status: u16, body: &Value) -> std::io::Result<()> {
+fn send_json(
+    stream: &mut TcpStream,
+    status: u16,
+    body: &Value,
+    retry_after: Option<u64>,
+) -> std::io::Result<()> {
     let body = body.to_string();
     write!(
         stream,
-        "HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()
-    )
+    )?;
+    if let Some(seconds) = retry_after {
+        write!(stream, "Retry-After: {seconds}\r\n")?;
+    }
+    write!(stream, "\r\n{body}")
 }
